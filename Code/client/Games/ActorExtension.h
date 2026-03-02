@@ -17,9 +17,11 @@ struct ActorExtension
     bool IsLocalPlayer() const noexcept;
     void SetRemote(bool aSet) noexcept;
     void SetPlayer(bool aSet) noexcept;
+    void SetNakedDeadline() noexcept { nakedDeadline = std::chrono::steady_clock::now();  }
 
     ActionEvent LatestAnimation{};
     size_t GraphDescriptorHash = 0;
+    std::chrono::steady_clock::time_point nakedDeadline{};
 
   private:
     uint32_t onlineFlags{0};

@@ -22,6 +22,7 @@ struct ActorExtension;
 struct AIProcess;
 struct CombatController;
 struct TESIdleForm;
+struct BGSOutfit;
 
 struct Actor : TESObjectREFR
 {
@@ -257,6 +258,8 @@ struct Actor : TESObjectREFR
     bool PlayIdle(TESIdleForm* apIdle) noexcept;
     void FixVampireLordModel() noexcept;
     bool RemoveSpell(MagicItem* apSpell) noexcept;
+    void SetOutfit(BGSOutfit* apOutfit, bool aIsSleepOutfit = false);
+    void EquipOutfit(bool aIsSleepOutfit = false) noexcept;
 
     enum ActorBoolBits
     {

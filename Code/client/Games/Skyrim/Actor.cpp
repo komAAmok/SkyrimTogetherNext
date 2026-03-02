@@ -523,6 +523,50 @@ bool Actor::ShouldWearBodyPiece() const noexcept
     return false;
 }
 
+void Actor::SetOutfit(BGSOutfit* apOutfit, bool aIsSleepOutfit) 
+{
+    PAPYRUS_FUNCTION(void, Actor, SetOutfit, const BGSOutfit*, bool);
+    s_pSetOutfit(this, apOutfit, aIsSleepOutfit);
+}
+
+void Actor::EquipOutfit(bool aIsSleepOutfit) noexcept
+{
+    auto* pBase = Cast<TESNPC>(baseForm);
+    if (!pBase)
+        return;
+
+    BGSOutfit* pDefaultOutfit = pBase->outfits[aIsSleepOutfit ? 1:0];
+    if (!pDefaultOutfit)
+        return;
+
+    auto* pEquipManager = EquipManager::Get();
+    for (auto* pItem : pDefaultOutfit->outfitItems)
+    {
+        TESObjectARMO* pArmor = nullptr;
+
+        if (pItem->formType == FormType::Armor)
+            pArmor = Cast<TESObjectARMO>(pItem);
+        else if (pItem->formType == FormType::LeveledItem)
+        {
+            TESLevItem* pLevItem = Cast<TESLevItem>(pItem);
+            if (!pLevItem || !pLevItem->pLeveledListA || !pLevItem->pLeveledListA->pForm)
+                continue;
+
+            pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
+        }
+        else
+            continue;
+
+        if (!pArmor)
+            continue;
+
+        spdlog::debug(__FUNCTION__ ": equipping {:X} on actor {:X} {}", pArmor->formID, formID, baseForm->GetName());
+        pEquipManager->Equip(this, pArmor, nullptr, 1, nullptr, false, true, false, false);  
+    }
+
+    return;
+}
+
 // Get owner of a summon or raised corpse
 Actor* Actor::GetCommandingActor() const noexcept
 {

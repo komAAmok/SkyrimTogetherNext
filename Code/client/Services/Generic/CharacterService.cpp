@@ -142,6 +142,7 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     }
 
     pExtension->SetRemote(false);
+    pExtension->SetNakedDeadline();
 
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
@@ -287,7 +288,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
 
 void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept
 {
-    spdlog::info("Received for cookie {:X}, server id {:X}", acMessage.Cookie, acMessage.ServerId);
+    spdlog::info(__FUNCTION__ ": Received for cookie {:X}, server id {:X}", acMessage.Cookie, acMessage.ServerId);
 
     auto view = m_world.view<WaitingForAssignmentComponent>();
     const auto itor = std::find_if(std::begin(view), std::end(view), [view, cookie = acMessage.Cookie](auto entity) { return view.get<WaitingForAssignmentComponent>(entity).Cookie == cookie; });
@@ -327,7 +328,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
     if (acMessage.Owner)
     {
-        spdlog::info("Received local actor, form id: {:X}", pActor->formID);
+        spdlog::info(__FUNCTION__ ": received local actor, form id: {:X}, {}", pActor->formID, pActor->baseForm->GetName());
 
         m_world.emplace_or_replace<LocalComponent>(cEntity, acMessage.ServerId);
         auto& localAnimationComponent = m_world.emplace_or_replace<LocalAnimationComponent>(cEntity);
@@ -345,7 +346,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
     }
     else
     {
-        spdlog::info("Received remote actor, form id: {:X}, isweapondrawn: {}", pActor->formID, acMessage.IsWeaponDrawn);
+        spdlog::info(__FUNCTION__ ": received remote actor, form id: {:X}, isweapondrawn: {}, {}", pActor->formID, acMessage.IsWeaponDrawn, pActor->baseForm->GetName());
 
         m_world.emplace_or_replace<RemoteComponent>(cEntity, acMessage.ServerId, formIdComponent->Id);
 
@@ -370,6 +371,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
     }
+    pActor->GetExtension()->SetNakedDeadline();
 }
 
 void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) const noexcept
@@ -1359,7 +1361,8 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     message.LatestAction = pExtension->LatestAnimation;
     pActor->SaveAnimationVariables(message.LatestAction.Variables);
 
-    spdlog::info("Request id: {:X}, cookie: {:X}, entity: {:X}", formIdComponent.Id, sCookieSeed, to_integral(aEntity));
+    const bool isLeader = m_world.Get().GetPartyService().IsLeader(); // Distinguish logs in 2-party      
+    spdlog::info(__FUNCTION__ ": request id: {:X}, cookie: {:X}, entity: {:X}, isLeader: {}", formIdComponent.Id, sCookieSeed, to_integral(aEntity), isLeader);
 
     if (m_transport.Send(message))
     {
@@ -1371,10 +1374,11 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
 void CharacterService::CancelServerAssignment(const entt::entity aEntity, const uint32_t aFormId) const noexcept
 {
+    Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
+    const char* pName = !pActor ? "" : pActor->baseForm->GetName();
+
     if (m_world.all_of<RemoteComponent>(aEntity))
     {
-        Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
-
         if (pActor)
         {
             if (pActor->IsTemporary())
@@ -1389,8 +1393,6 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
         }
 
         DeleteRemoteEntityComponents(aEntity);
-
-        return;
     }
 
     // In the event we were waiting for assignment, drop it
@@ -1413,7 +1415,7 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
         RequestOwnershipTransfer request{};
         request.ServerId = localComponent.Id;
 
-        if (Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId)))
+        if (pActor)
         {
             if (!pActor->IsTemporary())
             {
@@ -1435,15 +1437,19 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             }
         }
 
+
         spdlog::info(
-            "Transferring ownership of local actor, server id: {:X}, worldspace: {:X}, cell: {:X}, position: "
-            "({}, {}, {})",
-            request.ServerId, request.WorldSpaceId.BaseId, request.CellId.BaseId, request.Position.x, request.Position.y, request.Position.z);
+            __FUNCTION__ ": transferring ownership of local actor, formId: {:X}, server id: {:X}, worldspace: {:X}, cell: {:X}, position: "
+                         "({}, {}, {}), name: {}",
+            aFormId, request.ServerId, request.WorldSpaceId.BaseId, request.CellId.BaseId, request.Position.x, request.Position.y, request.Position.z, pName);
 
         m_transport.Send(request);
 
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }
+
+    if (pActor)
+        pActor->GetExtension()->SetNakedDeadline();
 }
 
 Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const noexcept
@@ -1639,9 +1645,12 @@ void CharacterService::RunRemoteUpdates() noexcept
         if (pActor->IsVampireLord())
             pActor->FixVampireLordModel();
 
+        // (Re)start naked NPC deadline. Actor MUST be fully constructed before check clock starts.
+        pActor->GetExtension()->SetNakedDeadline();
+
         toRemove.push_back(entity);
 
-        spdlog::info("Applied 3D for actor, form id: {:X}", pActor->formID);
+        spdlog::info(__FUNCTION__ ": applied 3D for actor, form id: {:X}, name {}", pActor->formID, pActor->baseForm->GetName());
     }
 
     for (auto entity : toRemove)

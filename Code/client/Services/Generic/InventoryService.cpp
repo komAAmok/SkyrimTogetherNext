@@ -25,6 +25,7 @@
 #include <EquipManager.h>
 #include <Games/ActorExtension.h>
 #include <Forms/TESNPC.h>
+#include <Forms/BGSOutfit.h>
 #include <DefaultObjectManager.h>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -57,10 +58,21 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     if (iter == std::end(view))
         return;
 
+    const bool isLeader = m_world.GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
     std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
     if (!serverIdRes.has_value())
     {
-        spdlog::error(__FUNCTION__ ": failed to find server id, target form id: {:X}, item id: {:X}, count: {}", acEvent.FormId, acEvent.Item.BaseId.BaseId, acEvent.Item.Count);
+        spdlog::error(
+            __FUNCTION__ ": failed to find server id, target form id: {:X}, isLeader: {}, item id: {:X}, count: {}", acEvent.FormId,
+            isLeader, acEvent.Item.BaseId.LogFormat(), acEvent.Item.Count);
+        return;
+    }
+
+    if (m_world.try_get<WaitingForAssignmentComponent>(*iter))
+    {
+        spdlog::debug(
+            __FUNCTION__ ": WaitingForAssignment, don't send inventory changes actorId: {:X}, serverId {:X}, isLeader: {}, item id: {:X}",
+            acEvent.FormId, serverIdRes.value(), isLeader, acEvent.Item.BaseId.LogFormat());
         return;
     }
 
@@ -72,7 +84,7 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
 
     m_transport.Send(request);
 
-    spdlog::info("Sending item request, item: {:X}, count: {}, target object: {:X}", acEvent.Item.BaseId.BaseId, acEvent.Item.Count, acEvent.FormId);
+    spdlog::info(__FUNCTION__ ": sending item request, item: {:X}, count: {}, target object: {:X}", acEvent.Item.BaseId.LogFormat(), acEvent.Item.Count, acEvent.FormId);
 }
 
 void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEvent) noexcept
@@ -87,16 +99,29 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
     if (iter == std::end(view))
         return;
 
-    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
-    if (!serverIdRes.has_value())
-    {
-        spdlog::error(__FUNCTION__ ": failed to find server id, actor id: {:X}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}", acEvent.ActorId, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId);
-        return;
-    }
-
+    const bool isLeader = m_world.GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
     if (!pActor)
         return;
+
+    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
+    if (!serverIdRes.has_value())
+    {
+        spdlog::error(
+            __FUNCTION__ ": failed to find server id, actorId: {:X}, isLeader: {}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}, name: {}",
+            acEvent.ActorId, isLeader, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId, pActor->baseForm->GetName());
+        return;
+    }
+
+    if (m_world.try_get<WaitingForAssignmentComponent>(*iter))
+    {
+        spdlog::debug(
+            __FUNCTION__ ": WaitingForAssignment, don't send equipment changes actorId: {:X}, serverId {:X}, isLeader: {}, "
+                         "item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}, name: {}",
+            acEvent.ActorId, serverIdRes.value(), isLeader, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId,
+            pActor->baseForm->GetName());
+        return;
+    }
 
     auto& modSystem = World::Get().GetModSystem();
 
@@ -117,7 +142,9 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
     m_transport.Send(request);
 
-    spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, acEvent.Count, acEvent.ActorId);
+    spdlog::info(
+        __FUNCTION__ ": sending equipment change, actorId: {:X}, serverId {:X}, isLeader: {}, item: {:X}, count: {}, name: {}",
+        acEvent.ActorId, request.ServerId, isLeader, acEvent.ItemId, acEvent.Count, pActor->baseForm->GetName());
 }
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
@@ -273,6 +300,8 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
 
     static std::chrono::steady_clock::time_point lastSendTimePoint;
     constexpr auto cDelayBetweenUpdates = 1000ms;
+    constexpr auto cDelayAfterAssignment = 3s;
+    constexpr auto cNoDeadline = std::chrono::steady_clock::time_point{};
 
     const auto now = std::chrono::steady_clock::now();
     if (now - lastSendTimePoint < cDelayBetweenUpdates)
@@ -292,20 +321,48 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
         if (pActor->GetExtension()->IsPlayer())
             continue;
 
-        if (pActor->IsDead())
+        if (pActor->GetExtension()->nakedDeadline == cNoDeadline)
             continue;
 
-        if (pActor->IsWearingBodyPiece())
+        if (pActor->IsDead() || !pActor->ShouldWearBodyPiece())
+        {
+            pActor->GetExtension()->nakedDeadline = cNoDeadline;
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check is irrelevant {}", pActor->formID, pActor->baseForm->GetName());
+            continue; 
+        }
+
+        if (now < pActor->GetExtension()->nakedDeadline + cDelayAfterAssignment)
+        {
+            spdlog::debug(__FUNCTION__ ": actorId {:X} with naked check deadline {}", pActor->formID, pActor->baseForm->GetName());
+            continue; 
+        }
+
+        else
+        {
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActor->baseForm->GetName());
+            if (m_world.try_get<WaitingForAssignmentComponent>(entity))
+            {
+                spdlog::debug(__FUNCTION__ ": but still WaitingForAssignment", pActor->formID, pActor->baseForm->GetName());
+                pActor->GetExtension()->SetNakedDeadline();
+                continue;
+            }
+
+            pActor->GetExtension()->nakedDeadline = cNoDeadline;   
+        }
+
+        if (pActor->GetExtension()->IsRemote())
+        {
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
             continue;
+        }
 
-        if (!pActor->ShouldWearBodyPiece())
-            continue;
-
-        // Don't broadcast changes, it'll just make things messier.
-        // If all clients have this problem, they'll all fix it individually.
-        ScopedEquipOverride seo;
-        ScopedInventoryOverride sio;
-
-        pActor->ResetInventory(false);
+        // If somehow inventory was damaged despite fixes, dress actor. Belt and suspenders.
+        // Note if the outfit items have been removed from inventory, they aren't regenerated.
+        TESNPC* pBase = Cast<TESNPC>(pActor->baseForm);
+        if (!pActor->IsWearingBodyPiece() && pBase)
+        {
+            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {}", pActor->formID, pActor->baseForm->GetName());
+            pActor->EquipOutfit();
+        }
     }
 }

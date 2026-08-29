@@ -38,9 +38,9 @@ jobs:
       - name: Strip build byproducts, keep symbols separately
         run: |
           mkdir str-pdb
-          mv str-build/SkyrimTogetherReborn/*.pdb str-pdb
-          rm str-build/SkyrimTogetherReborn/*.lib, str-build/SkyrimTogetherReborn/*.exp
-          rm str-build/SkyrimTogetherReborn/*Tests.exe
+          mv -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*.pdb str-pdb
+          rm -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*.lib, str-build/SkyrimTogetherReborn/*.exp
+          rm -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*Tests.exe
 
       - name: Assemble MO2 mod layout (Data content only)
         run: |

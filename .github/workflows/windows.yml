@@ -47,8 +47,17 @@ jobs:
 
       - name: Checkout master on tag push
         if: github.ref_type == 'tag'
-        # Checkout only if the tag was pushed to master
-        run: (git rev-parse HEAD) -eq (git rev-parse origin/master) -and (git checkout master)
+        # Checkout only if the tag was pushed to master; repos without a
+        # master branch (e.g. forks) build the tagged commit directly
+        run: |
+          git rev-parse --verify --quiet origin/master
+          if ($LASTEXITCODE -eq 0) {
+            (git rev-parse HEAD) -eq (git rev-parse origin/master) -and (git checkout master)
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          } else {
+            Write-Output "origin/master not found; building the tagged commit as-is"
+            exit 0
+          }
 
       - name: Cache xmake dependencies
         uses: actions/cache@v4

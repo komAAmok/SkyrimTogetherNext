@@ -73,6 +73,9 @@ jobs:
           actions-cache-folder: '.xmake-cache' # This doesn't cache dependencies, only xmake itself
           actions-cache-key: ${{ matrix.os }}
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Configure xmake and install dependencies
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 

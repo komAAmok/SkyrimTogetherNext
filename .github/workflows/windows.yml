@@ -92,7 +92,7 @@ jobs:
           if (Test-Path $vswhere) {
             $vsPath = & $vswhere -latest -property installationPath
             Write-Host "Visual Studio found: $vsPath"
-            xmake g --vs_path="$vsPath"
+            xmake g --vs="$vsPath"
           } else {
             Write-Error "vswhere.exe not found - Visual Studio is not installed on this runner"
           }

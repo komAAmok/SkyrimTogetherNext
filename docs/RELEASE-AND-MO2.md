@@ -4,7 +4,7 @@
 
 本仓库自带 CI 构建,**不需要本地 Windows 编译环境**:
 
-- 推送到 `master` / `features-integration` / `dev` 分支会自动触发
+- 推送到 `main` / `dev` 分支会自动触发
   `Playable Skyrim Together Build` 工作流,产物在 Actions 页面的
   Artifacts 里下载(名为 "Skyrim Together Build (版本号)")。
 - **打 tag 自动发布 Release**(由 `release.yml` 完成):

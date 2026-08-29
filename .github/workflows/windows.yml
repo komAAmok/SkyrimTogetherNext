@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - main
       - prerel
   workflow_call:
     inputs:
@@ -45,17 +45,17 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --force --recursive --depth=1
 
-      - name: Checkout master on tag push
+      - name: Checkout main on tag push
         if: github.ref_type == 'tag'
-        # Checkout only if the tag was pushed to master; repos without a
-        # master branch (e.g. forks) build the tagged commit directly
+        # Checkout only if the tag was pushed to main; repos without a main
+        # branch build the tagged commit directly
         run: |
-          git rev-parse --verify --quiet origin/master
+          git rev-parse --verify --quiet origin/main
           if ($LASTEXITCODE -eq 0) {
-            (git rev-parse HEAD) -eq (git rev-parse origin/master) -and (git checkout master)
+            (git rev-parse HEAD) -eq (git rev-parse origin/main) -and (git checkout main)
             if ($LASTEXITCODE -ne 0) { exit 1 }
           } else {
-            Write-Output "origin/master not found; building the tagged commit as-is"
+            Write-Output "origin/main not found; building the tagged commit as-is"
             exit 0
           }
 

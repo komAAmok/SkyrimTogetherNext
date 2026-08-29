@@ -1,8 +1,10 @@
 #pragma once
 
 #include <Windows.h>
+#include <cstdlib>
 #include <fstream>
 #include <map>
+#include <sstream>
 #include <stdio.h>
 
 #pragma comment(lib, "version.lib")
@@ -172,13 +174,31 @@ public:
         char fileName[256];
         _snprintf_s(fileName, 256, "versionlib-%d-%d-%d-%d.bin", major, minor, revision, build);
 
-        std::ifstream file(acGamePath / "Data" / "SKSE" / "Plugins" / fileName, std::ios::binary);
+        auto pluginsPath = acGamePath / "Data" / "SKSE" / "Plugins";
+
+        std::ifstream file(pluginsPath / fileName, std::ios::binary);
+
+        // pre-AE libraries ship as version-*.bin, AE ones as versionlib-*.bin
+        if (!file.good())
+        {
+            char altName[256];
+            _snprintf_s(altName, 256, "version-%d-%d-%d-%d.bin", major, minor, revision, build);
+            file.open(pluginsPath / altName, std::ios::binary);
+        }
+
         if (!file.good())
             return false;
 
         int format = read<int>(file);
 
-        if (format != 2)
+        // format 5 (1.7.99+): 96-byte header + dense uint32 offset array
+        // indexed directly by the AE id
+        if (format == 5)
+            return LoadFormat5(file);
+
+        // format 1 (pre-AE, e.g. 1.5.97) and format 2 (AE) share the same
+        // header and entry layout, but their id namespaces differ
+        if (format != 1 && format != 2)
             return false;
 
         for (int i = 0; i < 4; i++)
@@ -303,6 +323,116 @@ public:
 
             poffset = q2;
             pvid = q1;
+        }
+
+        // The pre-AE id namespace differs from the AE ids used by
+        // POINTER_SKYRIMSE; translate them through the mapping file.
+        // Without it every lookup would resolve to a wrong address.
+        if (format == 1)
+        {
+            size_t mappedCount = 0;
+            char mapName[256];
+            _snprintf_s(mapName, 256, "versionlib-ae-to-se-%d-%d-%d-%d.map", major, minor, revision, build);
+
+            if (!LoadAeToSeMap(pluginsPath / mapName, mappedCount) || mappedCount == 0)
+            {
+                mappedCount = 0;
+                if (!LoadAeToSeMap(pluginsPath / "versionlib-ae-to-se.map", mappedCount) || mappedCount == 0)
+                {
+                    Clear();
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // format 5 (used by 1.7.99+): 96-byte header followed by a dense array
+    // of uint32 offsets indexed directly by the AE id (0 = unassigned id).
+    // The ids are the same AE ids used by the format 2 libraries.
+    bool LoadFormat5(std::ifstream& aFile)
+    {
+        for (int i = 0; i < 4; i++)
+            _ver[i] = read<int>(aFile);
+
+        {
+            char verName[64];
+            _snprintf_s(verName, 64, "%d.%d.%d.%d", _ver[0], _ver[1], _ver[2], _ver[3]);
+            _verStr = verName;
+        }
+
+        {
+            char nameBuf[65];
+            aFile.read(nameBuf, 64);
+            nameBuf[64] = '\0';
+            _moduleName = nameBuf;
+        }
+
+        {
+            HMODULE handle = GetModuleHandleA(NULL);
+            _base = (unsigned long long)handle;
+        }
+
+        int ptrSize = read<int>(aFile);
+        (void)ptrSize;
+
+        int reserved = read<int>(aFile);
+        (void)reserved;
+
+        unsigned int count = read<unsigned int>(aFile);
+
+        // sanity: every entry is a uint32 offset inside the exe image
+        if (count == 0 || count > 0x10000000)
+            return false;
+
+        for (unsigned int id = 0; id < count; id++)
+        {
+            unsigned int offset = read<unsigned int>(aFile);
+            if (offset == 0)
+                continue;
+
+            _data[id] = offset;
+            _rdata[offset] = id;
+        }
+
+        return true;
+    }
+
+    // Text format, one mapping per line: "<AE id> <SE RVA offset>".
+    // Offsets may be decimal or 0x-prefixed hex; '#' starts a comment.
+    bool LoadAeToSeMap(const std::filesystem::path& acPath, size_t& aMappedCount)
+    {
+        aMappedCount = 0;
+
+        std::ifstream f(acPath);
+        if (!f.good())
+            return false;
+
+        std::string line;
+        while (std::getline(f, line))
+        {
+            auto hash = line.find('#');
+            if (hash != std::string::npos)
+                line.erase(hash);
+
+            std::istringstream ss(line);
+            unsigned long long aeId = 0;
+            if (!(ss >> aeId))
+                continue;
+
+            std::string offTok;
+            if (!(ss >> offTok))
+                continue;
+
+            char* endPtr = nullptr;
+            unsigned long long seOffset = std::strtoull(offTok.c_str(), &endPtr, 0);
+            if (endPtr == offTok.c_str())
+                continue;
+
+            _data[aeId] = seOffset;
+            _rdata[seOffset] = aeId;
+            aMappedCount++;
         }
 
         return true;

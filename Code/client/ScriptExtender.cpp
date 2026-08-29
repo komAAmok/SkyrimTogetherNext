@@ -15,6 +15,17 @@ constexpr size_t kScriptExtenderNameLength = sizeof(kScriptExtenderName) / sizeo
 // Use this to raise the SKSE baseline
 constexpr int kSKSEMinBuild = 20100;
 
+// Pre-AE game versions (1.5.x) run SKSE 2.0.x (file version 0.2.0.x)
+constexpr int kSKSEMinBuildPreAE = 20000;
+
+static int GetRequiredSKSEBuild()
+{
+    int major = 0, minor = 0, revision = 0, build = 0;
+    VersionDb::Get().GetLoadedVersion(major, minor, revision, build);
+
+    return (major == 1 && minor < 6) ? kSKSEMinBuildPreAE : kSKSEMinBuild;
+}
+
 HMODULE g_SKSEModuleHandle{nullptr};
 
 struct FileVersion
@@ -126,9 +137,9 @@ void LoadScriptExender()
 
     // nice try.
     int SkseVCum = fileVersion.versions[0] * 1000000 + fileVersion.versions[1] * 10000 + fileVersion.versions[2] * 100 + fileVersion.versions[3];
-    if (SkseVCum < kSKSEMinBuild)
+    if (SkseVCum < GetRequiredSKSEBuild())
     {
-        spdlog::error("Pre anniversary Script Extender is unsupported");
+        spdlog::error("Script Extender version is too old for this game version");
         return;
     }
 

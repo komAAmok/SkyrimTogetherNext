@@ -1,0 +1,78 @@
+name: Release build
+
+# Builds the client/server on a Windows runner, packages the full install zip
+# plus an MO2-friendly "Data only" zip, and publishes both as a GitHub Release
+# when a tag is pushed. Can also be triggered manually (workflow_dispatch),
+# in which case the zips are uploaded as workflow artifacts instead.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    uses: ./.github/workflows/windows.yml
+    with:
+      build-mode: 'release'
+      upload-build-for-next-job: true
+
+  package:
+    runs-on: windows-latest
+    needs: build-windows
+    permissions:
+      contents: write
+    steps:
+      - name: Download build and game files
+        uses: actions/download-artifact@v5
+        with:
+          name: internal-job-files
+
+      - name: Assemble full install layout
+        run: |
+          mkdir -p str-build/SkyrimTogetherReborn
+          mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
+          cp -r GameFiles/Skyrim/* str-build/
+
+      - name: Strip build byproducts, keep symbols separately
+        run: |
+          mkdir str-pdb
+          mv str-build/SkyrimTogetherReborn/*.pdb str-pdb
+          rm str-build/SkyrimTogetherReborn/*.lib, str-build/SkyrimTogetherReborn/*.exp
+          rm str-build/SkyrimTogetherReborn/*Tests.exe
+
+      - name: Assemble MO2 mod layout (Data content only)
+        run: |
+          mkdir mo2-pack
+          # everything under GameFiles/Skyrim maps 1:1 onto the game Data
+          # folder, so MO2 can install this zip directly as a mod
+          cp -r GameFiles/Skyrim/* mo2-pack/
+          New-Item -ItemType File -Path mo2-pack/metadata.ini | Out-Null
+          Set-Content mo2-pack/metadata.ini "[General]`ngameName=Skyrim Special Edition`nversion=`nnotes=Skyrim Together data files (esp, scripts, address libraries, AE-to-SE maps)"
+
+      - name: Create zips
+        run: |
+          $ver = "${{ needs.build-windows.outputs.str-version }}"
+          Compress-Archive -Path str-build/* -DestinationPath "SkyrimTogether-$ver-full.zip"
+          Compress-Archive -Path mo2-pack/* -DestinationPath "SkyrimTogether-$ver-mo2-data.zip"
+          Compress-Archive -Path str-pdb/* -DestinationPath "SkyrimTogether-$ver-symbols.zip"
+
+      - name: Upload as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Skyrim Together Release ${{ needs.build-windows.outputs.str-version }}
+          path: |
+            SkyrimTogether-*-full.zip
+            SkyrimTogether-*-mo2-data.zip
+            SkyrimTogether-*-symbols.zip
+
+      - name: Publish GitHub Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SkyrimTogether-*-full.zip
+            SkyrimTogether-*-mo2-data.zip
+            SkyrimTogether-*-symbols.zip
+          generate_release_notes: true

@@ -76,6 +76,18 @@ jobs:
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Point xmake to Visual Studio
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            $vsPath = & $vswhere -latest -property installationPath
+            Write-Host "Visual Studio found: $vsPath"
+            xmake g --vs_path="$vsPath"
+          } else {
+            Write-Error "vswhere.exe not found - Visual Studio is not installed on this runner"
+          }
+
       - name: Configure xmake and install dependencies
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 

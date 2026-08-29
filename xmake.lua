@@ -52,6 +52,7 @@ end
 
 -- dependencies' dependencies version pinning
 add_requireconfs("*.mimalloc", { version = "2.2.4", override = true })
+add_requireconfs("tiltedcore", {configs = {tests = false}})
 add_requireconfs("*.cmake", { version = "3.30.2", override = true })
 add_requireconfs("*.openssl", { version = "1.1.1-w", override = true })
 add_requireconfs("*.zlib", { version = "v1.3.1", override = true })

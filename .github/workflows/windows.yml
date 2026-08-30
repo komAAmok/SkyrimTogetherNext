@@ -98,9 +98,14 @@ jobs:
         run: |
           $pkg = "$env:LOCALAPPDATA\.xmake\repositories\xmake-repo\packages\t\tiltedcore\xmake.lua"
           if (-not (Test-Path $pkg)) { Write-Error "tiltedcore package file not found: $pkg" }
-          $c = Get-Content $pkg -Raw
-          $c = [regex]::Replace($c, 'add_deps\s*\(\s*["'']mimalloc[^)]*\)', 'add_deps("mimalloc 2.2.4")')
+          $before = Get-Content $pkg -Raw
+          $c = [regex]::Replace($before, 'add_deps\s*\(\s*["'']mimalloc[^)]*\)', 'add_deps("mimalloc 2.2.4")')
           $c = [regex]::Replace($c, 'add_requires\s*\(\s*["'']mimalloc[^)]*\)', 'add_requires("mimalloc 2.2.4")')
+          if ($c -eq $before) {
+            Write-Host "WARNING: no add_deps/add_requires mimalloc found in tiltedcore package. Full content:"
+            Get-Content $pkg
+            Write-Error "tiltedcore package does not declare mimalloc via add_deps/add_requires - need manual inspection"
+          }
           [System.IO.File]::WriteAllText($pkg, $c, (New-Object System.Text.UTF8Encoding($false)))
           Write-Host "=== patched tiltedcore package ==="
           Get-Content $pkg

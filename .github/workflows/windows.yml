@@ -108,7 +108,8 @@ jobs:
             Write-Error "vswhere.exe not found - Visual Studio is not installed on this runner"
           }
 
-      - name: Configure xmake and install dependencies
+      - name: Configure xmake and install dependencies (first pass)
+        continue-on-error: true
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 
       - name: Dump tiltedcore source after install attempt
@@ -126,6 +127,33 @@ jobs:
           } else {
             Write-Host "(tiltedcore source not found in cache)"
           }
+
+      - name: Patch tiltedcore to use mimalloc 2.2.4
+        shell: pwsh
+        run: |
+          $src = Get-ChildItem "$env:LOCALAPPDATA\.xmake\cache\packages" -Recurse -Directory -ErrorAction SilentlyContinue |
+                 Where-Object { $_.FullName -match 'tiltedcore' } |
+                 Select-Object -First 1
+          if (-not $src) {
+            Write-Error "tiltedcore source not found in cache"
+          }
+          Write-Host "Patching tiltedcore source: $($src.FullName)"
+          Get-ChildItem $src.FullName -Recurse -Filter "xmake.lua" | ForEach-Object {
+            $f = $_.FullName
+            $lines = Get-Content $f
+            $out = New-Object System.Collections.Generic.List[string]
+            foreach ($line in $lines) {
+              $out.Add($line)
+              if ($line -match 'add_requires\s*\(\s*"mimalloc') {
+                $out.Add('add_requireconfs("mimalloc", {version = "2.2.4", override = true})')
+              }
+            }
+            Set-Content -Path $f -Value $out -Encoding UTF8
+            Write-Host "Patched: $f"
+          }
+
+      - name: Configure xmake and install dependencies (second pass)
+        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 
 
       # Build the client

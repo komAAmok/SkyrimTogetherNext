@@ -93,6 +93,18 @@ jobs:
           Write-Host "=== tiltedcore package: $pkg ==="
           Get-Content $pkg
 
+      - name: Patch tiltedcore package to pin mimalloc 2.2.4
+        shell: pwsh
+        run: |
+          $pkg = "$env:LOCALAPPDATA\.xmake\repositories\xmake-repo\packages\t\tiltedcore\xmake.lua"
+          if (-not (Test-Path $pkg)) { Write-Error "tiltedcore package file not found: $pkg" }
+          $c = Get-Content $pkg -Raw
+          $c = [regex]::Replace($c, 'add_deps\s*\(\s*["'']mimalloc[^)]*\)', 'add_deps("mimalloc 2.2.4")')
+          $c = [regex]::Replace($c, 'add_requires\s*\(\s*["'']mimalloc[^)]*\)', 'add_requires("mimalloc 2.2.4")')
+          [System.IO.File]::WriteAllText($pkg, $c, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "=== patched tiltedcore package ==="
+          Get-Content $pkg
+
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -128,7 +140,7 @@ jobs:
             Write-Host "(tiltedcore source not found in cache)"
           }
 
-      - name: Patch tiltedcore to use mimalloc 2.2.4
+      - name: Patch tiltedcore source mi_malloc_size -> mi_usable_size
         shell: pwsh
         run: |
           $src = Get-ChildItem "$env:LOCALAPPDATA\.xmake\cache\packages" -Recurse -Directory -ErrorAction SilentlyContinue |
@@ -138,18 +150,14 @@ jobs:
             Write-Error "tiltedcore source not found in cache"
           }
           Write-Host "Patching tiltedcore source: $($src.FullName)"
-          Get-ChildItem $src.FullName -Recurse -Filter "xmake.lua" | ForEach-Object {
+          Get-ChildItem $src.FullName -Recurse -Include "*.cpp","*.h","*.hpp" | ForEach-Object {
             $f = $_.FullName
-            $lines = Get-Content $f
-            $out = New-Object System.Collections.Generic.List[string]
-            foreach ($line in $lines) {
-              $out.Add($line)
-              if ($line -match 'add_requires\s*\(\s*"mimalloc') {
-                $out.Add('add_requireconfs("mimalloc", {version = "2.2.4", override = true})')
-              }
+            $c = Get-Content $f -Raw
+            if ($c -match 'mi_malloc_size') {
+              $c = $c -replace 'mi_malloc_size', 'mi_usable_size'
+              [System.IO.File]::WriteAllText($f, $c, (New-Object System.Text.UTF8Encoding($false)))
+              Write-Host "Patched $f : mi_malloc_size -> mi_usable_size"
             }
-            Set-Content -Path $f -Value $out -Encoding UTF8
-            Write-Host "Patched: $f"
           }
 
       - name: Configure xmake and install dependencies (second pass)

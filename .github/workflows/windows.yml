@@ -82,34 +82,6 @@ jobs:
           actions-cache-folder: '.xmake-cache' # This doesn't cache dependencies, only xmake itself
           actions-cache-key: ${{ matrix.os }}
 
-      - name: Update xmake repository
-        run: xmake repo --update
-
-      - name: Dump tiltedcore package definition
-        shell: pwsh
-        run: |
-          $repo = "$env:LOCALAPPDATA\.xmake\repositories\xmake-repo"
-          $pkg = Join-Path $repo "packages\t\tiltedcore\xmake.lua"
-          Write-Host "=== tiltedcore package: $pkg ==="
-          Get-Content $pkg
-
-      - name: Patch tiltedcore package to pin mimalloc 2.2.4
-        shell: pwsh
-        run: |
-          $pkg = "$env:LOCALAPPDATA\.xmake\repositories\xmake-repo\packages\t\tiltedcore\xmake.lua"
-          if (-not (Test-Path $pkg)) { Write-Error "tiltedcore package file not found: $pkg" }
-          $before = Get-Content $pkg -Raw
-          $c = [regex]::Replace($before, 'add_deps\s*\(\s*["'']mimalloc[^)]*\)', 'add_deps("mimalloc 2.2.4")')
-          $c = [regex]::Replace($c, 'add_requires\s*\(\s*["'']mimalloc[^)]*\)', 'add_requires("mimalloc 2.2.4")')
-          if ($c -eq $before) {
-            Write-Host "WARNING: no add_deps/add_requires mimalloc found in tiltedcore package. Full content:"
-            Get-Content $pkg
-            Write-Error "tiltedcore package does not declare mimalloc via add_deps/add_requires - need manual inspection"
-          }
-          [System.IO.File]::WriteAllText($pkg, $c, (New-Object System.Text.UTF8Encoding($false)))
-          Write-Host "=== patched tiltedcore package ==="
-          Get-Content $pkg
-
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -125,47 +97,7 @@ jobs:
             Write-Error "vswhere.exe not found - Visual Studio is not installed on this runner"
           }
 
-      - name: Configure xmake and install dependencies (first pass)
-        continue-on-error: true
-        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
-
-      - name: Dump tiltedcore source after install attempt
-        if: always()
-        shell: pwsh
-        run: |
-          $src = Get-ChildItem "$env:LOCALAPPDATA\.xmake\cache\packages" -Recurse -Directory -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -match 'tiltedcore' } |
-                 Select-Object -First 1
-          if ($src) {
-            Get-ChildItem $src.FullName -Recurse -Filter "xmake.lua" | ForEach-Object {
-              Write-Host "=== $($_.FullName) ==="
-              Get-Content $_.FullName
-            }
-          } else {
-            Write-Host "(tiltedcore source not found in cache)"
-          }
-
-      - name: Patch tiltedcore source mi_malloc_size -> mi_usable_size
-        shell: pwsh
-        run: |
-          $src = Get-ChildItem "$env:LOCALAPPDATA\.xmake\cache\packages" -Recurse -Directory -ErrorAction SilentlyContinue |
-                 Where-Object { $_.FullName -match 'tiltedcore' } |
-                 Select-Object -First 1
-          if (-not $src) {
-            Write-Error "tiltedcore source not found in cache"
-          }
-          Write-Host "Patching tiltedcore source: $($src.FullName)"
-          Get-ChildItem $src.FullName -Recurse -Include "*.cpp","*.h","*.hpp" | ForEach-Object {
-            $f = $_.FullName
-            $c = Get-Content $f -Raw
-            if ($c -match 'mi_malloc_size') {
-              $c = $c -replace 'mi_malloc_size', 'mi_usable_size'
-              [System.IO.File]::WriteAllText($f, $c, (New-Object System.Text.UTF8Encoding($false)))
-              Write-Host "Patched $f : mi_malloc_size -> mi_usable_size"
-            }
-          }
-
-      - name: Configure xmake and install dependencies (second pass)
+      - name: Configure xmake and install dependencies
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 
 

@@ -100,6 +100,14 @@ jobs:
       - name: Configure xmake and install dependencies
         run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
 
+      - name: Show run identity
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "=== HEAD: $(git rev-parse HEAD) ==="
+          Write-Host "=== tiltedcore requirement ==="
+          Select-String -Path xmake.lua -Pattern 'tiltedcore'
+
 
       # Build the client
       - name: Build with xmake

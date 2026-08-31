@@ -109,3 +109,14 @@ end
 -- add projects
 includes("Libraries")
 includes("Code")
+
+-- TiltedHooks/TiltedReverse/TiltedUI compile their release objects with /GL;
+-- any link pulling them then dies in the linker's /LTCG auto-restart.
+-- Re-open the targets here and negate /GL so the objects stay plain COFF
+-- (the -fPIC style warnings these three emit are theirs, not ours).
+if is_mode("release") and is_plat("windows") then
+    for _, name in ipairs({"TiltedHooks", "TiltedReverse", "TiltedUi"}) do
+        target(name)
+            add_cxflags("/GL-", { force = true })
+    end
+end

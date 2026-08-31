@@ -9,6 +9,9 @@
 
 #ifdef _WIN32
 
+// winsock2.h must come before Windows.h: DediRunner.h pulls in uv.h and
+// the two sockets headers conflict when windows.h got there first
+#include <winsock2.h>
 #include <Windows.h>
 
 #include <atomic>

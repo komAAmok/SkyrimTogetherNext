@@ -32,15 +32,14 @@ end
 
 -- direct dependencies version pinning 
 add_requires(
-    "entt v3.10.0", 
-    "recastnavigation v1.6.0", 
-    "tiltedcore 0.2.9", 
-    "cryptopp 8.9.0", 
-    "spdlog v1.13.0", 
-    "cpp-httplib 0.14.0",
-    "gtest v1.14.0", 
-    "mem 1.0.0", 
-    "glm 0.9.9+8", 
+    "entt v3.10.0",
+    "recastnavigation v1.6.0",
+    "tiltedcore 0.2.9",
+    "cryptopp 8.9.0",
+    "spdlog v1.13.0",
+    "gtest v1.14.0",
+    "mem 1.0.0",
+    "glm 0.9.9+8",
     "zlib v1.3.1"
 )
 if is_plat("windows") then
@@ -59,7 +58,6 @@ if is_plat("linux") then
     add_requireconfs("*.libcurl", { version = "8.7.1", override = true })
 end
 
-add_requireconfs("cpp-httplib", {configs = {ssl = true}})
 --[[
 add_requireconfs("magnum", { configs = { sdl2 = true }})
 add_requireconfs("magnum-integration",  { configs = { imgui = true }})

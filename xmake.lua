@@ -25,6 +25,13 @@ add_vectorexts("neon")
 -- build configurations
 add_rules("mode.debug", "mode.releasedbg", "mode.release")
 
+-- TiltedHooks/TiltedReverse compile with /GL in release mode; every link
+-- that pulls their objects must use /LTCG or the linker's auto-restart
+-- fails the build. Set it once globally instead of per target.
+if is_mode("release") and is_plat("windows") then
+    add_ldflags("/LTCG", { force = true })
+end
+
 if has_config("unitybuild") then
     add_rules("c.unity_build")
     add_rules("c++.unity_build", {batchsize = 12})

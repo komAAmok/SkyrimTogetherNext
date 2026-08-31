@@ -7,9 +7,21 @@
 
 #include <base/dialogues/win/TaskDialog.h>
 
+#include <GameRoot.h>
+
 std::unique_ptr<TiltedOnlineApp> g_appInstance{nullptr};
 
 extern HICON g_SharedWindowIcon;
+
+namespace
+{
+std::filesystem::path s_gameRoot;
+} // namespace
+
+const std::filesystem::path& GetGameRoot()
+{
+    return s_gameRoot;
+}
 
 static void ShowAddressLibraryError(const wchar_t* apGamePath, const String& acExeVersion)
 {
@@ -41,6 +53,8 @@ static void ShowAddressLibraryError(const wchar_t* apGamePath, const String& acE
 
 void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVersion)
 {
+    s_gameRoot = acGamePath;
+
     if (!VersionDb::Get().Load(acGamePath, aExeVersion))
     {
         ShowAddressLibraryError(acGamePath.c_str(), aExeVersion);

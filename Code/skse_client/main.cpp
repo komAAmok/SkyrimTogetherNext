@@ -20,6 +20,29 @@ extern void RunTiltedApp();
 
 namespace
 {
+// client -> launcher externals that the SKSE launch flow must provide
+HICON g_SharedWindowIcon = nullptr;
+
+// the launcher served jit stub allocations from a buffer adjacent to the
+// manually mapped exe; here the game is loaded normally, so scan for free
+// executable pages within +-1GB of the game module (x64 rip-relative range)
+void* RipAllocateN(size_t blockLength)
+{
+    const uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+    const uintptr_t step = 0x10000;
+    const uintptr_t minAddr = base > 0x40000000ull ? base - 0x40000000ull : step;
+    const uintptr_t maxAddr = base + 0x40000000ull;
+
+    for (uintptr_t addr = maxAddr; addr >= minAddr; addr -= step)
+    {
+        if (void* p = VirtualAlloc(reinterpret_cast<void*>(addr), blockLength, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE))
+            return p;
+    }
+
+    // last resort: any executable page
+    return VirtualAlloc(nullptr, blockLength, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+}
+
 std::string QueryGameVersion()
 {
     wchar_t exePath[MAX_PATH];

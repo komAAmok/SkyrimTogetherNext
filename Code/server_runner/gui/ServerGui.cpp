@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "../DediRunner.h"
+#include <Server.hpp>
 #include <GameServer.h>
 
 namespace fs = std::filesystem;

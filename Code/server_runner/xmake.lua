@@ -21,7 +21,8 @@ local function build_runner()
     add_deps(
         "CommonLib",
         "Console",
-        "BaseLib")
+        "BaseLib",
+        "TiltedConnect")
     add_packages(
         "tiltedcore",
         "spdlog",

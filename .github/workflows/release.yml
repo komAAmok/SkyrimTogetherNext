@@ -58,7 +58,7 @@ jobs:
           # the game root (client dll, cef runtime + locales, tp_process,
           # UI assets). only the launcher/server binaries and build
           # byproducts are held back
-          mkdir -p mod-pack/Core/SkyrimTogetherRuntime mod-pack/launcher
+          mkdir -p mod-pack/Core/SkyrimTogetherRuntime mod-pack/launcher server-pack
           Move-Item build/windows/x64/release/SkyrimTogether.exe build/windows/x64/release/EarlyLoad.dll mod-pack/launcher/ -ErrorAction SilentlyContinue
           Move-Item build/windows/x64/release/SkyrimTogetherServer.exe build/windows/x64/release/STServer.dll server-pack/ -ErrorAction SilentlyContinue
           Get-ChildItem build/windows/x64/release -Exclude *.pdb,*.lib,*.exp,*Tests.exe |

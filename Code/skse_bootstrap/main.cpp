@@ -34,7 +34,7 @@ struct SksePluginInfo
 
 constexpr uint32_t kSksePluginInfoVersion = 1;
 constexpr wchar_t kRuntimeDirName[] = L"SkyrimTogetherRuntime";
-constexpr wchar_t kClientDllName[] = L"SkyrimTogether.dll";
+constexpr wchar_t kClientDllName[] = L"SkyrimTogetherClient.dll";
 constexpr char kClientEntry[] = "STClient_Bootstrap";
 constexpr wchar_t kVersionMarker[] = L".str_version";
 

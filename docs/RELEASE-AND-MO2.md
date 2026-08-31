@@ -52,7 +52,7 @@ Skyrim Together 支持两种从 MO2 启动的方式:
 2. 通过 MO2 正常启动 `skse64_loader.exe`——完成,没有第三步。
 
 首次启动时引导插件会自动把 `SkyrimTogetherRuntime/` 里的运行时文件
-(`SkyrimTogether.dll`、`UI/`、`bin/` 里的 libcef 等)部署到游戏根目录;
+(`SkyrimTogetherClient.dll`、`UI/`、`bin/` 里的 libcef 等)部署到游戏根目录;
 mod 更新后再次启动会自动同步有变化的文件,**无需任何手动复制**。
 
 - 兼容 SKSE 2.0.20(游戏 1.5.97)到 SKSE 2.2.x(游戏 1.6.1170)/新版
@@ -63,7 +63,7 @@ mod 更新后再次启动会自动同步有变化的文件,**无需任何手动�
 - 自动部署失败(权限/杀软拦截)时会弹窗列出 payload 与游戏根路径,按
   提示手动复制一次即可;
 - 卸载说明:MO2 中卸载本 mod 不会清理已部署到游戏根目录的文件,可手动
-  删除 `SkyrimTogether.dll`、`UI/`、`bin/` 与 `.str_new`/`.str_old`
+  删除 `SkyrimTogetherClient.dll`、`UI/`、`bin/` 与 `.str_new`/`.str_old`
   残留(均在游戏根目录)。
 
 ### 方式 B:ST 启动器启动(可选)

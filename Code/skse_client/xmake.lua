@@ -1,5 +1,5 @@
 target("SkyrimTogetherClientDll")
-    set_basename("SkyrimTogether")
+    set_basename("SkyrimTogetherClient")
     set_kind("shared")
     set_group("Client")
     set_symbols("debug", "hidden")

@@ -1,9 +1,13 @@
 name: Release build
 
-# Builds the client/server on a Windows runner, packages the full install zip
-# plus an MO2-friendly "Data only" zip, and publishes both as a GitHub Release
-# when a tag is pushed. Can also be triggered manually (workflow_dispatch),
-# in which case the zips are uploaded as workflow artifacts instead.
+# Builds the client/server on a Windows runner and publishes two separate
+# zips as a GitHub Release when a tag is pushed:
+#   SkyrimTogetherNextMod-<version>.zip    -> the client mod (MO2 installable,
+#                                             FOMOD guided installer)
+#   SkyrimTogetherNextServer-<version>.zip -> the dedicated server (windowed
+#                                             control panel on Windows)
+# Can also be triggered manually (workflow_dispatch); the zips are then
+# uploaded as workflow artifacts instead.
 
 on:
   push:
@@ -29,66 +33,64 @@ jobs:
         with:
           name: internal-job-files
 
-      - name: Assemble full install layout
+      - name: Assemble the mod package layout
         run: |
-          mkdir -p str-build/SkyrimTogetherReborn
-          mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
-          cp -r GameFiles/Skyrim/* str-build/
-          # SKSE bootstrap plugin goes into Data/SKSE/Plugins; on load it
-          # deploys the runtime payload from Data/SkyrimTogetherRuntime/
-          # into the game root (self installing SKSE launch path)
-          mkdir -p str-build/SKSE/Plugins
-          mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
-          mkdir -p str-build/SkyrimTogetherRuntime
-          Move-Item str-build/SkyrimTogetherReborn/SkyrimTogether.dll str-build/SkyrimTogetherRuntime/
-          Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI
-          Move-Item str-build/SkyrimTogetherReborn/bin str-build/SkyrimTogetherRuntime/bin -ErrorAction SilentlyContinue
-          New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
+          # ---- client mod (SkyrimTogetherNextMod-<version>.zip) ----
+          # FOMOD layout: fomod/ holds the wizard, "Core" and "LegacySE" are
+          # the option directories the wizard picks from; everything maps
+          # straight into the game's Data folder.
+          mkdir -p mod-pack/fomod mod-pack/Core mod-pack/LegacySE
+          Copy-Item -Recurse GameFiles/Skyrim/fomod/* mod-pack/fomod/
+          # Core: everything except the fomod wizard itself and the legacy
+          # libraries (those are a wizard option)
+          Copy-Item -Recurse GameFiles/Skyrim/* mod-pack/Core/
+          Remove-Item -Recurse -Force mod-pack/Core/fomod -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force mod-pack/Core/SKSE/Plugins/version-*.bin -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force mod-pack/Core/SKSE/Plugins/versionlib-ae-to-se-*.map -ErrorAction SilentlyContinue
+          # LegacySE: pre-AE address libraries + the AE-to-SE maps
+          Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/version-*.bin mod-pack/LegacySE/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-*.map mod-pack/LegacySE/ -ErrorAction SilentlyContinue
+          # SKSE bootstrap plugin; on load it deploys the runtime payload
+          # from Data/SkyrimTogetherRuntime/ into the game root
+          mkdir -p mod-pack/Core/SKSE/Plugins
+          Move-Item build/windows/x64/release/SkyrimTogetherSKSE.dll mod-pack/Core/SKSE/Plugins/
+          # self deploying runtime payload (client dll, UI, cef bins)
+          mkdir -p mod-pack/Core/SkyrimTogetherRuntime
+          Move-Item build/windows/x64/release/SkyrimTogether.dll mod-pack/Core/SkyrimTogetherRuntime/
+          if (Test-Path build/windows/x64/release/UI) { Move-Item build/windows/x64/release/UI mod-pack/Core/SkyrimTogetherRuntime/UI }
+          if (Test-Path build/windows/x64/release/bin) { Move-Item build/windows/x64/release/bin mod-pack/Core/SkyrimTogetherRuntime/bin }
+          New-Item -ItemType File -Path mod-pack/Core/SkyrimTogetherRuntime/.str_version | Out-Null
 
-      - name: Strip build byproducts, keep symbols separately
+      - name: Assemble the server package layout
         run: |
-          mkdir str-pdb
-          mv -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*.pdb str-pdb
-          rm -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*.lib, str-build/SkyrimTogetherReborn/*.exp
-          rm -ErrorAction SilentlyContinue str-build/SkyrimTogetherReborn/*Tests.exe
+          # ---- dedicated server (SkyrimTogetherNextServer-<version>.zip) ----
+          # NOTE: runs after the mod step moved the client dlls away, so the
+          # wildcards below only catch what is left (server + shared runtimes)
+          mkdir -p server-pack
+          Move-Item build/windows/x64/release/SkyrimTogetherServer.exe server-pack/
+          Move-Item build/windows/x64/release/*.dll server-pack/ -ErrorAction SilentlyContinue
+          # a starter readme so hosts know how to configure and run it
+          Set-Content server-pack/README.txt "Skyrim Together Next - dedicated server`n`nRun SkyrimTogetherServer.exe to start (a small control panel window opens).`n`n- Press Stop or close the window to shut the server down.`n- Edit config\STServer.ini (button in the window) to change port,`n  passwords, player limits and the mod policy.`n- Default port: UDP 10578 - remember to allow it in your firewall.`n- Add --nogui as a command line argument for the classic terminal mode.`n`nPlayers connect from the in-game menu (F2) to <this machine's ip>:10578.`nLAN/VPN play needs no further setup - see docs/LAN-RADMIN-GUIDE.md."
 
-      - name: Assemble MO2 mod layout (Data content only)
-        run: |
-          mkdir mo2-pack
-          # everything under GameFiles/Skyrim maps 1:1 onto the game Data
-          # folder, so MO2 can install this zip directly as a mod
-          cp -r GameFiles/Skyrim/* mo2-pack/
-          # SKSE bootstrap plugin + the self deploying runtime payload: the
-          # plugin deploys the payload into the game root on first launch,
-          # so no manual copying is needed at all
-          mkdir -p mo2-pack/SKSE/Plugins
-          cp str-build/SKSE/Plugins/SkyrimTogetherSKSE.dll mo2-pack/SKSE/Plugins/
-          cp -r str-build/SkyrimTogetherRuntime mo2-pack/SkyrimTogetherRuntime
-          New-Item -ItemType File -Path mo2-pack/metadata.ini | Out-Null
-          Set-Content mo2-pack/metadata.ini "[General]`ngameName=Skyrim Special Edition`nversion=`nnotes=Skyrim Together data files (esp, scripts, address libraries, AE-to-SE maps, SKSE plugin + self deploying runtime)"
-
-      - name: Create zips
+      - name: Create the release zips
         run: |
           $ver = "${{ needs.build-windows.outputs.str-version }}"
-          Compress-Archive -Path str-build/* -DestinationPath "SkyrimTogether-$ver-full.zip"
-          Compress-Archive -Path mo2-pack/* -DestinationPath "SkyrimTogether-$ver-mo2-data.zip"
-          Compress-Archive -Path str-pdb/* -DestinationPath "SkyrimTogether-$ver-symbols.zip"
+          Compress-Archive -Path mod-pack/* -DestinationPath "SkyrimTogetherNextMod-$ver.zip"
+          Compress-Archive -Path server-pack/* -DestinationPath "SkyrimTogetherNextServer-$ver.zip"
 
       - name: Upload as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Skyrim Together Release ${{ needs.build-windows.outputs.str-version }}
+          name: Skyrim Together Next Release ${{ needs.build-windows.outputs.str-version }}
           path: |
-            SkyrimTogether-*-full.zip
-            SkyrimTogether-*-mo2-data.zip
-            SkyrimTogether-*-symbols.zip
+            SkyrimTogetherNextMod-*.zip
+            SkyrimTogetherNextServer-*.zip
 
       - name: Publish GitHub Release (tag pushes only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            SkyrimTogether-*-full.zip
-            SkyrimTogether-*-mo2-data.zip
-            SkyrimTogether-*-symbols.zip
+            SkyrimTogetherNextMod-*.zip
+            SkyrimTogetherNextServer-*.zip
           generate_release_notes: true

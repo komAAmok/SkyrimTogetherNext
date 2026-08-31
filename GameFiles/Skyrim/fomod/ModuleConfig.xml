@@ -1,0 +1,49 @@
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
+    <moduleName>Skyrim Together Next</moduleName>
+    <moduleImage path="fomod\logo.png" />
+
+    <requiredInstallFiles>
+        <set source="Core" destination="" />
+    </requiredInstallFiles>
+
+    <installSteps order="Explicit">
+        <step name="欢迎">
+            <optional>
+                <group name="安装选项">
+                    <plugin name="客户端联机组件(必装)" desc="SKSE 插件、自部署运行时、界面与脚本。&#13;&#10;安装后通过 SKSE(MO2 中启动 skse64_loader.exe)启动游戏即可,首次启动自动部署运行时,无需手动复制文件。" preSelected="yes">
+                        <condition type="Always" />
+                    </plugin>
+                    <plugin name="旧版游戏支持(1.5.x)" desc="为 1.5.3 ~ 1.5.97(老 SE)额外安装地址库与 AE→SE 映射表。&#13;&#10;不确定或使用 1.6.x/1.7.x 的玩家无需勾选,勾选也不会影响新版本运行。" preSelected="yes">
+                        <condition type="Always" />
+                        <files>
+                            <set source="LegacySE" destination="SKSE\Plugins" />
+                        </files>
+                    </plugin>
+                </group>
+            </optional>
+        </step>
+
+        <step name="联机方式">
+            <optional>
+                <group name="如何与朋友联机?(仅说明,任选其一)">
+                    <plugin name="局域网 / Radmin LAN(推荐)" desc="房主运行服务器程序(另一个压缩包 SkyrimTogetherNextServer),&#13;&#10;其他玩家在游戏内按 F2 填写房主 IP:10578 连接。&#13;&#10;详细图文见 wiki.tiltedphoques.com 或仓库 docs/LAN-RADMIN-GUIDE.md。" preSelected="yes">
+                        <condition type="Always" />
+                    </plugin>
+                    <plugin name="公网服务器" desc="在 VPS 上用官方 Docker 镜像搭建专用服务器,&#13;&#10;玩家填写公网 IP 连接,需放行 UDP 10578。" preSelected="no">
+                        <condition type="Always" />
+                    </plugin>
+                </group>
+            </optional>
+        </step>
+    </installSteps>
+
+    <conditionalFileInstalls>
+        <patterns>
+            <pattern>
+                <dependencies operator="And">
+                    <fileDependency state="Active" file="SkyrimSE.exe" />
+                </dependencies>
+            </pattern>
+        </patterns>
+    </conditionalFileInstalls>
+</config>

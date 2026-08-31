@@ -44,7 +44,7 @@ jobs:
           # manual install path
           mkdir -p str-build/SkyrimTogetherRuntime
           Move-Item str-build/SkyrimTogetherReborn/SkyrimTogether.dll str-build/SkyrimTogetherRuntime/
-          Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI
+          Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI -ErrorAction SilentlyContinue
           Move-Item str-build/SkyrimTogetherReborn/bin str-build/SkyrimTogetherRuntime/bin -ErrorAction SilentlyContinue
           New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
 

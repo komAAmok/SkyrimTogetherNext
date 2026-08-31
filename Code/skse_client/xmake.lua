@@ -50,9 +50,10 @@ target("SkyrimTogetherClientDll")
         "cef",
         "mem")
 
-    -- exe-only flags from the launcher (entry point, no-aslr) do not apply here
+    -- TiltedHooks.lib contains /GL objects, so this link needs /LTCG (a
+    -- /FORCE:MULTIPLE restart is not compatible with it); the duplicate
+    -- definitions it used to mask were fixed at the source (inline)
     add_ldflags(
-        "/FORCE:MULTIPLE",
+        "/LTCG",
         "/IGNORE:4254,4006",
-        "/INCREMENTAL:NO",
-        "/LAST:.zdata", { force = true })
+        "/INCREMENTAL:NO", { force = true })

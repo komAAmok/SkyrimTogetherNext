@@ -66,22 +66,22 @@ mod 更新后再次启动会自动同步有变化的文件,**无需任何手动�
   删除 `SkyrimTogether.dll`、`UI/`、`bin/` 与 `.str_new`/`.str_old`
   残留(均在游戏根目录)。
 
-### 方式 B:ST 启动器启动
+### 方式 B:ST 启动器启动(可选)
 
-1. **手动部分(一次性)**:解压 `*-full.zip`,把 `SkyrimTogetherReborn/`
-   里的文件复制到游戏根目录。
-2. **MO2 部分**:下载 `*-mo2-data.zip`,在 MO2 中
-   "安装新模组(从文件)" 直接安装它,并启用。
-   包内含 `metadata.ini`,MO2 可直接识别;esp、脚本、地址库、映射表
-   都会通过 MO2 的虚拟文件系统生效。
-3. **从 MO2 启动**:在 MO2 的"执行程序"里新增一个条目,指向游戏根目录的
-   `SkyrimTogether.exe`。项目的启动器已内置 usvfs 检测,在 MO2 下正常工作。
+FOMOD 向导的"启动方式"步骤可勾选"附带独立启动器",安装后位于
+`Data\SkyrimTogetherLauncher\`:
 
-服务器 `SkyrimTogetherServer.exe` 与 MO2 无关,房主在任意位置运行即可。
+1. 把 `SkyrimTogetherLauncher\` 里的**全部文件**复制到游戏根目录;
+2. 把 `Data\SkyrimTogetherRuntime\` 里的**全部文件**也复制到游戏根目录
+   (启动器与 SKSE 路径共用同一套运行时);
+3. 在 MO2 的"执行程序"里新增一个条目,指向游戏根目录的
+   `SkyrimTogether.exe` 启动(启动器已内置 usvfs 检测,在 MO2 下正常)。
 
-> 注意:方式 B 中如果**不经过 MO2** 直接双击 `SkyrimTogether.exe`,MO2
-> 虚拟的文件不可见,此时地址库和 esp 必须真实存在于游戏 `Data/` 中
-> (即"完整安装"方式)。方式 A 则完全依赖 MO2 的虚拟文件系统,无需手动
+> 注意:如果**不经过 MO2** 直接双击 `SkyrimTogether.exe`,MO2 虚拟的文件
+> 不可见,此时地址库和 esp 必须真实存在于游戏 `Data/` 中(即完整复制)。
+> 绝大多数玩家应使用方式 A,无需方式 B。
+
+服务器 `SkyrimTogetherServer.exe` 与 MO2 无关,房主在任意位置运行即可。方式 A 则完全依赖 MO2 的虚拟文件系统,无需手动
 > 复制任何数据文件。
 
 ## 四、给联机伙伴的最低要求

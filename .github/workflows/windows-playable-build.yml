@@ -39,13 +39,15 @@ jobs:
           # into the game root (self installing SKSE launch path)
           mkdir -p str-build/SKSE/Plugins
           mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
-          # everything the client needs at runtime travels in the payload dir;
-          # the launcher exe and server stay in SkyrimTogetherReborn for the
-          # manual install path
+          # everything the client needs at runtime travels in the payload
+          # dir: the client dll plus ALL runtime dlls (libcef etc. are flat
+          # in the build output) and the UI assets; the launcher exe and
+          # server stay in SkyrimTogetherReborn for the manual install path
           mkdir -p str-build/SkyrimTogetherRuntime
-          Move-Item str-build/SkyrimTogetherReborn/SkyrimTogether.dll str-build/SkyrimTogetherRuntime/
-          Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI -ErrorAction SilentlyContinue
-          Move-Item str-build/SkyrimTogetherReborn/bin str-build/SkyrimTogetherRuntime/bin -ErrorAction SilentlyContinue
+          Get-ChildItem str-build/SkyrimTogetherReborn/*.dll |
+            Where-Object { $_.Name -ne 'STServer.dll' } |
+            Move-Item -Destination str-build/SkyrimTogetherRuntime/
+          if (Test-Path str-build/SkyrimTogetherReborn/UI) { Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI }
           New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
 
       - name: Remove unnecessary build files, keep .pdb

@@ -54,21 +54,25 @@ jobs:
           # from Data/SkyrimTogetherRuntime/ into the game root
           mkdir -p mod-pack/Core/SKSE/Plugins
           Move-Item build/windows/x64/release/SkyrimTogetherSKSE.dll mod-pack/Core/SKSE/Plugins/
-          # self deploying runtime payload (client dll, UI, cef bins)
-          mkdir -p mod-pack/Core/SkyrimTogetherRuntime
-          Move-Item build/windows/x64/release/SkyrimTogether.dll mod-pack/Core/SkyrimTogetherRuntime/
-          if (Test-Path build/windows/x64/release/UI) { Move-Item build/windows/x64/release/UI mod-pack/Core/SkyrimTogetherRuntime/UI }
-          if (Test-Path build/windows/x64/release/bin) { Move-Item build/windows/x64/release/bin mod-pack/Core/SkyrimTogetherRuntime/bin }
+          # self deploying runtime payload: everything the client needs at
+          # the game root (client dll, cef runtime + locales, tp_process,
+          # UI assets). only the launcher/server binaries and build
+          # byproducts are held back
+          mkdir -p mod-pack/Core/SkyrimTogetherRuntime mod-pack/launcher
+          Move-Item build/windows/x64/release/SkyrimTogether.exe build/windows/x64/release/EarlyLoad.dll mod-pack/launcher/ -ErrorAction SilentlyContinue
+          Move-Item build/windows/x64/release/SkyrimTogetherServer.exe build/windows/x64/release/STServer.dll server-pack/ -ErrorAction SilentlyContinue
+          Get-ChildItem build/windows/x64/release -Exclude *.pdb,*.lib,*.exp,*Tests.exe |
+            Move-Item -Destination mod-pack/Core/SkyrimTogetherRuntime/
           New-Item -ItemType File -Path mod-pack/Core/SkyrimTogetherRuntime/.str_version | Out-Null
 
       - name: Assemble the server package layout
         run: |
           # ---- dedicated server (SkyrimTogetherNextServer-<version>.zip) ----
-          # NOTE: runs after the mod step moved the client dlls away, so the
-          # wildcards below only catch what is left (server + shared runtimes)
+          # NOTE: the server binaries were already moved out of the build
+          # dir by the mod step; add copies of the shared runtime dlls so
+          # the server stays self contained
           mkdir -p server-pack
-          Move-Item build/windows/x64/release/SkyrimTogetherServer.exe server-pack/
-          Move-Item build/windows/x64/release/*.dll server-pack/ -ErrorAction SilentlyContinue
+          Copy-Item mod-pack/Core/SkyrimTogetherRuntime/*.dll server-pack/ -ErrorAction SilentlyContinue
           # a starter readme so hosts know how to configure and run it
           Set-Content server-pack/README.txt "Skyrim Together Next - dedicated server`n`nRun SkyrimTogetherServer.exe to start (a small control panel window opens).`n`n- Press Stop or close the window to shut the server down.`n- Edit config\STServer.ini (button in the window) to change port,`n  passwords, player limits and the mod policy.`n- Default port: UDP 10578 - remember to allow it in your firewall.`n- Add --nogui as a command line argument for the classic terminal mode.`n`nPlayers connect from the in-game menu (F2) to <this machine's ip>:10578.`nLAN/VPN play needs no further setup - see docs/LAN-RADMIN-GUIDE.md."
 

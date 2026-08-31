@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Windows.h>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -24,6 +25,7 @@ private:
     std::string _verStr;
     std::string _moduleName;
     unsigned long long _base;
+    bool _legacy{false};
 
     template <typename T> static T read(std::ifstream& file)
     {
@@ -41,6 +43,29 @@ private:
 public:
     const std::string& GetModuleName() const { return _moduleName; }
     const std::string& GetLoadedVersionString() const { return _verStr; }
+
+    // true when a pre-AE (format 1) library is loaded; in that mode some
+    // AE-era ids may have no mapping and resolve to the fallback stub
+    bool IsLegacyFormat() const { return _legacy; }
+
+    // A tiny executable stub (xor rax,rax / xorps xmm0,xmm0 / ret) handed out
+    // for unmapped ids on legacy runtimes: calling it returns zero/false
+    // instead of crashing, which degrades sync features gracefully
+    static void* GetUnresolvedStub()
+    {
+        static void* s_pStub = nullptr;
+        if (s_pStub == nullptr)
+        {
+            static const uint8_t bytes[] = {0x48, 0x31, 0xC0, 0x0F, 0x57, 0xC0, 0xC3};
+            auto* p = static_cast<uint8_t*>(VirtualAlloc(nullptr, sizeof(bytes), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+            if (p)
+            {
+                std::memcpy(p, bytes, sizeof(bytes));
+                s_pStub = p;
+            }
+        }
+        return s_pStub;
+    }
 
     const std::map<unsigned long long, unsigned long long>& GetOffsetMap() const { return _data; }
 
@@ -153,6 +178,7 @@ public:
             _ver[i] = 0;
         _moduleName = std::string();
         _base = 0;
+        _legacy = false;
     }
 
     bool Load(const std::filesystem::path& acGamePath, const TiltedPhoques::String& acExeVersion)
@@ -330,6 +356,8 @@ public:
         // Without it every lookup would resolve to a wrong address.
         if (format == 1)
         {
+            _legacy = true;
+
             size_t mappedCount = 0;
             char mapName[256];
             _snprintf_s(mapName, 256, "versionlib-ae-to-se-%d-%d-%d-%d.map", major, minor, revision, build);
@@ -460,9 +488,10 @@ public:
 
 template <class T> struct VersionDbPtr
 {
-    VersionDbPtr(const uint32_t aId) noexcept
+    VersionDbPtr(const uint32_t aId, const bool aAllowUnresolvedStub = true) noexcept
         : m_pPtr{nullptr}
         , m_id{aId}
+        , m_allowUnresolvedStub{aAllowUnresolvedStub}
     {
     }
 
@@ -479,7 +508,16 @@ template <class T> struct VersionDbPtr
     void* GetPtr() const noexcept
     {
         if (m_pPtr == nullptr)
+        {
             m_pPtr = VersionDb::Get().FindAddressById(m_id);
+
+            // legacy runtimes (1.5.x) have a partial id mapping; unresolved
+            // entries fall back to a zero-returning stub so callers degrade
+            // instead of crashing. Sites that cannot tolerate a stub opt out
+            // via the constructor flag (rtti lookups, ctors, ...).
+            if (m_pPtr == nullptr && m_allowUnresolvedStub && VersionDb::Get().IsLegacyFormat())
+                m_pPtr = VersionDb::Get().GetUnresolvedStub();
+        }
 
         return m_pPtr;
     }
@@ -487,4 +525,5 @@ template <class T> struct VersionDbPtr
 private:
     mutable void* m_pPtr;
     uint32_t m_id;
+    bool m_allowUnresolvedStub;
 };

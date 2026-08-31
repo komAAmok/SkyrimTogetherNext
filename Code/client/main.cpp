@@ -46,6 +46,18 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
         ShowAddressLibraryError(acGamePath.c_str(), aExeVersion);
     }
 
+    if (VersionDb::Get().IsLegacyFormat())
+    {
+        // legacy game versions (1.5.x) run with a partial id mapping; some
+        // sync features (item data, weather, subtitles, quests) degrade to
+        // no-ops instead of crashing. tell the player up front.
+        MessageBoxW(nullptr,
+                    L"Skyrim Together Next: legacy game version detected (1.5.x).\n\n"
+                    L"Support for this version is experimental. Some sync features are unavailable and "
+                    L"multiplayer desyncs are possible. For the full experience, use game version 1.6.x or newer.",
+                    L"Skyrim Together Next", MB_ICONWARNING | MB_OK);
+    }
+
     // VersionDb::Get().DumpToTextFile(R"(S:\Work\Tilted\fallout\_addresslib.txt)");
 
     g_appInstance = std::make_unique<TiltedOnlineApp>();

@@ -74,9 +74,9 @@ before_build(function (target)
     #define IS_MASTER %d
     #define IS_BRANCH_BETA %d
     #define IS_BRANCH_PREREL %d
-    ]], 
-    bool_to_number[branch == "master"], 
-    bool_to_number[branch == "bluedove"], 
+    ]],
+    bool_to_number[branch == "master" or branch == "main"],
+    bool_to_number[branch == "bluedove"],
     bool_to_number[branch == "prerel"])
 
     -- fix always-compiles problem by updating the file only if content has changed.

@@ -87,6 +87,14 @@ void StartServerThread(int argc, char** argv)
     if (g_gui->serverRunning.exchange(true))
         return;
 
+    // the runner cannot be constructed twice in one process; a stopped
+    // server stays stopped until the app is relaunched
+    if (g_gui->startRequested.exchange(true))
+    {
+        g_gui->serverRunning.store(false);
+        return;
+    }
+
     g_gui->startedAt = std::chrono::steady_clock::now();
     g_gui->serverThread = std::thread([argc, argv]() {
         AppendLogLine(L"server: starting");
@@ -129,13 +137,15 @@ void UpdateLabels()
         return;
 
     const bool running = g_gui->serverRunning.load();
-    SetWindowTextW(g_gui->statusLabel, running ? L"Status:  Running" : L"Status:  Stopped");
+    SetWindowTextW(g_gui->statusLabel, running ? L"Status:  Running"
+                                               : (g_gui->startRequested.load() ? L"Status:  Stopped (restart the app to run again)"
+                                                                               : L"Status:  Stopped"));
 
     wchar_t players[64]{};
     swprintf_s(players, L"Players:  %u", running ? QueryPlayerCount() : 0u);
     SetWindowTextW(g_gui->playersLabel, players);
 
-    EnableWindow(g_gui->startBtn, !running);
+    EnableWindow(g_gui->startBtn, !running && !g_gui->startRequested.load());
     EnableWindow(g_gui->stopBtn, running);
 }
 

@@ -1,5 +1,5 @@
-target("SkyrimTogetherSKSE")
-    set_basename("SkyrimTogetherSKSE")
+target("SkyrimTogetherClientDll")
+    set_basename("SkyrimTogether")
     set_kind("shared")
     set_group("Client")
     set_symbols("debug", "hidden")

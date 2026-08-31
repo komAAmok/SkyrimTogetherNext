@@ -34,9 +34,19 @@ jobs:
           mkdir -p str-build/SkyrimTogetherReborn
           mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
           cp -r GameFiles/Skyrim/* str-build/
-          # the SKSE plugin belongs into the game's Data folder
+          # SKSE bootstrap plugin goes into Data/SKSE/Plugins; on load it
+          # deploys the runtime payload from Data/SkyrimTogetherRuntime/
+          # into the game root (self installing SKSE launch path)
           mkdir -p str-build/SKSE/Plugins
           mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
+          # everything the client needs at runtime travels in the payload dir;
+          # the launcher exe and server stay in SkyrimTogetherReborn for the
+          # manual install path
+          mkdir -p str-build/SkyrimTogetherRuntime
+          Move-Item str-build/SkyrimTogetherReborn/SkyrimTogether.dll str-build/SkyrimTogetherRuntime/
+          Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI
+          Move-Item str-build/SkyrimTogetherReborn/bin str-build/SkyrimTogetherRuntime/bin -ErrorAction SilentlyContinue
+          New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
 
       - name: Remove unnecessary build files, keep .pdb
         run: |

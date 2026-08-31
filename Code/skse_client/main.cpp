@@ -1,37 +1,25 @@
-// SKSE plugin entry point: boots the Skyrim Together client when the game is
-// launched through the SKSE loader (e.g. skse64_loader.exe via Mod Organizer 2)
-// instead of the bundled SkyrimTogether.exe launcher.
-//
-// skse64 loads plugins before the game's CRT startup, which is the same
-// relative position the launcher bootstraps from: initializing the address
-// library + engine hooks here means BeginMain runs before the game enters
-// main(), exactly like the launcher flow.
+// The client runtime DLL loaded by the SKSE bootstrap plugin
+// (SkyrimTogetherSKSE.dll) after it deployed this file and the rest of the
+// runtime payload into the game root. STClient_Bootstrap performs the same
+// boot the SkyrimTogether.exe launcher does: address library load, engine
+// hooks, app start.
 
 #include <Windows.h>
 
 #include <cstdint>
-#include <cstdio>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 // defined in the statically linked SkyrimTogetherClient library (Code/client/main.cpp)
-// TiltedPhoques::String is declared in Memory.hpp from the client project
-#include <Memory.hpp>
 extern void RunTiltedInit(const std::filesystem::path& acGamePath, const TiltedPhoques::String& aExeVersion);
 extern void RunTiltedApp();
 
+// TiltedPhoques::String is declared in Memory.hpp from the client project
+#include <Memory.hpp>
+
 namespace
 {
-// skse64 PluginInfo layout (see the skse64 plugin api)
-struct SksePluginInfo
-{
-    uint32_t infoVersion;
-    const char* name;
-    uint32_t version;
-};
-
-constexpr uint32_t kSksePluginInfoVersion = 1;
-
 std::string QueryGameVersion()
 {
     wchar_t exePath[MAX_PATH];
@@ -65,30 +53,16 @@ std::string QueryGameVersion()
 }
 } // namespace
 
-extern "C" {
-__declspec(dllexport) bool SKSEPlugin_Query(const void*, SksePluginInfo* apInfo)
+extern "C" __declspec(dllexport) bool STClient_Bootstrap(const wchar_t* acpGameRoot)
 {
-    if (!apInfo)
+    if (!acpGameRoot)
         return false;
 
-    apInfo->infoVersion = kSksePluginInfoVersion;
-    apInfo->name = "SkyrimTogether";
-    apInfo->version = 1;
-    return true;
-}
-
-__declspec(dllexport) bool SKSEPlugin_Load(const void*)
-{
     // the launcher raises the stdio handle limit before booting the client
     // (cef and the game open a lot of handles); keep parity here
     _setmaxstdio(8192);
 
-    wchar_t exePath[MAX_PATH];
-    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH))
-        return false;
-
-    std::filesystem::path gamePath(exePath);
-    gamePath.remove_filename();
+    const std::filesystem::path gamePath(acpGameRoot);
 
     const auto version = QueryGameVersion();
     if (version.empty())
@@ -98,5 +72,4 @@ __declspec(dllexport) bool SKSEPlugin_Load(const void*)
     RunTiltedApp();
 
     return true;
-}
 }

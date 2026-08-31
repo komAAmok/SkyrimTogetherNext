@@ -42,23 +42,29 @@
 
 Skyrim Together 支持两种从 MO2 启动的方式:
 
-### 方式 A:SKSE 启动(推荐,MO2 常规流程)
+### 方式 A:SKSE 启动(推荐,MO2 常规流程,零手动操作)
 
-客户端自带 SKSE 插件 `SkyrimTogetherSKSE.dll`(位于 `Data/SKSE/Plugins/`,
-full 包和 mo2-data 包均已附带)。装好后,**通过 MO2 正常启动
-`skse64_loader.exe` 即可自动加载 Skyrim Together**,无需运行
-`SkyrimTogether.exe`:
+客户端自带 SKSE 引导插件 `SkyrimTogetherSKSE.dll`(`Data/SKSE/Plugins/`)
+和**自部署运行时** `Data/SkyrimTogetherRuntime/`。安装流程:
 
-- **前置条件(一次性)**:先按"完整安装"把 `SkyrimTogetherReborn/` 里的
-  运行时文件复制到游戏根目录——插件加载时依赖其中的
-  `libcef.dll` 等 DLL(SKSE 只扫描 `Data/SKSE/Plugins/` 找插件,但插件的
-  依赖 DLL 要从游戏根目录解析,MO2 不会虚拟化游戏根目录);
+1. 在 MO2 中"从文件安装" `*-mo2-data.zip`(或 full 包里 `Data/` 的内容),
+   启用该 mod;
+2. 通过 MO2 正常启动 `skse64_loader.exe`——完成,没有第三步。
+
+首次启动时引导插件会自动把 `SkyrimTogetherRuntime/` 里的运行时文件
+(`SkyrimTogether.dll`、`UI/`、`bin/` 里的 libcef 等)部署到游戏根目录;
+mod 更新后再次启动会自动同步有变化的文件,**无需任何手动复制**。
+
 - 兼容 SKSE 2.0.20(游戏 1.5.97)到 SKSE 2.2.x(游戏 1.6.1170)/新版
   1.7.x SKSE;
 - 1.5.97 需要的地址库 `version-1-5-97-0.bin` 和映射表
-  `versionlib-ae-to-se-1-5-97-0.map` 已随包附带(在 Data 包里,走 MO2
-  虚拟文件系统);
-- 若同时安装了其他 SKSE 插件,ST 与它们共存加载。
+  `versionlib-ae-to-se-1-5-97-0.map` 已随包附带;
+- 若同时安装了其他 SKSE 插件,ST 与它们共存加载;
+- 自动部署失败(权限/杀软拦截)时会弹窗列出 payload 与游戏根路径,按
+  提示手动复制一次即可;
+- 卸载说明:MO2 中卸载本 mod 不会清理已部署到游戏根目录的文件,可手动
+  删除 `SkyrimTogether.dll`、`UI/`、`bin/` 与 `.str_new`/`.str_old`
+  残留(均在游戏根目录)。
 
 ### 方式 B:ST 启动器启动
 

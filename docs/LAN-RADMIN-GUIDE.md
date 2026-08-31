@@ -39,9 +39,14 @@ Radmin LAN、Hamachi 或同一物理局域网直连即可联机,**无需 Steam �
 ## 客户端连接(其他玩家)
 
 1. 安装 Radmin LAN 并加入同一网络。
-2. 房主在 Radmin LAN 中查看自己的 Radmin IP(形如 `26.x.x.x`)。
-3. 进入游戏后打开 Together 菜单,服务器地址填 `<房主Radmin IP>:10578`,
-   输入服务器密码(如有)后连接。
+2. 启动游戏,两种方式任选其一:
+   - **SKSE 启动(推荐 MO2 用户)**:把 Data 包装入 MO2 后照常通过
+     `skse64_loader.exe` 启动,Skyrim Together 会作为 SKSE 插件自动加载
+     (兼容 1.5.97 的 SKSE 2.0.20 与 1.6.x/1.7.x 的 SKSE);
+   - **ST 启动器**:通过游戏根目录的 `SkyrimTogether.exe` 启动。
+3. 房主在 Radmin LAN 中查看自己的 Radmin IP(形如 `26.x.x.x`)。
+4. 进入游戏后按 **F2 或 右Ctrl** 打开 Together 菜单,服务器地址填
+   `<房主Radmin IP>:10578`,输入服务器密码(如有)后连接。
 
 ## 常见问题
 

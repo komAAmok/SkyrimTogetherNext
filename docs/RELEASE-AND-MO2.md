@@ -40,9 +40,22 @@
 
 ## 三、MO2 安装方式
 
-Skyrim Together 的核心二进制(客户端 dll、启动器、服务器)**不能**放进
-MO2——MO2 只虚拟化 `Data/` 目录,而启动器必须以真实文件形式存在于游戏
-根目录并由它来启动游戏。正确的做法是"二进制手动装 + 数据走 MO2":
+Skyrim Together 支持两种从 MO2 启动的方式:
+
+### 方式 A:SKSE 启动(推荐,MO2 常规流程)
+
+客户端自带 SKSE 插件 `SkyrimTogetherSKSE.dll`(位于 `Data/SKSE/Plugins/`,
+full 包和 mo2-data 包均已附带)。装好后,**通过 MO2 正常启动
+`skse64_loader.exe` 即可自动加载 Skyrim Together**,无需运行
+`SkyrimTogether.exe`:
+
+- 兼容 SKSE 2.0.20(游戏 1.5.97)到 SKSE 2.2.x(游戏 1.6.1170)/新版
+  1.7.x SKSE;
+- 1.5.97 需要的地址库 `version-1-5-97-0.bin` 和映射表
+  `versionlib-ae-to-se-1-5-97-0.map` 已随包附带;
+- 若同时安装了其他 SKSE 插件,ST 与它们共存加载。
+
+### 方式 B:ST 启动器启动
 
 1. **手动部分(一次性)**:解压 `*-full.zip`,把 `SkyrimTogetherReborn/`
    里的文件复制到游戏根目录。
@@ -51,13 +64,14 @@ MO2——MO2 只虚拟化 `Data/` 目录,而启动器必须以真实文件形式
    包内含 `metadata.ini`,MO2 可直接识别;esp、脚本、地址库、映射表
    都会通过 MO2 的虚拟文件系统生效。
 3. **从 MO2 启动**:在 MO2 的"执行程序"里新增一个条目,指向游戏根目录的
-   `SkyrimTogether.exe`。从 MO2 启动它时,MO2 会把 usvfs 注入启动器及其
-   子进程,虚拟化的 `Data/SKSE/Plugins`(地址库/映射表)对客户端可见。
-   项目的启动器已内置 usvfs 检测(`USVFS_Sentinel`)支持这种方式。
-4. 服务器 `SkyrimTogetherServer.exe` 与 MO2 无关,房主在任意位置运行即可。
+   `SkyrimTogether.exe`。项目的启动器已内置 usvfs 检测,在 MO2 下正常工作。
 
-> 注意:如果**不经过 MO2** 直接双击 `SkyrimTogether.exe`,MO2 虚拟的文件
-> 不可见,此时地址库和 esp 必须真实存在于游戏 `Data/` 中(即"完整安装"方式)。
+服务器 `SkyrimTogetherServer.exe` 与 MO2 无关,房主在任意位置运行即可。
+
+> 注意:方式 B 中如果**不经过 MO2** 直接双击 `SkyrimTogether.exe`,MO2
+> 虚拟的文件不可见,此时地址库和 esp 必须真实存在于游戏 `Data/` 中
+> (即"完整安装"方式)。方式 A 则完全依赖 MO2 的虚拟文件系统,无需手动
+> 复制任何数据文件。
 
 ## 四、给联机伙伴的最低要求
 

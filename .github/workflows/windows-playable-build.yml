@@ -34,6 +34,9 @@ jobs:
           mkdir -p str-build/SkyrimTogetherReborn
           mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
           cp -r GameFiles/Skyrim/* str-build/
+          # the SKSE plugin belongs into the game's Data folder
+          mkdir -p str-build/SKSE/Plugins
+          mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
 
       - name: Remove unnecessary build files, keep .pdb
         run: |

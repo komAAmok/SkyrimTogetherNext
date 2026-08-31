@@ -34,6 +34,9 @@ jobs:
           mkdir -p str-build/SkyrimTogetherReborn
           mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
           cp -r GameFiles/Skyrim/* str-build/
+          # the SKSE plugin belongs into the game's Data folder
+          mkdir -p str-build/SKSE/Plugins
+          mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
 
       - name: Strip build byproducts, keep symbols separately
         run: |
@@ -48,8 +51,10 @@ jobs:
           # everything under GameFiles/Skyrim maps 1:1 onto the game Data
           # folder, so MO2 can install this zip directly as a mod
           cp -r GameFiles/Skyrim/* mo2-pack/
+          # include the SKSE plugin so MO2+SKSE launches pick it up
+          cp str-build/SKSE/Plugins/SkyrimTogetherSKSE.dll mo2-pack/SKSE/Plugins/
           New-Item -ItemType File -Path mo2-pack/metadata.ini | Out-Null
-          Set-Content mo2-pack/metadata.ini "[General]`ngameName=Skyrim Special Edition`nversion=`nnotes=Skyrim Together data files (esp, scripts, address libraries, AE-to-SE maps)"
+          Set-Content mo2-pack/metadata.ini "[General]`ngameName=Skyrim Special Edition`nversion=`nnotes=Skyrim Together data files (esp, scripts, address libraries, AE-to-SE maps, SKSE plugin)"
 
       - name: Create zips
         run: |

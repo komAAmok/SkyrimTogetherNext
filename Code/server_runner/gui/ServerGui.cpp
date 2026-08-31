@@ -9,6 +9,15 @@
 
 #ifdef _WIN32
 
+// this file uses the W variants of the win32 api exclusively; make the
+// TCHAR-dependent macros (IDC_ARROW etc.) resolve to the wide versions too
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
 // winsock2.h must come before Windows.h: DediRunner.h pulls in uv.h and
 // the two sockets headers conflict when windows.h got there first
 #include <winsock2.h>

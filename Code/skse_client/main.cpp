@@ -18,9 +18,9 @@
 extern void RunTiltedInit(const std::filesystem::path& acGamePath, const TiltedPhoques::String& aExeVersion);
 extern void RunTiltedApp();
 
-namespace
-{
-// client -> launcher externals that the SKSE launch flow must provide
+// client -> launcher externals that the SKSE launch flow must provide.
+// these live in the global namespace with external linkage: the client
+// library references them by mangled name.
 HICON g_SharedWindowIcon = nullptr;
 
 // the launcher served jit stub allocations from a buffer adjacent to the
@@ -43,6 +43,8 @@ void* RipAllocateN(size_t blockLength)
     return VirtualAlloc(nullptr, blockLength, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 }
 
+namespace
+{
 std::string QueryGameVersion()
 {
     wchar_t exePath[MAX_PATH];

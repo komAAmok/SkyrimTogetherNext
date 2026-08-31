@@ -10,12 +10,13 @@
 #include <Windows.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 
-#include <Memory.hpp> // TiltedPhoques::String
-
 // defined in the statically linked SkyrimTogetherClient library (Code/client/main.cpp)
+// TiltedPhoques::String is declared in Memory.hpp from the client project
+#include <Memory.hpp>
 extern void RunTiltedInit(const std::filesystem::path& acGamePath, const TiltedPhoques::String& aExeVersion);
 extern void RunTiltedApp();
 
@@ -31,7 +32,7 @@ struct SksePluginInfo
 
 constexpr uint32_t kSksePluginInfoVersion = 1;
 
-TiltedPhoques::String QueryGameVersion()
+std::string QueryGameVersion()
 {
     wchar_t exePath[MAX_PATH];
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH))
@@ -78,6 +79,10 @@ __declspec(dllexport) bool SKSEPlugin_Query(const void*, SksePluginInfo* apInfo)
 
 __declspec(dllexport) bool SKSEPlugin_Load(const void*)
 {
+    // the launcher raises the stdio handle limit before booting the client
+    // (cef and the game open a lot of handles); keep parity here
+    _setmaxstdio(8192);
+
     wchar_t exePath[MAX_PATH];
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH))
         return false;
@@ -89,7 +94,7 @@ __declspec(dllexport) bool SKSEPlugin_Load(const void*)
     if (version.empty())
         return false;
 
-    RunTiltedInit(gamePath, version);
+    RunTiltedInit(gamePath, version.c_str());
     RunTiltedApp();
 
     return true;

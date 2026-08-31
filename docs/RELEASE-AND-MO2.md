@@ -49,10 +49,15 @@ full 包和 mo2-data 包均已附带)。装好后,**通过 MO2 正常启动
 `skse64_loader.exe` 即可自动加载 Skyrim Together**,无需运行
 `SkyrimTogether.exe`:
 
+- **前置条件(一次性)**:先按"完整安装"把 `SkyrimTogetherReborn/` 里的
+  运行时文件复制到游戏根目录——插件加载时依赖其中的
+  `libcef.dll` 等 DLL(SKSE 只扫描 `Data/SKSE/Plugins/` 找插件,但插件的
+  依赖 DLL 要从游戏根目录解析,MO2 不会虚拟化游戏根目录);
 - 兼容 SKSE 2.0.20(游戏 1.5.97)到 SKSE 2.2.x(游戏 1.6.1170)/新版
   1.7.x SKSE;
 - 1.5.97 需要的地址库 `version-1-5-97-0.bin` 和映射表
-  `versionlib-ae-to-se-1-5-97-0.map` 已随包附带;
+  `versionlib-ae-to-se-1-5-97-0.map` 已随包附带(在 Data 包里,走 MO2
+  虚拟文件系统);
 - 若同时安装了其他 SKSE 插件,ST 与它们共存加载。
 
 ### 方式 B:ST 启动器启动

@@ -59,8 +59,8 @@ jobs:
           # UI assets). only the launcher/server binaries and build
           # byproducts are held back
           New-Item -ItemType Directory -Force -Path mod-pack/Core/SkyrimTogetherRuntime,mod-pack/launcher,server-pack | Out-Null
-          Move-Item build/windows/x64/release/SkyrimTogether.exe build/windows/x64/release/EarlyLoad.dll mod-pack/launcher/ -ErrorAction SilentlyContinue
-          Move-Item build/windows/x64/release/SkyrimTogetherServer.exe build/windows/x64/release/STServer.dll server-pack/ -ErrorAction SilentlyContinue
+          Move-Item -Path build/windows/x64/release/SkyrimTogether.exe,build/windows/x64/release/EarlyLoad.dll -Destination mod-pack/launcher/ -ErrorAction SilentlyContinue
+          Move-Item -Path build/windows/x64/release/SkyrimTogetherServer.exe,build/windows/x64/release/STServer.dll -Destination server-pack/ -ErrorAction SilentlyContinue
           Get-ChildItem build/windows/x64/release -Exclude *.pdb,*.lib,*.exp,*Tests.exe |
             Move-Item -Destination mod-pack/Core/SkyrimTogetherRuntime/
           New-Item -ItemType File -Path mod-pack/Core/SkyrimTogetherRuntime/.str_version | Out-Null

@@ -31,9 +31,9 @@ void TESObjectCELL::GetCOCPlacementInfo(NiPoint3* aOutPos, NiPoint3* aOutRot, bo
     if (!s_getCOCPlacementInfo.Get()) // unmapped on legacy game versions, fall back to the cell origin
     {
         if (aOutPos)
-            *aOutPos = NiPoint3(0.f, 0.f, 0.f);
+            aOutPos->x = aOutPos->y = aOutPos->z = 0.f;
         if (aOutRot)
-            *aOutRot = NiPoint3(0.f, 0.f, 0.f);
+            aOutRot->x = aOutRot->y = aOutRot->z = 0.f;
         return;
     }
     TiltedPhoques::ThisCall(s_getCOCPlacementInfo, this, aOutPos, aOutRot, aAllowCellLoad);

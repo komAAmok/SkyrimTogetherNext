@@ -12,7 +12,7 @@
 #include <string>
 
 // TiltedPhoques::String is declared in TiltedCore's Stl.hpp
-#include <Stl.hpp>
+#include <TiltedCore/Stl.hpp>
 
 // defined in the statically linked SkyrimTogetherClient library (Code/client/main.cpp)
 extern void RunTiltedInit(const std::filesystem::path& acGamePath, const TiltedPhoques::String& aExeVersion);

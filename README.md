@@ -47,19 +47,6 @@ Tilted Online 的社区延续版本——为 Bethesda 游戏提供联机能力�
 
 请在仓库的 "Issues" 页面提交,附上可复现步骤、游戏版本、SKSE 版本与服务器日志,详细的报告对开发非常重要。
 
-## 📁 主要源码结构
-
-* [**Code/client/**](./Code/client):天际客户端(SkyrimTogether.dll 核心,逆向 SDK + 各同步服务);
-* [**Code/skse_bootstrap/**](./Code/skse_bootstrap):零依赖 SKSE 引导插件(自部署运行时);
-* [**Code/skse_client/**](./Code/skse_client):SKSE 启动路径的客户端 DLL 封装;
-* [**Code/server/**](./Code/server) + [**Code/server_runner/**](./Code/server_runner):专用服务器实现与启动器(含 Win32 控制面板);
-* [**Code/immersive_launcher/**](./Code/immersive_launcher):ST 独立启动器;
-* [**Code/encoding/**](./Code/encoding):网络消息定义(客户端/服务器共享协议);
-* [**Code/skyrim_ui/**](./Code/skyrim_ui):游戏内联机界面(Angular/TypeScript,CEF 渲染);
-* [**Code/tp_process/**](./Code/tp_process):CEF 覆盖层工作进程;
-* [**GameFiles/Skyrim/**](./GameFiles/Skyrim):随 mod 分发的数据文件(esp、脚本、地址库、ID 映射表、FOMOD 向导);
-* [**Tools/Scripts/**](./Tools/Scripts):构建/逆向辅助脚本。
-
 ## 📄 许可证
 
 [![GNU GPLv3](https://www.gnu.org/graphics/gplv3-127x51.png)](http://www.gnu.org/licenses/gpl-3.0.en.html)

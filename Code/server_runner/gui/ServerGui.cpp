@@ -25,8 +25,17 @@
 #include <thread>
 
 #include "../DediRunner.h"
-#include <Server.hpp>
-#include <GameServer.h>
+
+// telemetry exports from STServer.dll (see Code/server/main.cpp) - the gui
+// must not reach into GameServer.h directly, its include chain drags the
+// whole server + TiltedConnect header world along
+#ifdef _WIN32
+#define GS_GUI_IMPORT extern __declspec(dllimport)
+#else
+#define GS_GUI_IMPORT extern
+#endif
+GS_GUI_IMPORT uint32_t QueryServerPlayerCount();
+GS_GUI_IMPORT void RequestServerShutdown();
 
 namespace fs = std::filesystem;
 
@@ -80,10 +89,7 @@ void AppendLogLine(const std::wstring& aLine)
 
 unsigned QueryPlayerCount()
 {
-    const auto* server = GameServer::Get();
-    if (!server)
-        return 0;
-    return server->GetWorld().GetPlayerManager().Count();
+    return QueryServerPlayerCount();
 }
 
 void StartServerThread(int argc, char** argv)
@@ -123,7 +129,7 @@ void StopServerThread()
         return;
 
     AppendLogLine(L"server: stop requested");
-    GameServer::Get()->Kill();
+    RequestServerShutdown();
 }
 
 void FormatUptime(wchar_t* aBuffer, size_t aSize)

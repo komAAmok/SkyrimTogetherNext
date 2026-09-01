@@ -36,16 +36,11 @@ static void ShowAddressLibraryError(const wchar_t* apGamePath, const String& acE
 
     Base::TaskDialog dia(g_SharedWindowIcon, L"Error", L"Failed to load Skyrim Address Library", mainText, errorDetail.c_str());
 
-    dia.AppendButton(0xBEED, L"Visit troubleshooting page on wiki.tiltedphoques.com");
     dia.AppendButton(0xBEEF, L"Visit Address Library modpage on nexusmods.com");
     const int result = dia.Show();
     if (result == 0xBEEF)
     {
         ShellExecuteW(nullptr, L"open", LR"(https://www.nexusmods.com/skyrimspecialedition/mods/32444?tab=files)", nullptr, nullptr, SW_SHOWNORMAL);
-    }
-    else if (result == 0xBEED)
-    {
-        ShellExecuteW(nullptr, L"open", LR"(https://wiki.tiltedphoques.com/tilted-online/guides/troubleshooting/address-library-error)", nullptr, nullptr, SW_SHOWNORMAL);
     }
 
     exit(4);

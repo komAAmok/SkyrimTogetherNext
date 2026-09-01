@@ -122,6 +122,9 @@ def main():
     ap.add_argument("--se-bin", required=True, help="path to version-1-5-97-0.bin")
     ap.add_argument("--commonlib", help="optional CommonLibSSE-NG checkout for extra pairs")
     ap.add_argument("--out", default="versionlib-ae-to-se-1-5-97-0.map")
+    ap.add_argument("--overrides", action="append", default=[],
+                    help="optional files with manual 'ae_id 0xRVA' lines, applied after "
+                         "auto-generation (e.g. from an IDA session or vtable extraction)")
     ap.add_argument("--se-bins-dir",
                     help="optional dir containing version-1-5-*.bin files; generates a map "
                          "for every 1.5.x version found (SE ids are stable across 1.5.x, so "
@@ -183,6 +186,20 @@ def main():
                 mapping[ae_id] = se_off
                 added += 1
         print(f"commonlib: {len(pairs)} pairs, added {added}, disagreements (history kept) {disagree}")
+
+    for ov in args.overrides:
+        n = 0
+        for line in open(ov, encoding="utf-8", errors="ignore"):
+            line = line.split("#", 1)[0].strip()
+            if not line: continue
+            parts = line.split()
+            if len(parts) < 2: continue
+            try:
+                ae_id, rva = int(parts[0], 0), int(parts[1], 0)
+            except ValueError:
+                continue
+            if rva: mapping[ae_id] = rva; n += 1
+        print(f"overrides {ov}: applied {n}")
 
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("# AE address library id -> Skyrim SE 1.5.97 RVA offset\n")

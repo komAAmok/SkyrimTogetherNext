@@ -12,10 +12,16 @@
                     <plugin name="客户端联机组件(必装)" desc="SKSE 插件、自部署运行时、界面与脚本。&#13;&#10;安装后通过 SKSE(MO2 中启动 skse64_loader.exe)启动游戏即可,首次启动自动部署运行时,无需手动复制文件。" preSelected="yes">
                         <condition type="Always" />
                     </plugin>
-                    <plugin name="旧版游戏支持(1.5.x)" desc="为 1.5.3 ~ 1.5.97(老 SE)额外安装地址库与 AE→SE 映射表。&#13;&#10;不确定或使用 1.6.x/1.7.x 的玩家无需勾选,勾选也不会影响新版本运行。&#13;&#10;注意:1.5.x 为实验性支持,部分同步功能不可用。" preSelected="yes">
+                    <plugin name="旧版游戏支持(1.5.x)" desc="为 1.5.3 ~ 1.5.97(老 SE)额外安装地址库与 AE→SE 映射表。&#13;&#10;不确定或使用 1.6.x/1.7.x 的玩家无需勾选,勾选也不会影响新版本运行。&#13;&#10;注意:1.5.x 为实验性支持,部分同步功能不可用,并请取消勾选下方&#8220;启动校验脚本&#8221;。" preSelected="yes">
                         <condition type="Always" />
                         <files>
                             <folder source="LegacySE" destination="SKSE\Plugins" />
+                        </files>
+                    </plugin>
+                    <plugin name="启动校验脚本" desc="进游戏时检测是否通过 Skyrim Together 启动,未通过则弹窗提醒(仅 1.6.x 有效)。&#13;&#10;1.5.x 玩家请取消勾选:该检测在 1.5.x 上会误报&#8220;Skyrim Together is not running&#8221;。" preSelected="yes">
+                        <condition type="Always" />
+                        <files>
+                            <folder source="VerifyScript" destination="scripts" />
                         </files>
                     </plugin>
                 </group>

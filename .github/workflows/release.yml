@@ -50,6 +50,11 @@ jobs:
           # LegacySE: pre-AE address libraries + the AE-to-SE maps
           Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/version-*.bin mod-pack/LegacySE/ -ErrorAction SilentlyContinue
           Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-*.map mod-pack/LegacySE/ -ErrorAction SilentlyContinue
+          # the launch verification script is a wizard option: it relies on a
+          # papyrus native that degrades on 1.5.x (would always nag "not
+          # running" there), so 1.5.x players uncheck it
+          New-Item -ItemType Directory -Force -Path mod-pack/VerifyScript/scripts | Out-Null
+          Move-Item mod-pack/Core/scripts/SkyrimTogetherVerifyLaunchScript.pex mod-pack/VerifyScript/scripts/
           # SKSE bootstrap plugin; on load it deploys the runtime payload
           # from Data/SkyrimTogetherRuntime/ into the game root
           New-Item -ItemType Directory -Force -Path mod-pack/Core/SKSE/Plugins | Out-Null

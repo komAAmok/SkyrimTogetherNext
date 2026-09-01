@@ -4,7 +4,7 @@
 [![Build linux](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/linux.yml/badge.svg)](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/linux.yml)
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
-Tilted Online 的社区延续版本——为 Bethesda 游戏提供联机能力的开源框架,当前支持 **上古卷轴 5:天际特别版(Skyrim Special Edition)**,也就是广为人知的 **Skyrim Together**。
+为 Bethesda 游戏提供联机能力的开源框架,当前支持 **上古卷轴 5:天际特别版(Skyrim Special Edition)**,也就是广为人知的 **Skyrim Together**。
 
 本仓库在上游 [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) 基础上扩展了多项实用能力:
 
@@ -24,7 +24,7 @@ Tilted Online 的社区延续版本——为 Bethesda 游戏提供联机能力�
 3. **所有玩家(含房主)**:把 Mod 包通过 MO2"从文件安装"(会弹出安装向导),或手动解压到游戏 `Data/`;通过 MO2 启动 SKSE 即可;
 4. 进游戏按 **F2** 呼出联机界面,填写 `<房主IP>:10578` 连接。
 
-局域网/Radmin 联机图文说明见 [docs/LAN-RADMIN-GUIDE.md](docs/LAN-RADMIN-GUIDE.md),安装与 MO2 细节见 [docs/RELEASE-AND-MO2.md](docs/RELEASE-AND-MO2.md)。
+局域网/Radmin 联机图文说明见 [docs/LAN-RADMIN-GUIDE.md](docs/LAN-RADMIN-GUIDE.md)。
 
 ## 📦 支持的游戏版本
 
@@ -35,13 +35,6 @@ Tilted Online 的社区延续版本——为 Bethesda 游戏提供联机能力�
 | 1.7.99 / 1.7.104 | 新版 SKSE | 开箱即用(format 5 地址库) |
 
 > **1.5.x 实验性说明**:老版本可启动、可连接、主体同步可用(结构布局经验证与新版本一致,地址映射覆盖约 97%),但部分后续新增的同步功能(物品附加数据、天气、字幕、任务阶段、装备细节等)没有可用的 1.5.97 地址,会自动降级为不同步;多人游玩时可能出现局部数据不同步。完整体验请使用 1.6.x 及以上版本。
-
-## 🛠️ 开发者
-
-- 构建系统为 **xmake**(C++20),完整构建指南见 [上游 wiki](https://wiki.tiltedphoques.com/tilted-online/technical-documentation/build-guide);
-- 代码规范见 [CODE_GUIDELINES.md](CODE_GUIDELINES.md),提交前请运行 clang-format;
-- `Tools/Scripts/` 内含地址库工具:`gen_se_map_from_history.py` 从 git 历史生成 AE→SE ID 映射表,`gen_ae_to_se_map.py` 解析/校验 Address Library 二进制(format 1/2/5);
-- 提 PR 请指向 `dev` 分支。
 
 ## 🐛 反馈问题
 

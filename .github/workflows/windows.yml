@@ -73,6 +73,11 @@ jobs:
         with:
           path: ~/AppData/Local/.xmake/packages
           key: ${{ runner.os }}-xmake-${{ hashFiles('**/xmake.lua') }}
+          # Fall back to the last warm package cache when the key changes
+          # (e.g. an unrelated xmake.lua edit), so tiltedcore + friends are
+          # reused instead of a fresh fetch/build that can flake.
+          restore-keys: |
+            ${{ runner.os }}-xmake-
 
       # Install xmake
       - name: Setup xmake

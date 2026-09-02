@@ -1,9 +1,15 @@
-target("SkyrimTogetherClientDll")
-    set_basename("SkyrimTogetherRuntime")
+local function build_runtime_dll(name, basename, client_lib, extra_defines)
+target(name)
+    set_basename(basename)
     set_kind("shared")
     set_group("Client")
     set_symbols("debug", "hidden")
     add_defines("TARGET_PREFIX=\"st\"")
+    if extra_defines then
+        for _, d in ipairs(extra_defines) do
+            add_defines(d)
+        end
+    end
 
     add_includedirs(
         ".",
@@ -14,8 +20,8 @@ target("SkyrimTogetherClientDll")
 
     -- whole-archive so the client's self-registering systems (hooks,
     -- animation graph descriptors, rtti) are all pulled in
-    add_deps("SkyrimTogetherClient")
-    add_ldflags("/WHOLEARCHIVE:SkyrimTogetherClient", { force = true })
+    add_deps(client_lib)
+    add_ldflags("/WHOLEARCHIVE:" .. client_lib, { force = true })
 
     add_deps(
         "TiltedReverse",
@@ -57,3 +63,10 @@ target("SkyrimTogetherClientDll")
         "/LTCG",
         "/IGNORE:4254,4006",
         "/INCREMENTAL:NO", { force = true })
+end
+
+-- modern game versions (1.6.x / 1.7.x)
+build_runtime_dll("SkyrimTogetherClientDll", "SkyrimTogetherRuntime", "SkyrimTogetherClient", nil)
+-- legacy game versions (1.5.x): compiled against the 1.5.x struct layouts.
+-- The SKSE bootstrap picks this DLL when the game version is 1.5.x.
+build_runtime_dll("SkyrimTogetherClientDllLegacy", "SkyrimTogetherRuntime_1_5", "SkyrimTogetherClientLegacy", {"SKYRIM_TARGET_LEGACY=1"})

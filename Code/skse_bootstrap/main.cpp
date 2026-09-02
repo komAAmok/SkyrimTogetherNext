@@ -16,11 +16,13 @@
 // can fix it manually instead of failing silently.
 
 #include <Windows.h>
+#include <winver.h>
 
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -35,6 +37,7 @@ struct SksePluginInfo
 constexpr uint32_t kSksePluginInfoVersion = 1;
 constexpr wchar_t kRuntimeDirName[] = L"SkyrimTogetherRuntime";
 constexpr wchar_t kClientDllName[] = L"SkyrimTogetherRuntime.dll";
+constexpr wchar_t kClientDllLegacyName[] = L"SkyrimTogetherRuntime_1_5.dll";
 constexpr char kClientEntry[] = "STClient_Bootstrap";
 constexpr wchar_t kVersionMarker[] = L".str_version";
 
@@ -45,6 +48,33 @@ std::filesystem::path GetGameRoot()
         return {};
     std::filesystem::path p(exePath);
     return p.parent_path();
+}
+
+// The 1.5.x engine ships a different struct layout (ExtraDataList has no
+// vtable, several engine structs sit 8 bytes earlier), so the runtime is
+// built twice: SkyrimTogetherRuntime.dll (1.6.x/1.7.x) and
+// SkyrimTogetherRuntime_1_5.dll (1.5.x). Pick by the game exe file version.
+bool IsLegacyGame()
+{
+    wchar_t exePath[MAX_PATH];
+    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH))
+        return false;
+
+    DWORD handle = 0;
+    const DWORD size = GetFileVersionInfoSizeW(exePath, &handle);
+    if (size == 0)
+        return false;
+
+    std::vector<uint8_t> data(size);
+    if (!GetFileVersionInfoW(exePath, 0, size, data.data()))
+        return false;
+
+    VS_FIXEDFILEINFO* ffi = nullptr;
+    UINT len = 0;
+    if (!VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&ffi), &len) || !ffi)
+        return false;
+
+    return HIWORD(ffi->dwFileVersionMS) == 1 && LOWORD(ffi->dwFileVersionMS) == 5;
 }
 
 bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::path& acTarget)
@@ -127,7 +157,7 @@ void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesys
 
 bool StartClient(const std::filesystem::path& acGameRoot)
 {
-    const auto clientPath = acGameRoot / kClientDllName;
+    const auto clientPath = acGameRoot / (IsLegacyGame() ? kClientDllLegacyName : kClientDllName);
     HMODULE h = LoadLibraryW(clientPath.c_str());
     if (!h)
         return false;

@@ -77,7 +77,7 @@ jobs:
           # dir by the mod step; add copies of the shared runtime dlls so
           # the server stays self contained
           New-Item -ItemType Directory -Force -Path server-pack | Out-Null
-          Copy-Item mod-pack/Core/SkyrimTogetherRuntime/*.dll server-pack/ -ErrorAction SilentlyContinue
+          Copy-Item mod-pack/Core/SkyrimTogetherRuntime/*.dll server-pack/ -Exclude SkyrimTogetherRuntime*.dll -ErrorAction SilentlyContinue
           # a starter readme so hosts know how to configure and run it
           Set-Content server-pack/README.txt "Skyrim Together Next - dedicated server`n`nRun SkyrimTogetherServer.exe to start (a small control panel window opens).`n`n- Press Stop or close the window to shut the server down.`n- Edit config\STServer.ini (button in the window) to change port,`n  passwords, player limits and the mod policy.`n- Default port: UDP 10578 - remember to allow it in your firewall.`n- Add --nogui as a command line argument for the classic terminal mode.`n`nPlayers connect from the in-game menu (F2) to <this machine's ip>:10578.`nLAN/VPN play needs no further setup - see docs/LAN-RADMIN-GUIDE.md."
 

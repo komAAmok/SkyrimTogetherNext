@@ -148,9 +148,19 @@ struct PlayerCharacter : Actor
     uint8_t padPlayerEnd[0xBE0 - 0xB30];
 };
 
+#ifdef SKYRIM_TARGET_LEGACY
+// 1.5.x layout: inherited from Actor (ExtraDataList without vtable, -8).
+static_assert(offsetof(PlayerCharacter, objectives) == 0x580);
+static_assert(offsetof(PlayerCharacter, pSkills) == 0x9B0);
+static_assert(offsetof(PlayerCharacter, locationForm) == 0xAC8);
+static_assert(offsetof(PlayerCharacter, baseTints) == 0xB10);
+static_assert(offsetof(PlayerCharacter, overlayTints) == 0xB28);
+static_assert(sizeof(PlayerCharacter) == 0xBE0);
+#else
 static_assert(offsetof(PlayerCharacter, objectives) == 0x588);
 static_assert(offsetof(PlayerCharacter, pSkills) == 0x9B8);
 static_assert(offsetof(PlayerCharacter, locationForm) == 0xAD0);
 static_assert(offsetof(PlayerCharacter, baseTints) == 0xB18);
 static_assert(offsetof(PlayerCharacter, overlayTints) == 0xB30);
 static_assert(sizeof(PlayerCharacter) == 0xBE8);
+#endif

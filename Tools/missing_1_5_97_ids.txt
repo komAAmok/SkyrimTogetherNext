@@ -1,99 +1,33 @@
-# Skyrim Together Next - 1.5.97 missing address manifest
+# Skyrim Together Next - 1.5.97 missing address manifest (25 remaining)
 #
-# The 91 AE address-library ids below have no known 1.5.97 RVA.
+# Coverage is now 3033/3058 codebase ids (99.2%); these 25 have no
+# reliably recoverable 1.5.97 RVA (near-twin sibling functions, tiny
+# bodies, or data statics with no stable cross-version signal). All
+# degrade safely at runtime (zero-stub or RTTI null-guard).
+#
+# Recovered ids (66) were mapped by Tools/ida/match_capstone.py; see
+# docs/RELEASE-AND-MO2.md for the IDA workflow used for the rest.
 # Each line: <ae_id> | <kind> | <call-site variable> | <file:line>
-# Fill a completed table as 'ae_id 0xRVA' lines and feed it to:
-#   python3 Tools/Scripts/gen_se_map_from_history.py ... --overrides <file>
-# See docs/RELEASE-AND-MO2.md for the full IDA workflow.
-#
-# ae=11612 | function/data ptr | setWornData | Games/Skyrim/ExtraData/ExtraDataList.cpp:112
-# ae=11616 | function/data ptr | setHealth | Games/Skyrim/ExtraData/ExtraDataList.cpp:126
 # ae=11619 | function/data ptr | setChargeData | Games/Skyrim/ExtraData/ExtraDataList.cpp:104
 # ae=11620 | function/data ptr | setSoulData | Games/Skyrim/ExtraData/ExtraDataList.cpp:97
-# ae=11822 | function/data ptr | setPoison | Games/Skyrim/ExtraData/ExtraDataList.cpp:119
-# ae=12060 | function/data ptr | setEnchantmentData | Games/Skyrim/ExtraData/ExtraDataList.cpp:133
 # ae=14953 | function/data ptr | s_constructor | Games/Skyrim/Components/TESTexture.cpp:9
-# ae=16005 | function/data ptr | s_isQuestObject | Games/Skyrim/ExtraData/ExtraContainerChanges.cpp:27
-# ae=18518 | function/data ptr | getModifiedDistance | Services/Debug/Views/CombatView.cpp:84
-# ae=18563 | function/data ptr | s_clearImageSpaceModifier | Games/Skyrim/NetImmerse/ImageSpaceModifierInstance.h:24
-# ae=19075 | function/data ptr | s_getCOCPlacementInfo | Games/Skyrim/Forms/TESObjectCELL.cpp:30
-# ae=19708 | function/data ptr | s_addInventoryItem | Games/Skyrim/TESObjectREFR.cpp:1107
 # ae=19784 | function/data ptr | refrGetWorldLocation | Services/Debug/Views/CombatView.cpp:77
-# ae=19846 | function/data ptr | s_getHandle | Games/Skyrim/TESObjectREFR.cpp:123
-# ae=20203 | function/data ptr | getLocationEncounterZone | Services/Debug/Views/CombatView.cpp:36
-# ae=20460 | function/data ptr | s_loadCell | Games/Skyrim/Forms/TESWorldSpace.cpp:6
 # ae=21600 | function/data ptr | isFirstPerson | Games/Skyrim/Camera/PlayerCamera.cpp:15
-# ae=21622 | function/data ptr | hasPerk | Games/Skyrim/Magic/MagicTarget.cpp:234
-# ae=25011 | function/data ptr | IsStageDone | Games/Skyrim/Forms/TESQuest.cpp:58
-# ae=26231 | function/data ptr | updateWeather | Games/Skyrim/Sky/Sky.cpp:93
-# ae=26244 | function/data ptr | releaseWeatherOverride | Games/Skyrim/Sky/Sky.cpp:33
-# ae=26503 | function/data ptr | s_getDifficultyMultiplier | Games/References.cpp:56
-# ae=27244 | function/data ptr | s_calculateExperience | Games/Skyrim/PlayerCharacter.cpp:251
 # ae=32883 | function/data ptr | InternalRevertAnimationGraphManager | Games/IAnimationGraphManagerHolder.cpp:34
-# ae=33235 | function/data ptr | setTarget | Games/Skyrim/Combat/CombatController.cpp:73
-# ae=33236 | function/data ptr | s_updateTarget | Games/Skyrim/Combat/CombatController.cpp:81
-# ae=33261 | function/data ptr | checkMovement | Services/Debug/Views/CombatView.cpp:97
-# ae=33282 | function/data ptr | sortTargetSelectors | Games/Skyrim/Combat/CombatController.cpp:11
 # ae=33285 | function/data ptr | arrayQuickSort | Games/Skyrim/Combat/CombatController.cpp:8
-# ae=34053 | function/data ptr | adjustForPerks | Games/Skyrim/Magic/MagicTarget.cpp:233
 # ae=34370 | function/data ptr | s_finish | Games/Skyrim/Effects/InvisibilityEffect.cpp:27
-# ae=34512 | function/data ptr | dispelAllSpells | Games/Skyrim/Magic/MagicTarget.cpp:41
 # ae=34529 | function/data ptr | getTargetAsActor | Games/Skyrim/Magic/MagicTarget.cpp:77
-# ae=34989 | function/data ptr | s_start | Games/Skyrim/Effects/SummonCreatureEffect.h:30
-# ae=35269 | function/data ptr | s_playDialogueOption | Games/Misc/MenuTopicManager.cpp:40
-# ae=36035 | function/data ptr | ctor | Games/SaveLoad.cpp:20
-# ae=37198 | function/data ptr | addDeathItems | Games/Skyrim/Actor.cpp:1387
-# ae=37266 | function/data ptr | s_IsTalking | Games/Skyrim/Actor.cpp:1285
-# ae=37511 | function/data ptr | s_payGoldToContainer | Games/Skyrim/TESObjectREFR.cpp:369
-# ae=37521 | function/data ptr | s_pickUpObject | Games/Skyrim/Actor.cpp:1380
 # ae=37527 | function/data ptr | s_getGoldAmount | Games/Skyrim/Actor.cpp:726
-# ae=37542 | function/data ptr | s_speakSoundFunction | Games/Skyrim/Actor.cpp:1386
-# ae=37577 | function/data ptr | func | Services/Debug/Views/CombatView.cpp:111
-# ae=37577 | function/data ptr | isFleeing | Games/Skyrim/Actor.cpp:1388
 # ae=37717 | function/data ptr | setPlayerTeammate | Games/Skyrim/Actor.cpp:823
-# ae=37757 | function/data ptr | getDetectionState | Services/Debug/Views/CombatView.cpp:51
-# ae=37905 | function/data ptr | s_initiateMountPackage | Games/Skyrim/Actor.cpp:1384
-# ae=37975 | function/data ptr | s_unequipObject | Games/Skyrim/Actor.cpp:1385
 # ae=38533 | function/data ptr | s_setNoBleedoutRecovery | Games/Skyrim/Actor.cpp:311
-# ae=38896 | function/data ptr | s_equipFunc | Games/Skyrim/EquipManager.cpp:97
-# ae=38899 | function/data ptr | s_unequipAll | Games/Skyrim/EquipManager.cpp:137
-# ae=38903 | function/data ptr | s_unequipFunc | Games/Skyrim/EquipManager.cpp:107
-# ae=38903 | function/data ptr | s_unequipFunc | Games/Skyrim/EquipManager.cpp:127
-# ae=38959 | function/data ptr | s_initFromPackage | Games/References.cpp:137
-# ae=38979 | function/data ptr | setWeaponState | Games/Skyrim/Misc/ActorState.cpp:6
-# ae=39114 | function/data ptr | s_checkForNewPackage | Games/References.cpp:136
-# ae=39643 | function/data ptr | s_processResponse | Games/Skyrim/Actor.cpp:1383
-# ae=40454 | function/data ptr | s_dropObject | Games/Skyrim/Actor.cpp:1381
-# ae=40533 | function/data ptr | s_pickUpObject | Games/Skyrim/PlayerCharacter.cpp:248
-# ae=40535 | function/data ptr | s_setWaypoint | Games/Skyrim/PlayerCharacter.cpp:252
-# ae=40536 | function/data ptr | s_removeWaypoint | Games/Skyrim/PlayerCharacter.cpp:253
 # ae=42345 | function/data ptr | setEnabled | Games/Skyrim/AI/Movement/PlayerControls.cpp:13
-# ae=42704 | function/data ptr | s_updateDetectionState | Games/Skyrim/Actor.cpp:1382
-# ae=47196 | function/data ptr | isValidTarget | Services/Debug/Views/CombatView.cpp:44
-# ae=47303 | function/data ptr | actorHasEquippedRangedWeapon_m | Services/Debug/Views/CombatView.cpp:70
-# ae=47307 | function/data ptr | func | Services/Debug/Views/CombatView.cpp:104
-# ae=52626 | function/data ptr | s_showSubtitle | Games/Misc/SubtitleManager.cpp:45
-# ae=52627 | function/data ptr | s_hideSubtitle | Games/Misc/SubtitleManager.cpp:29
 # ae=52847 | function/data ptr | fadeOutGame | Games/References.cpp:77
-# ae=55485 | function/data ptr | s_isMovementControlsEnabled | Games/Skyrim/AI/Movement/PlayerControls.cpp:25
-# ae=55497 | function/data ptr | s_setBeastForm | Games/Skyrim/PlayerCharacter.cpp:249
-# ae=55739 | function/data ptr | s_bindEverythingToScript | Games/Misc/BSScript.cpp:99
-# ae=56205 | function/data ptr | s_playAnimation | Games/Skyrim/TESObjectREFR.cpp:1110
-# ae=56206 | function/data ptr | s_playAnimationAndWait | Games/Skyrim/TESObjectREFR.cpp:1109
-# ae=68545 | function/data ptr | setEnabled | Games/Skyrim/AI/Movement/PlayerControls.cpp:38
-# ae=70639 | function/data ptr | s_w2s | Games/Skyrim/NetImmerse/NiCamera.cpp:10
 # ae=82088 | function/data ptr | s_CloseAll | Games/Skyrim/Interface/UI.cpp:31
-# ae=104359 | function/data ptr | s_signaturesMatch | Games/Misc/BSScript.cpp:100
-# ae=104483 | function/data ptr | getPageForFrame | Games/Skyrim/Misc/BSScript.h:122
-# ae=104653 | function/data ptr | ctor | Games/Skyrim/Misc/BSScript.h:284
-# ae=104655 | function/data ptr | dtor | Games/Skyrim/Misc/BSScript.h:274
-# ae=105220 | function/data ptr | s_compareVariables | Games/Misc/BSScript.cpp:102
 # ae=370892 | function/data ptr | s_greetDistance | Games/References.cpp:44
 # ae=381472 | function/data ptr | s_difficulty | Games/References.cpp:38
 # ae=382393 | function/data ptr | s_value | Services/Debug/Views/CombatView.cpp:57
 # ae=382400 | function/data ptr | s_value | Services/Debug/Views/CombatView.cpp:63
 # ae=400180 | RTTI locator | rtti | Games/Skyrim/RTTI.cpp:5620
-# ae=404125 | function/data ptr | s_value | Games/Skyrim/AI/AITimer.h:7
 # ae=405282 | function/data ptr | s_value | Services/Debug/Views/CombatView.cpp:90
 # ae=406126 | function/data ptr | s_matrix | Games/Skyrim/Interface/Menus/HUDMenuUtils.cpp:19
 # ae=406160 | function/data ptr | s_port | Games/Skyrim/Interface/Menus/HUDMenuUtils.cpp:20

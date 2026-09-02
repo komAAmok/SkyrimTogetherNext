@@ -133,7 +133,14 @@ struct PlayerCharacter : Actor
         uint64_t instanceCount;
     };
 
+#ifdef SKYRIM_TARGET_LEGACY
+    // 1.5.x: the Actor base is 8 bytes smaller (ExtraDataList without
+    // vtable), so objectives sits at 0x580 instead of 0x588; all following
+    // absolute-anchor pads land 8 bytes earlier automatically.
+    uint8_t pad1[0x580 - sizeof(Actor)];
+#else
     uint8_t pad1[0x588 - sizeof(Actor)];
+#endif
     GameArray<ObjectiveInstance> objectives;
     uint8_t pad588[0x9B0 - 0x598];
     Skills** pSkills;

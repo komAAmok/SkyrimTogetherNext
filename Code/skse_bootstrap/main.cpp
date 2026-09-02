@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cwchar>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -54,6 +55,10 @@ std::filesystem::path GetGameRoot()
 // vtable, several engine structs sit 8 bytes earlier), so the runtime is
 // built twice: SkyrimTogetherRuntime.dll (1.6.x/1.7.x) and
 // SkyrimTogetherRuntime_1_5.dll (1.5.x). Pick by the game exe file version.
+//
+// The *structured* VS_FIXEDFILEINFO is unreliable on cracked builds (CODEX
+// stamps it 1.0.0.0 while the StringFileInfo entries still read 1.5.97.0),
+// so mirror the client and decide from the version strings first.
 bool IsLegacyGame()
 {
     wchar_t exePath[MAX_PATH];
@@ -69,6 +74,25 @@ bool IsLegacyGame()
     if (!GetFileVersionInfoW(exePath, 0, size, data.data()))
         return false;
 
+    // ProductVersion first, FileVersion as fallback (same order as the
+    // client's QueryGameVersion)
+    const wchar_t* kVersionKeys[] = {
+        L"\\StringFileInfo\\040904B0\\ProductVersion",
+        L"\\StringFileInfo\\040904B0\\FileVersion",
+    };
+    for (const wchar_t* key : kVersionKeys)
+    {
+        wchar_t* value = nullptr;
+        UINT len = 0;
+        if (VerQueryValueW(data.data(), key, reinterpret_cast<void**>(&value), &len) && value && *value)
+        {
+            int major = 0, minor = 0;
+            if (swscanf_s(value, L"%d.%d", &major, &minor) >= 2)
+                return major == 1 && minor == 5;
+        }
+    }
+
+    // last resort: the structured version (fine on official builds)
     VS_FIXEDFILEINFO* ffi = nullptr;
     UINT len = 0;
     if (!VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&ffi), &len) || !ffi)
@@ -157,10 +181,27 @@ void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesys
 
 bool StartClient(const std::filesystem::path& acGameRoot)
 {
-    const auto clientPath = acGameRoot / (IsLegacyGame() ? kClientDllLegacyName : kClientDllName);
+    const bool legacy = IsLegacyGame();
+    const auto clientPath = acGameRoot / (legacy ? kClientDllLegacyName : kClientDllName);
     HMODULE h = LoadLibraryW(clientPath.c_str());
     if (!h)
+    {
+        // diagnostic marker so a failure to start the client is not silent:
+        // which dll was picked and the loader error
+        const auto marker = acGameRoot / L"st_client_error.log";
+        wchar_t buf[160];
+        swprintf_s(buf, L"selected=%s error=%lu\r\n",
+                   legacy ? kClientDllLegacyName : kClientDllName, GetLastError());
+        const HANDLE f = CreateFileW(marker.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
+                                     nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f != INVALID_HANDLE_VALUE)
+        {
+            DWORD written = 0;
+            WriteFile(f, buf, static_cast<DWORD>(wcslen(buf) * sizeof(wchar_t)), &written, nullptr);
+            CloseHandle(f);
+        }
         return false;
+    }
 
     using BootstrapFn = bool (*)(const wchar_t*);
     const auto bootstrap = reinterpret_cast<BootstrapFn>(GetProcAddress(h, kClientEntry));

@@ -7,6 +7,7 @@
 #include <Windows.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -76,6 +77,48 @@ std::string QueryGameVersion()
 
     return {};
 }
+
+// The spdlog logger is only up once TiltedOnlineApp is constructed, so boot
+// failures before that point would otherwise be completely silent (observed
+// as "F2 does nothing, no error"). Append step markers to st_boot.log.
+void AppendBootLog(const std::filesystem::path& acGameRoot, const std::string& acLine)
+{
+    const auto log = acGameRoot / "st_boot.log";
+    FILE* f = nullptr;
+    if (fopen_s(&f, log.string().c_str(), "a") == 0 && f)
+    {
+        fprintf(f, "%s\n", acLine.c_str());
+        fclose(f);
+    }
+}
+
+// Fall back to the address library file names when the exe version resource
+// is missing or tampered with (common on repacks): Data/SKSE/Plugins ships
+// exactly one set of bins for the installed game version.
+std::string ScanLibraryVersion(const std::filesystem::path& acGameRoot)
+{
+    const auto plugins = acGameRoot / "Data" / "SKSE" / "Plugins";
+    std::error_code ec;
+    if (!std::filesystem::exists(plugins, ec))
+        return {};
+    for (auto it = std::filesystem::directory_iterator(plugins, ec);
+         it != std::filesystem::directory_iterator(); it.increment(ec))
+    {
+        if (ec)
+            break;
+        const std::string name = it->path().filename().string();
+        int a = 0, b = 0, c = 0, d = 0;
+        // versionlib-1-6-1170-0.bin  or  version-1-5-97-0.bin
+        if (sscanf_s(name.c_str(), "versionlib-%d-%d-%d-%d.bin", &a, &b, &c, &d) == 4 ||
+            sscanf_s(name.c_str(), "version-%d-%d-%d-%d.bin", &a, &b, &c, &d) == 4)
+        {
+            char buf[64];
+            sprintf_s(buf, "%d.%d.%d.%d", a, b, c, d);
+            return buf;
+        }
+    }
+    return {};
+}
 } // namespace
 
 extern "C" __declspec(dllexport) bool STClient_Bootstrap(const wchar_t* acpGameRoot)
@@ -89,11 +132,22 @@ extern "C" __declspec(dllexport) bool STClient_Bootstrap(const wchar_t* acpGameR
 
     const std::filesystem::path gamePath(acpGameRoot);
 
-    const auto version = QueryGameVersion();
+    const auto exeVersion = QueryGameVersion();
+    auto version = exeVersion;
     if (version.empty())
-        return false;
+        version = ScanLibraryVersion(gamePath); // repacks often strip it
 
+    AppendBootLog(gamePath, "boot: entered, exe version='" + exeVersion +
+                                "', resolved='" + version + "'");
+    if (version.empty())
+    {
+        AppendBootLog(gamePath, "boot: no usable game version, aborting");
+        return false;
+    }
+
+    AppendBootLog(gamePath, "boot: RunTiltedInit");
     RunTiltedInit(gamePath, version.c_str());
+    AppendBootLog(gamePath, "boot: RunTiltedApp");
     RunTiltedApp();
 
     return true;

@@ -275,6 +275,22 @@ bool StartClient(const std::filesystem::path& acGameRoot)
         {
             DWORD written = 0;
             WriteFile(f, buf, static_cast<DWORD>(wcslen(buf) * sizeof(wchar_t)), &written, nullptr);
+
+            // the client loads libcef.dll (+ chrome_elf.dll) at load time, so
+            // a truncated copy of any of these in the game root breaks the
+            // client with error 182 too; record their on-disk sizes as well
+            const wchar_t* kDeps[] = {L"libcef.dll", L"chrome_elf.dll",
+                                      L"d3dcompiler_47.dll", L"TPProcess.exe"};
+            for (const wchar_t* dep : kDeps)
+            {
+                const auto depPath = acGameRoot / dep;
+                const auto depSize = std::filesystem::file_size(depPath, ec);
+                wchar_t depBuf[160];
+                swprintf_s(depBuf, L"dep %s size=%llu\r\n", dep,
+                           ec ? 0ull : static_cast<unsigned long long>(depSize));
+                WriteFile(f, depBuf, static_cast<DWORD>(wcslen(depBuf) * sizeof(wchar_t)),
+                          &written, nullptr);
+            }
             CloseHandle(f);
         }
         return false;

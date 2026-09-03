@@ -17,6 +17,7 @@
 
 #include <Windows.h>
 #include <winver.h>
+#include <tlhelp32.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -54,13 +55,37 @@ std::filesystem::path GetGameRoot()
 // The 1.5.x engine ships a different struct layout (ExtraDataList has no
 // vtable, several engine structs sit 8 bytes earlier), so the runtime is
 // built twice: SkyrimTogetherRuntime.dll (1.6.x/1.7.x) and
-// SkyrimTogetherRuntime_1_5.dll (1.5.x). Pick by the game exe file version.
+// SkyrimTogetherRuntime_1_5.dll (1.5.x).
 //
-// The *structured* VS_FIXEDFILEINFO is unreliable on cracked builds (CODEX
-// stamps it 1.0.0.0 while the StringFileInfo entries still read 1.5.97.0),
-// so mirror the client and decide from the version strings first.
+// The loaded SKSE runtime is built for exactly one game version and its
+// module name embeds it (skse64_1_5_97.dll, skse64_1_6_1170.dll ...).
+// Downgrader mods overwrite the exe and can even strip its version
+// resource, so the SKSE module is the authoritative signal; the exe version
+// is only a fallback.
 bool IsLegacyGame()
 {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+    if (snap != INVALID_HANDLE_VALUE)
+    {
+        MODULEENTRY32W me{ sizeof(me) };
+        for (BOOL ok = Module32FirstW(snap, &me); ok; ok = Module32NextW(snap, &me))
+        {
+            const std::wstring name = me.szModule; // e.g. "skse64_1_5_97.dll"
+            if (name.rfind(L"skse64_", 0) != 0)
+                continue;
+            int major = 0, minor = 0;
+            if (swscanf_s(name.c_str() + 7, L"%d_%d", &major, &minor) >= 2)
+            {
+                CloseHandle(snap);
+                return major == 1 && minor == 5;
+            }
+        }
+        CloseHandle(snap);
+    }
+
+    // Fallback: the exe version. The *structured* VS_FIXEDFILEINFO is
+    // unreliable on cracked builds (CODEX stamps it 1.0.0.0 while the
+    // StringFileInfo entries still read 1.5.97.0), so read the strings first.
     wchar_t exePath[MAX_PATH];
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH))
         return false;

@@ -5,6 +5,7 @@
 // hooks, app start.
 
 #include <Windows.h>
+#include <tlhelp32.h>
 
 #include <cstdint>
 #include <cstdio>
@@ -78,6 +79,36 @@ std::string QueryGameVersion()
     return {};
 }
 
+// The loaded SKSE runtime is built for exactly one game version and its
+// module name embeds it (skse64_1_5_97.dll -> "1.5.97.0"). Downgrader mods
+// overwrite the exe and can strip its version resource, so this is the most
+// reliable signal; the exe strings and the address library scan are
+// fallbacks.
+std::string GetSKSEModuleVersion()
+{
+    std::string result;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, 0);
+    if (snap == INVALID_HANDLE_VALUE)
+        return result;
+    MODULEENTRY32W me{ sizeof(me) };
+    for (BOOL ok = Module32FirstW(snap, &me); ok; ok = Module32NextW(snap, &me))
+    {
+        const std::wstring name = me.szModule;
+        if (name.rfind(L"skse64_", 0) != 0)
+            continue;
+        int a = 0, b = 0, c = 0;
+        if (swscanf_s(name.c_str() + 7, L"%d_%d_%d", &a, &b, &c) >= 3)
+        {
+            char buf[64];
+            sprintf_s(buf, "%d.%d.%d.0", a, b, c);
+            result = buf;
+        }
+        break;
+    }
+    CloseHandle(snap);
+    return result;
+}
+
 // The spdlog logger is only up once TiltedOnlineApp is constructed, so boot
 // failures before that point would otherwise be completely silent (observed
 // as "F2 does nothing, no error"). Append step markers to st_boot.log.
@@ -133,9 +164,14 @@ extern "C" __declspec(dllexport) bool STClient_Bootstrap(const wchar_t* acpGameR
     const std::filesystem::path gamePath(acpGameRoot);
 
     const auto exeVersion = QueryGameVersion();
-    auto version = exeVersion;
+    // SKSE is version-locked to the game, so prefer its module name when a
+    // downgrader/other mod replaced the exe; exe strings and finally the
+    // address library file names are the fallbacks
+    auto version = GetSKSEModuleVersion();
     if (version.empty())
-        version = ScanLibraryVersion(gamePath); // repacks often strip it
+        version = exeVersion;
+    if (version.empty())
+        version = ScanLibraryVersion(gamePath);
 
     AppendBootLog(gamePath, "boot: entered, exe version='" + exeVersion +
                                 "', resolved='" + version + "'");

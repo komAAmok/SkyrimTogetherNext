@@ -39,17 +39,14 @@ jobs:
           # FOMOD layout: fomod/ holds the wizard, "Core" and "LegacySE" are
           # the option directories the wizard picks from; everything maps
           # straight into the game's Data folder.
-          New-Item -ItemType Directory -Force -Path mod-pack/fomod,mod-pack/Core,mod-pack/LegacySE | Out-Null
+          New-Item -ItemType Directory -Force -Path mod-pack/fomod,mod-pack/Core | Out-Null
           Copy-Item -Recurse GameFiles/Skyrim/fomod/* mod-pack/fomod/
-          # Core: everything except the fomod wizard itself and the legacy
-          # libraries (those are a wizard option)
+          # Core: everything except the fomod wizard itself. All address
+          # libraries (1.5.x version-*.bin + AE versionlib-*.bin) and the
+          # AE->SE maps ship with Core so the client self-configures to the
+          # real game version at runtime - no FOMOD option needed.
           Copy-Item -Recurse GameFiles/Skyrim/* mod-pack/Core/
           Remove-Item -Recurse -Force mod-pack/Core/fomod -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force mod-pack/Core/SKSE/Plugins/version-*.bin -ErrorAction SilentlyContinue
-          Remove-Item -Recurse -Force mod-pack/Core/SKSE/Plugins/versionlib-ae-to-se-*.map -ErrorAction SilentlyContinue
-          # LegacySE: pre-AE address libraries + the AE-to-SE maps
-          Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/version-*.bin mod-pack/LegacySE/ -ErrorAction SilentlyContinue
-          Copy-Item -Recurse GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-*.map mod-pack/LegacySE/ -ErrorAction SilentlyContinue
           # the launch verification script is a wizard option: it relies on a
           # papyrus native that degrades on 1.5.x (would always nag "not
           # running" there), so 1.5.x players uncheck it

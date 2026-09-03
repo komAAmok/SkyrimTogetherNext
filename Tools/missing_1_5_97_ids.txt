@@ -1,27 +1,10 @@
-# Skyrim Together Next - 1.5.97 missing address manifest (25 remaining)
-#
-# Coverage is now 3033/3058 codebase ids (99.2%); these 25 have no
-# reliably recoverable 1.5.97 RVA (near-twin sibling functions, tiny
-# bodies, or data statics with no stable cross-version signal). All
-# degrade safely at runtime (zero-stub or RTTI null-guard).
-#
-# Recovered ids (66) were mapped by Tools/ida/match_capstone.py; see
-# docs/RELEASE-AND-MO2.md for the IDA workflow used for the rest.
-# Each line: <ae_id> | <kind> | <call-site variable> | <file:line>
-# ae=11619 | function/data ptr | setChargeData | Games/Skyrim/ExtraData/ExtraDataList.cpp:104
-# ae=11620 | function/data ptr | setSoulData | Games/Skyrim/ExtraData/ExtraDataList.cpp:97
-# ae=14953 | function/data ptr | s_constructor | Games/Skyrim/Components/TESTexture.cpp:9
-# ae=19784 | function/data ptr | refrGetWorldLocation | Services/Debug/Views/CombatView.cpp:77
+# Skyrim Together Next - 1.5.97 missing address manifest (14 remaining)
+# Coverage 3044/3058 (99.5%). 4 functions (near-twin / camera / flags
+# families) + 10 data statics. See Tools/missing_1_5_97_analysis.md for
+# the current investigation state. All degrade safely (stub/null-guard).
 # ae=21600 | function/data ptr | isFirstPerson | Games/Skyrim/Camera/PlayerCamera.cpp:15
 # ae=32883 | function/data ptr | InternalRevertAnimationGraphManager | Games/IAnimationGraphManagerHolder.cpp:34
-# ae=33285 | function/data ptr | arrayQuickSort | Games/Skyrim/Combat/CombatController.cpp:8
-# ae=34370 | function/data ptr | s_finish | Games/Skyrim/Effects/InvisibilityEffect.cpp:27
-# ae=34529 | function/data ptr | getTargetAsActor | Games/Skyrim/Magic/MagicTarget.cpp:77
-# ae=37527 | function/data ptr | s_getGoldAmount | Games/Skyrim/Actor.cpp:726
 # ae=37717 | function/data ptr | setPlayerTeammate | Games/Skyrim/Actor.cpp:823
-# ae=38533 | function/data ptr | s_setNoBleedoutRecovery | Games/Skyrim/Actor.cpp:311
-# ae=42345 | function/data ptr | setEnabled | Games/Skyrim/AI/Movement/PlayerControls.cpp:13
-# ae=52847 | function/data ptr | fadeOutGame | Games/References.cpp:77
 # ae=82088 | function/data ptr | s_CloseAll | Games/Skyrim/Interface/UI.cpp:31
 # ae=370892 | function/data ptr | s_greetDistance | Games/References.cpp:44
 # ae=381472 | function/data ptr | s_difficulty | Games/References.cpp:38

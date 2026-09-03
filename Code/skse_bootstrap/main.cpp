@@ -133,14 +133,30 @@ bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::pa
     return false;
 }
 
-bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload)
+// appends a UTF-16 line to a log file in the game root; used for deploy and
+// client-loader diagnostics so a failure is never silent
+void AppendLog(const std::filesystem::path& acFile, const std::wstring& acLine)
+{
+    const HANDLE f = CreateFileW(acFile.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
+                                 nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE)
+        return;
+    DWORD written = 0;
+    std::wstring line = acLine + L"\r\n";
+    WriteFile(f, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
+    CloseHandle(f);
+}
+
+bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload,
+                   std::vector<std::wstring>& aFailures)
 {
     // the marker travels with the payload and records its build version
     std::filesystem::path marker = acPayload / kVersionMarker;
     if (!std::filesystem::exists(marker))
+    {
+        aFailures.push_back(L"<payload> missing .str_version marker; SkyrimTogetherRuntime/ not installed");
         return false; // payload directory not installed
-
-    bool allOk = true;
+    }
 
     // walk the payload and mirror it into the game root
     std::error_code ec;
@@ -160,20 +176,39 @@ bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesyste
         std::filesystem::create_directories(target.parent_path(), ec);
         if (!DeployFile(it->path(), target))
         {
-            allOk = false;
+            wchar_t buf[320];
+            swprintf_s(buf, L"failed: %s (error %lu)", rel.c_str(), GetLastError());
+            aFailures.emplace_back(buf);
         }
     }
 
-    return allOk;
+    return aFailures.empty();
 }
 
-void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload)
+void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload,
+                     const std::vector<std::wstring>& aFailures)
 {
+    // write the detailed list to the game root so the user can report it
+    const auto log = acGameRoot / L"st_deploy_error.log";
+    AppendLog(log, L"[deploy] game root: " + acGameRoot.wstring());
+    AppendLog(log, L"[deploy] payload: " + acPayload.wstring());
+    for (const auto& failure : aFailures)
+        AppendLog(log, L"[deploy] " + failure);
+
     // simple MessageBox based report; task dialogs need comctl32 linkage we
-    // deliberately avoid in this bootstrap dll
+    // deliberately avoid in this bootstrap dll. Only the first few failures
+    // are quoted so the message stays readable.
+    std::wstring detail;
+    const size_t shown = aFailures.size() > 3 ? 3 : aFailures.size();
+    for (size_t i = 0; i < shown; i++)
+        detail += L"\n  " + aFailures[i];
+    if (aFailures.size() > shown)
+        detail += L"\n  ... and " + std::to_wstring(aFailures.size() - shown) + L" more (see st_deploy_error.log)";
+
     const std::wstring msg = L"Skyrim Together could not deploy its runtime files.\n\n"
                              L"Payload: " + acPayload.wstring() +
                              L"\nGame root: " + acGameRoot.wstring() +
+                             detail +
                              L"\n\nPlease copy the contents of the payload folder into the game root "
                              L"manually (libcef.dll and friends), or run the game as administrator once.";
     MessageBoxW(nullptr, msg.c_str(), L"Skyrim Together", MB_ICONERROR | MB_OK);
@@ -234,17 +269,33 @@ __declspec(dllexport) bool SKSEPlugin_Load(const void*)
     // Data/<RuntimeDir> - MO2 virtualizes this when installed as a mod; a
     // manual Data copy resolves to the same location
     const auto payload = gameRoot / L"Data" / kRuntimeDirName;
-    if (!DeployRuntime(gameRoot, payload))
+    std::vector<std::wstring> failures;
+    if (!DeployRuntime(gameRoot, payload, failures))
     {
         // payload missing entirely -> nothing we can do automatically
         if (!std::filesystem::exists(payload))
         {
-            ShowDeployError(gameRoot, payload);
+            ShowDeployError(gameRoot, payload, failures);
             return false;
         }
-        // some files failed to copy; report and continue, the client may
-        // still start if the failed file was not critical
-        ShowDeployError(gameRoot, payload);
+        // some files failed to copy; only nag when a critical file is among
+        // them (the client dlls or the cef runtime), otherwise the client
+        // may still start and the failure is logged in st_deploy_error.log
+        bool critical = false;
+        for (const auto& failure : failures)
+        {
+            if (failure.find(L"SkyrimTogetherRuntime") != std::wstring::npos ||
+                failure.find(L"libcef") != std::wstring::npos)
+            {
+                critical = true;
+                break;
+            }
+        }
+        if (critical)
+            ShowDeployError(gameRoot, payload, failures);
+        else
+            AppendLog(gameRoot / L"st_deploy_error.log",
+                      L"[deploy] non-critical failures; continuing to start the client");
     }
 
     return StartClient(gameRoot);

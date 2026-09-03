@@ -2,7 +2,12 @@
     <moduleName>Skyrim Together Next</moduleName>
 
     <requiredInstallFiles>
-        <folder source="Core" destination="" />
+        <folder source="SKSE" destination="SKSE" />
+        <folder source="SkyrimTogetherRuntime" destination="SkyrimTogetherRuntime" />
+        <folder source="scripts" destination="scripts" />
+        <folder source="meshes" destination="meshes" />
+        <folder source="SkyrimTogetherRebornBehaviors" destination="SkyrimTogetherRebornBehaviors" />
+        <file source="SkyrimTogether.esp" destination="SkyrimTogether.esp" />
     </requiredInstallFiles>
 
     <installSteps order="Explicit">

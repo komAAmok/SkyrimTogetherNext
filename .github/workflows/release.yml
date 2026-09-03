@@ -36,36 +36,36 @@ jobs:
       - name: Assemble the mod package layout
         run: |
           # ---- client mod (SkyrimTogetherNextMod-<version>.zip) ----
-          # FOMOD layout: fomod/ holds the wizard, "Core" and "LegacySE" are
-          # the option directories the wizard picks from; everything maps
-          # straight into the game's Data folder.
-          New-Item -ItemType Directory -Force -Path mod-pack/fomod,mod-pack/Core | Out-Null
+          # The zip root mirrors the game's Data folder (SKSE/, scripts/,
+          # meshes/, SkyrimTogether.esp, SkyrimTogetherRebornBehaviors/,
+          # SkyrimTogetherRuntime/), so a DIRECT install - when MO2 does not
+          # run the FOMOD wizard (replace installs, older MO2) or the user
+          # extracts the archive by hand - is already correct. fomod/ holds
+          # the wizard; the optional folders (VerifyScript/, launcher/) sit
+          # at the root as well.
+          New-Item -ItemType Directory -Force -Path mod-pack/fomod,mod-pack/launcher,server-pack | Out-Null
           Copy-Item -Recurse GameFiles/Skyrim/fomod/* mod-pack/fomod/
-          # Core: everything except the fomod wizard itself. All address
-          # libraries (1.5.x version-*.bin + AE versionlib-*.bin) and the
-          # AE->SE maps ship with Core so the client self-configures to the
-          # real game version at runtime - no FOMOD option needed.
-          Copy-Item -Recurse GameFiles/Skyrim/* mod-pack/Core/
-          Remove-Item -Recurse -Force mod-pack/Core/fomod -ErrorAction SilentlyContinue
+          Get-ChildItem GameFiles/Skyrim -Force | Where-Object { $_.Name -ne 'fomod' } |
+            ForEach-Object { Copy-Item -Recurse $_.FullName mod-pack/ }
           # the launch verification script is a wizard option: it relies on a
           # papyrus native that degrades on 1.5.x (would always nag "not
           # running" there), so 1.5.x players uncheck it
           New-Item -ItemType Directory -Force -Path mod-pack/VerifyScript/scripts | Out-Null
-          Move-Item mod-pack/Core/scripts/SkyrimTogetherVerifyLaunchScript.pex mod-pack/VerifyScript/scripts/
+          Move-Item mod-pack/scripts/SkyrimTogetherVerifyLaunchScript.pex mod-pack/VerifyScript/scripts/
           # SKSE bootstrap plugin; on load it deploys the runtime payload
           # from Data/SkyrimTogetherRuntime/ into the game root
-          New-Item -ItemType Directory -Force -Path mod-pack/Core/SKSE/Plugins | Out-Null
-          Move-Item build/windows/x64/release/SkyrimTogetherSKSE.dll mod-pack/Core/SKSE/Plugins/
+          New-Item -ItemType Directory -Force -Path mod-pack/SKSE/Plugins | Out-Null
+          Move-Item build/windows/x64/release/SkyrimTogetherSKSE.dll mod-pack/SKSE/Plugins/
           # self deploying runtime payload: everything the client needs at
           # the game root (client dll, cef runtime + locales, tp_process,
           # UI assets). only the launcher/server binaries and build
           # byproducts are held back
-          New-Item -ItemType Directory -Force -Path mod-pack/Core/SkyrimTogetherRuntime,mod-pack/launcher,server-pack | Out-Null
+          New-Item -ItemType Directory -Force -Path mod-pack/SkyrimTogetherRuntime | Out-Null
           Move-Item -Path build/windows/x64/release/SkyrimTogether.exe,build/windows/x64/release/EarlyLoad.dll -Destination mod-pack/launcher/ -ErrorAction SilentlyContinue
           Move-Item -Path build/windows/x64/release/SkyrimTogetherServer.exe,build/windows/x64/release/STServer.dll -Destination server-pack/ -ErrorAction SilentlyContinue
           Get-ChildItem build/windows/x64/release -Exclude *.pdb,*.lib,*.exp,*Tests.exe |
-            Move-Item -Destination mod-pack/Core/SkyrimTogetherRuntime/
-          New-Item -ItemType File -Path mod-pack/Core/SkyrimTogetherRuntime/.str_version | Out-Null
+            Move-Item -Destination mod-pack/SkyrimTogetherRuntime/
+          New-Item -ItemType File -Path mod-pack/SkyrimTogetherRuntime/.str_version | Out-Null
 
       - name: Assemble the server package layout
         run: |
@@ -74,7 +74,7 @@ jobs:
           # dir by the mod step; add copies of the shared runtime dlls so
           # the server stays self contained
           New-Item -ItemType Directory -Force -Path server-pack | Out-Null
-          Copy-Item mod-pack/Core/SkyrimTogetherRuntime/*.dll server-pack/ -Exclude SkyrimTogetherRuntime*.dll -ErrorAction SilentlyContinue
+          Copy-Item mod-pack/SkyrimTogetherRuntime/*.dll server-pack/ -Exclude SkyrimTogetherRuntime*.dll -ErrorAction SilentlyContinue
           # a starter readme so hosts know how to configure and run it
           Set-Content server-pack/README.txt "Skyrim Together Next - dedicated server`n`nRun SkyrimTogetherServer.exe to start (a small control panel window opens).`n`n- Press Stop or close the window to shut the server down.`n- Edit config\STServer.ini (button in the window) to change port,`n  passwords, player limits and the mod policy.`n- Default port: UDP 10578 - remember to allow it in your firewall.`n- Add --nogui as a command line argument for the classic terminal mode.`n`nPlayers connect from the in-game menu (F2) to <this machine's ip>:10578.`nLAN/VPN play needs no further setup - see docs/LAN-RADMIN-GUIDE.md."
 

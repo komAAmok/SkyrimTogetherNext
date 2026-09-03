@@ -132,11 +132,23 @@ bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::pa
     if (!std::filesystem::exists(acTarget, ec))
         return std::filesystem::copy_file(acSource, acTarget, std::filesystem::copy_options::overwrite_existing, ec);
 
-    // keep the newer build; skip when the target is already up to date
-    const auto srcTime = std::filesystem::last_write_time(acSource, ec);
-    const auto dstTime = std::filesystem::last_write_time(acTarget, ec);
-    if (!ec && srcTime <= dstTime)
-        return true;
+    // keep the newer build; skip when the target is already up to date.
+    // a mismatching SIZE means an earlier copy was interrupted (permissions,
+    // crash, AV) and left a truncated file behind - a truncated dll makes
+    // LoadLibrary fail with ERROR_INVALID_DATATYPE (182), so always re-copy.
+    const auto srcSize = std::filesystem::file_size(acSource, ec);
+    const auto dstSize = std::filesystem::file_size(acTarget, ec);
+    if (ec || srcSize == 0 || srcSize != dstSize)
+    {
+        // fall through and re-copy (the .str_new dance below replaces it)
+    }
+    else
+    {
+        const auto srcTime = std::filesystem::last_write_time(acSource, ec);
+        const auto dstTime = std::filesystem::last_write_time(acTarget, ec);
+        if (!ec && srcTime <= dstTime)
+            return true;
+    }
 
     // write to a temp name first so a loaded/locked dll can be replaced on
     // the next start, then swap
@@ -247,11 +259,16 @@ bool StartClient(const std::filesystem::path& acGameRoot)
     if (!h)
     {
         // diagnostic marker so a failure to start the client is not silent:
-        // which dll was picked and the loader error
+        // which dll was picked, its size on disk (a truncated copy from an
+        // interrupted deploy fails with error 182) and the loader error
         const auto marker = acGameRoot / L"st_client_error.log";
-        wchar_t buf[160];
-        swprintf_s(buf, L"selected=%s error=%lu\r\n",
-                   legacy ? kClientDllLegacyName : kClientDllName, GetLastError());
+        wchar_t buf[192];
+        std::error_code ec;
+        const auto fileSize = std::filesystem::file_size(clientPath, ec);
+        swprintf_s(buf, L"selected=%s size=%llu error=%lu\r\n",
+                   legacy ? kClientDllLegacyName : kClientDllName,
+                   ec ? 0ull : static_cast<unsigned long long>(fileSize),
+                   GetLastError());
         const HANDLE f = CreateFileW(marker.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
                                      nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f != INVALID_HANDLE_VALUE)
@@ -319,8 +336,14 @@ __declspec(dllexport) bool SKSEPlugin_Load(const void*)
         if (critical)
             ShowDeployError(gameRoot, payload, failures);
         else
-            AppendLog(gameRoot / L"st_deploy_error.log",
-                      L"[deploy] non-critical failures; continuing to start the client");
+        {
+            // still record what failed so it is diagnosable, but keep going
+            // - the client may start if the failed file is not critical
+            const auto log = gameRoot / L"st_deploy_error.log";
+            AppendLog(log, L"[deploy] non-critical failures; continuing");
+            for (const auto& failure : failures)
+                AppendLog(log, L"[deploy] " + failure);
+        }
     }
 
     return StartClient(gameRoot);

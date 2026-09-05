@@ -68,7 +68,7 @@ mod 更新后再次启动会自动同步有变化的文件,**无需任何手动�
 
 ### 方式 B:ST 启动器启动(可选)
 
-FOMOD 向导的"启动方式"步骤可勾选"附带独立启动器",安装后位于
+FOMOD 向导的"可选组件"步骤可勾选"独立启动器",安装后位于
 `Data\SkyrimTogetherLauncher\`:
 
 1. 把 `SkyrimTogetherLauncher\` 里的**全部文件**复制到游戏根目录;

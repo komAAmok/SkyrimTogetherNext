@@ -66,6 +66,12 @@ jobs:
           Get-ChildItem build/windows/x64/release -Exclude *.pdb,*.lib,*.exp,*Tests.exe |
             Move-Item -Destination mod-pack/SkyrimTogetherRuntime/
           New-Item -ItemType File -Path mod-pack/SkyrimTogetherRuntime/.str_version | Out-Null
+          # both per-version runtimes have to be in the payload: the SKSE
+          # bootstrap picks one by game version, and a missing one means the
+          # game starts with no Skyrim Together at all
+          foreach ($dll in 'SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll') {
+            if (!(Test-Path "mod-pack/SkyrimTogetherRuntime/$dll")) { throw "mod package is missing $dll" }
+          }
 
       - name: Assemble the server package layout
         run: |

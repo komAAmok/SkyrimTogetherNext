@@ -120,6 +120,19 @@ jobs:
           xmake -y
           echo "STR_BUILD_DIR=build/windows/${{ matrix.arch }}/${{ inputs.build-mode }}/" >> $env:GITHUB_ENV
 
+      # The 1.5.x runtime is a second client DLL built from the same sources
+      # with the legacy struct layouts. It is built explicitly (Build.bat does
+      # the same) and then checked, because a package without it leaves 1.5.x
+      # players with a game that starts and never opens the multiplayer menu.
+      - name: Build the legacy 1.5.x client runtime
+        run: |
+          xmake build SkyrimTogetherClientDllLegacy
+          foreach ($dll in 'SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll') {
+            $path = Join-Path $env:STR_BUILD_DIR $dll
+            if (!(Test-Path $path)) { throw "$dll was not produced by the build" }
+            Write-Host "$dll $((Get-Item $path).Length) bytes"
+          }
+
       # Create distrib
       - name: Output distrib binaries via xmake
         run: |

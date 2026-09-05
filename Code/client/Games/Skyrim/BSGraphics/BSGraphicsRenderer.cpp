@@ -194,7 +194,7 @@ static TiltedPhoques::Initializer s_viewportHooks(
         if (auto* pAcquireKeyboard = GamePatch::Anchor(68781, "dinput cooperative level"))
         {
             GamePatch::Put<uint32_t>(
-                GamePatch::At(pAcquireKeyboard, {0x55 + 2, 0x55 + 2}, "dinput cooperative level"),
+                GamePatch::At(pAcquireKeyboard, {0x55 + 2}, "dinput cooperative level"),
                 /*strip DISCL_EXCLUSIVE bits and append DISCL_NONEXCLUSIVE*/ 3u,
                 "dinput cooperative level");
         }

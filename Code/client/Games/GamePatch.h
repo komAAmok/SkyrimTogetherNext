@@ -35,11 +35,16 @@
 namespace GamePatch
 {
 // A patch site inside an anchor. The offset was measured on 1.6.x and does not
-// survive the recompile, so 1.5.x carries its own: Tools/ida/
-// patch_offsets_1597.py aligns the two disassemblies instruction by
-// instruction and reports where each site moved to. Leave `legacy` at kUnknown
-// when the 1.6.x instruction has no aligned twin there - the patch is then
-// skipped on 1.5.x rather than aimed at whatever sits at the 1.6.x offset.
+// survive the recompile, so 1.5.x needs its own - and `legacy` stays at
+// kUnknown until that offset is verified against the actual bytes, which no
+// patch site currently is.
+//
+// Tools/ida/patch_offsets_1597.py aligns the two disassemblies and proposes an
+// offset, but aligning "a call" to "a call" is not proof it is the same call,
+// and a misplaced Nop or a SwapCall that captures a bogus callee corrupts live
+// code. Every site here is quality of life (menu unfreezing, favorites
+// numbering, the stats menu, thread names), so an unverified offset is not
+// worth the crash risk: kUnknown skips the patch and logs it.
 struct Site
 {
     static constexpr size_t kUnknown = static_cast<size_t>(-1);

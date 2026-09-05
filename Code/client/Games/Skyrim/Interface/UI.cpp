@@ -124,7 +124,7 @@ static TiltedPhoques::Initializer s_s(
     {
         if (auto* pAddToActiveQueue = GamePatch::Anchor(82082, "menu unfreeze"))
         {
-            GamePatch::SwapCall(GamePatch::At(pAddToActiveQueue, {0x682, 0x6A4}, "menu unfreeze"),
+            GamePatch::SwapCall(GamePatch::At(pAddToActiveQueue, {0x682}, "menu unfreeze"),
                                 UI_AddToActiveQueue, &UI_AddToActiveQueue_Hook, "menu unfreeze");
         }
 
@@ -137,7 +137,7 @@ static TiltedPhoques::Initializer s_s(
         // Credits to Skyrim Souls RE for this fix.
         // Allows the favorites menu to be numbered during connect.
         if (auto* pFavoritesCanProcess = GamePatch::Anchor(51538, "favorites menu numbering"))
-            GamePatch::Put<uint16_t>(GamePatch::At(pFavoritesCanProcess, {0x15, 0x15}, "favorites menu numbering"),
+            GamePatch::Put<uint16_t>(GamePatch::At(pFavoritesCanProcess, {0x15}, "favorites menu numbering"),
                                      0x9090, "favorites menu numbering");
 
         // Some experiments:

@@ -170,17 +170,28 @@ bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::pa
     return false;
 }
 
-// appends a UTF-16 line to a log file in the game root; used for deploy and
-// client-loader diagnostics so a failure is never silent
+// Appends a line to a log file in the game root, used for deploy and
+// client-loader diagnostics so a failure is never silent. UTF-8, because the
+// client appends to st_boot.log too and writes narrow text there - two
+// encodings in one file made it unreadable in any editor.
 void AppendLog(const std::filesystem::path& acFile, const std::wstring& acLine)
 {
+    const std::wstring line = acLine + L"\r\n";
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, line.c_str(), static_cast<int>(line.size()),
+                                          nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0)
+        return;
+
+    std::string utf8(static_cast<size_t>(bytes), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, line.c_str(), static_cast<int>(line.size()),
+                        utf8.data(), bytes, nullptr, nullptr);
+
     const HANDLE f = CreateFileW(acFile.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
                                  nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE)
         return;
     DWORD written = 0;
-    std::wstring line = acLine + L"\r\n";
-    WriteFile(f, line.c_str(), static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
+    WriteFile(f, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
     CloseHandle(f);
 }
 
@@ -275,33 +286,25 @@ bool StartClient(const std::filesystem::path& acGameRoot)
         wchar_t buf[192];
         std::error_code ec;
         const auto fileSize = std::filesystem::file_size(clientPath, ec);
-        swprintf_s(buf, L"selected=%s size=%llu error=%lu\r\n",
+        swprintf_s(buf, L"selected=%s size=%llu error=%lu",
                    legacy ? kClientDllLegacyName : kClientDllName,
                    ec ? 0ull : static_cast<unsigned long long>(fileSize),
                    error);
-        const HANDLE f = CreateFileW(marker.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
-                                     nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (f != INVALID_HANDLE_VALUE)
-        {
-            DWORD written = 0;
-            WriteFile(f, buf, static_cast<DWORD>(wcslen(buf) * sizeof(wchar_t)), &written, nullptr);
+        AppendLog(marker, buf);
 
-            // the client loads libcef.dll (+ chrome_elf.dll) at load time, so
-            // a truncated copy of any of these in the game root breaks the
-            // client with error 182 too; record their on-disk sizes as well
-            const wchar_t* kDeps[] = {L"libcef.dll", L"chrome_elf.dll",
-                                      L"d3dcompiler_47.dll", L"TPProcess.exe"};
-            for (const wchar_t* dep : kDeps)
-            {
-                const auto depPath = acGameRoot / dep;
-                const auto depSize = std::filesystem::file_size(depPath, ec);
-                wchar_t depBuf[160];
-                swprintf_s(depBuf, L"dep %s size=%llu\r\n", dep,
-                           ec ? 0ull : static_cast<unsigned long long>(depSize));
-                WriteFile(f, depBuf, static_cast<DWORD>(wcslen(depBuf) * sizeof(wchar_t)),
-                          &written, nullptr);
-            }
-            CloseHandle(f);
+        // the client loads libcef.dll (+ chrome_elf.dll) at load time, so
+        // a truncated copy of any of these in the game root breaks the
+        // client with error 182 too; record their on-disk sizes as well
+        const wchar_t* kDeps[] = {L"libcef.dll", L"chrome_elf.dll",
+                                  L"d3dcompiler_47.dll", L"TPProcess.exe"};
+        for (const wchar_t* dep : kDeps)
+        {
+            const auto depPath = acGameRoot / dep;
+            const auto depSize = std::filesystem::file_size(depPath, ec);
+            wchar_t depBuf[160];
+            swprintf_s(depBuf, L"dep %s size=%llu", dep,
+                       ec ? 0ull : static_cast<unsigned long long>(depSize));
+            AppendLog(marker, depBuf);
         }
 
         // Without this the failure is invisible in game: SKSE ignores a plugin

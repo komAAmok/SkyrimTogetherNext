@@ -124,19 +124,21 @@ static TiltedPhoques::Initializer s_s(
     {
         if (auto* pAddToActiveQueue = GamePatch::Anchor(82082, "menu unfreeze"))
         {
-            GamePatch::SwapCall(pAddToActiveQueue + 0x682, UI_AddToActiveQueue, &UI_AddToActiveQueue_Hook,
-                                "menu unfreeze");
+            GamePatch::SwapCall(GamePatch::At(pAddToActiveQueue, {0x682, 0x6A4}, "menu unfreeze"),
+                                UI_AddToActiveQueue, &UI_AddToActiveQueue_Hook, "menu unfreeze");
         }
 
         // Ignore startup movie
         // TODO: Move me later.
         if (auto* pMainInit = GamePatch::Anchor(36548, "skip startup movie"))
-            GamePatch::Put<uint8_t>(pMainInit + 0xFE, 0xEB, "skip startup movie");
+            GamePatch::Put<uint8_t>(GamePatch::At(pMainInit, {0xFE}, "skip startup movie"), 0xEB,
+                                    "skip startup movie");
 
         // Credits to Skyrim Souls RE for this fix.
         // Allows the favorites menu to be numbered during connect.
         if (auto* pFavoritesCanProcess = GamePatch::Anchor(51538, "favorites menu numbering"))
-            GamePatch::Put<uint16_t>(pFavoritesCanProcess + 0x15, 0x9090, "favorites menu numbering");
+            GamePatch::Put<uint16_t>(GamePatch::At(pFavoritesCanProcess, {0x15, 0x15}, "favorites menu numbering"),
+                                     0x9090, "favorites menu numbering");
 
         // Some experiments:
         // POINTER_SKYRIMSE(TCallback, s_start, 13631);

@@ -153,5 +153,6 @@ static TiltedPhoques::Initializer s_projectileHooks(
                 ret();
             }
         } gen(pHookLoc);
-        GamePatch::Jump(pHookLoc + 0x374, gen.getCode(), "projectile null check");
+        GamePatch::Jump(GamePatch::At(pHookLoc, {0x374}, "projectile null check"), gen.getCode(),
+                        "projectile null check");
     });

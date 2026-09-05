@@ -157,63 +157,40 @@ void Hook_StopTimer(int type)
     StopTimer(type);
 }
 
-// 1.5.x reaches the same per frame callback differently: the call that the
-// 1.6.x/1.7.x layout has 9 bytes into id 77246 does not exist at that offset
-// there, so the frame end function itself is detoured. That is what this code
-// base did while it still targeted 1.5.97 (Games/Renderer.cpp before commit
-// 8eaca858 hooked RVA 0xD6A2B0, which is exactly what id 77246 maps to now).
-void (*RenderFrameEnd)() = nullptr;
-
-void Hook_RenderFrameEnd()
-{
-    PumpOverlay();
-
-    RenderFrameEnd();
-}
-
 static TiltedPhoques::Initializer s_viewportHooks(
     []()
     {
-        // 1.5.x runs off a pre-AE address library: many of the ids used as
-        // patch anchors have no mapping there, and the offsets into the ones
-        // that do map were measured on 1.6.x.
-        const bool legacyGame = VersionDb::Get().IsLegacyFormat();
-
         auto* pRendererInit = GamePatch::Anchor(77226, "renderer init");
 
-        if (pRendererInit && !legacyGame)
+        if (pRendererInit)
         {
             // patch dwStyle in BSGraphics::InitWindows so windowed mode keeps
-            // its close button. Cosmetic, and the offset is 1.6.x/1.7.x only -
-            // on 1.5.97 the same store lives at RVA 0xD71FA9+1, far outside
-            // this function - so it is dropped on 1.5.x rather than writing
-            // into the renderer init we are about to detour.
-            GamePatch::Put<uint32_t>(pRendererInit + 0x174 + 1, WS_OVERLAPPEDWINDOW, "window style");
+            // its close button. 1.5.97 stores it from a different function
+            // (RVA 0xD71FA9+1, outside this anchor), and the patch is only
+            // cosmetic, so it is dropped there instead of writing into the
+            // renderer init we are about to detour.
+            GamePatch::Put<uint32_t>(GamePatch::At(pRendererInit, {0x174 + 1}, "window style"),
+                                     WS_OVERLAPPEDWINDOW, "window style");
+        }
 
-            // TODO: move me to input patches.
-            // don't let the game steal the media keys in windowed mode
-            if (auto* pAcquireKeyboard = GamePatch::Anchor(68781, "dinput cooperative level"))
-            {
-                GamePatch::Put<uint32_t>(pAcquireKeyboard + 0x55 + 2,
-                                         /*strip DISCL_EXCLUSIVE bits and append DISCL_NONEXCLUSIVE*/ 3u,
-                                         "dinput cooperative level");
-            }
+        // TODO: move me to input patches.
+        // don't let the game steal the media keys in windowed mode
+        if (auto* pAcquireKeyboard = GamePatch::Anchor(68781, "dinput cooperative level"))
+        {
+            GamePatch::Put<uint32_t>(
+                GamePatch::At(pAcquireKeyboard, {0x55 + 2, 0x55 + 2}, "dinput cooperative level"),
+                /*strip DISCL_EXCLUSIVE bits and append DISCL_NONEXCLUSIVE*/ 3u,
+                "dinput cooperative level");
         }
 
         // The overlay is drawn from here; without it the UI never renders and
         // OverlayService never learns that the player is in game, which is
-        // what gates the F2 toggle.
+        // what gates the F2 toggle. Both builds put the call this replaces at
+        // the same offset - verified byte for byte, not assumed.
         if (auto* pFrameEnd = GamePatch::Anchor(77246, "frame end"))
         {
-            if (legacyGame)
-            {
-                RenderFrameEnd = reinterpret_cast<decltype(RenderFrameEnd)>(pFrameEnd);
-                TP_HOOK_IMMEDIATE(&RenderFrameEnd, &Hook_RenderFrameEnd);
-            }
-            else
-            {
-                GamePatch::SwapCall(pFrameEnd + 9, StopTimer, &Hook_StopTimer, "frame end");
-            }
+            GamePatch::SwapCall(GamePatch::At(pFrameEnd, {9, 9}, "frame end"),
+                                StopTimer, &Hook_StopTimer, "frame end");
         }
 
         if (pRendererInit)

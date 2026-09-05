@@ -34,7 +34,8 @@ static TiltedPhoques::Initializer s_BSThreadInit(
         // tasklet naming
         if (auto* pGetTaskletManagerInstance = GamePatch::Anchor(69554, "tasklet thread names"))
         {
-            GamePatch::SwapCall(pGetTaskletManagerInstance + 0x63, Construct_TaskletManager,
-                                &Hook_Construct_TaskletManager, "tasklet thread names");
+            GamePatch::SwapCall(GamePatch::At(pGetTaskletManagerInstance, {0x63}, "tasklet thread names"),
+                                Construct_TaskletManager, &Hook_Construct_TaskletManager,
+                                "tasklet thread names");
         }
     });

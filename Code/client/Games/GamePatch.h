@@ -34,6 +34,20 @@
 
 namespace GamePatch
 {
+// A patch site inside an anchor. The offset was measured on 1.6.x and does not
+// survive the recompile, so 1.5.x carries its own: Tools/ida/
+// patch_offsets_1597.py aligns the two disassemblies instruction by
+// instruction and reports where each site moved to. Leave `legacy` at kUnknown
+// when the 1.6.x instruction has no aligned twin there - the patch is then
+// skipped on 1.5.x rather than aimed at whatever sits at the 1.6.x offset.
+struct Site
+{
+    static constexpr size_t kUnknown = static_cast<size_t>(-1);
+
+    size_t modern;
+    size_t legacy{kUnknown};
+};
+
 // Resolves an address library id for use as a patch anchor. Unlike
 // VersionDbPtr this never substitutes the unresolved stub: a patch whose
 // anchor is unknown has to be skipped, not redirected somewhere writable.
@@ -47,6 +61,23 @@ inline uint8_t* Anchor(const uint32_t acId, const char* acpWhat) noexcept
     }
 
     return pAddress;
+}
+
+// Applies the per-version offset to an anchor.
+inline uint8_t* At(uint8_t* apAnchor, const Site& acSite, const char* acpWhat) noexcept
+{
+    if (!apAnchor)
+        return nullptr;
+
+    const size_t offset = VersionDb::Get().IsLegacyFormat() ? acSite.legacy : acSite.modern;
+    if (offset == Site::kUnknown)
+    {
+        spdlog::warn("patch '{}' skipped: no known site on game {}", acpWhat,
+                     VersionDb::Get().GetLoadedVersionString());
+        return nullptr;
+    }
+
+    return apAnchor + offset;
 }
 
 inline bool WriteBytes(void* apAddress, const void* acpData, const size_t acSize, const char* acpWhat) noexcept

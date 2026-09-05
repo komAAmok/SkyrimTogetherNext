@@ -70,14 +70,14 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
 
     if (VersionDb::Get().IsLegacyFormat())
     {
-        // Legacy 1.5.x: most of the address map is resolved. The remaining ids
-        // (near-twin sibling functions, tiny bodies, data statics) resolve to
-        // no-op stubs and RTTI lookups are null-guarded, so sync features
-        // degrade instead of crashing; patch sites are skipped outright
-        // (Games/GamePatch.h) because their 1.6.x offsets do not hold here.
-        // Struct member offsets are compiled for 1.6.x and a handful differ on
-        // 1.5.x (observed 8-byte shifts), so treat any 1.5.x crash as worth
-        // reporting rather than assuming a bug.
+        // Legacy 1.5.x: 99.7% of the id references are mapped. The eight that
+        // are not resolve to no-op stubs, RTTI lookups are null-guarded, and a
+        // patch site with no 1.5.x offset is skipped rather than aimed at the
+        // 1.6.x one (Games/GamePatch.h) - see Tools/missing_1_5_97_ids.txt for
+        // what each of them costs. Struct member offsets are compiled for
+        // 1.6.x and a few differ on 1.5.x (Actor's two flags fields sit 8
+        // bytes earlier), so treat any 1.5.x crash as worth reporting rather
+        // than assuming a bug.
         spdlog::warn("legacy game version detected (1.5.x): unmapped ids degrade to stubs, "
                      "1.6.x-only patches are skipped, struct offsets may differ.");
     }

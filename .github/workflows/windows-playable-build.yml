@@ -39,34 +39,41 @@ jobs:
           # into the game root (self installing SKSE launch path)
           New-Item -ItemType Directory -Force -Path str-build/SKSE/Plugins | Out-Null
           mv str-build/SkyrimTogetherReborn/SkyrimTogetherSKSE.dll str-build/SKSE/Plugins/
-          # everything the client needs at runtime travels in the payload
-          # dir: the client dll plus ALL runtime dlls (libcef etc. are flat
-          # in the build output) and the UI assets; the launcher exe and
-          # server stay in SkyrimTogetherReborn for the manual install path
+          # Everything the client needs at the game root travels in the
+          # payload dir, which the bootstrap deploys on load. That is more
+          # than the dlls: cef also needs its resources (icudtl.dat, the .pak
+          # files, locales/, swiftshader/) and the TPProcess.exe subprocess,
+          # and none of those match a *.dll glob - leaving them behind gave a
+          # payload that deployed cleanly and then failed to start the
+          # overlay. Only the launcher, the server and the build byproducts
+          # stay behind, for the manual install path.
           New-Item -ItemType Directory -Force -Path str-build/SkyrimTogetherRuntime | Out-Null
-          Get-ChildItem str-build/SkyrimTogetherReborn/*.dll |
-            Where-Object { $_.Name -ne 'STServer.dll' } |
+          Get-ChildItem str-build/SkyrimTogetherReborn -Exclude `
+            SkyrimTogether.exe,EarlyLoad.dll,SkyrimTogetherServer.exe,STServer.dll,`
+            *.pdb,*.lib,*.exp,*Tests.exe |
             Move-Item -Destination str-build/SkyrimTogetherRuntime/
-          if (Test-Path str-build/SkyrimTogetherReborn/UI) { Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI }
           New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
 
-      - name: Verify both per-version runtimes are in the payload
+      - name: Verify the self-deploy payload is complete
         run: |
-          # the SKSE bootstrap picks one by game version; a package missing
-          # either leaves those players with a game that starts and never
-          # opens the multiplayer menu
-          foreach ($dll in 'SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll') {
-            $path = "str-build/SkyrimTogetherRuntime/$dll"
-            if (!(Test-Path $path)) { throw "playable build is missing $dll" }
-            Write-Host "$dll $((Get-Item $path).Length) bytes"
+          # the bootstrap deploys this dir into the game root, so anything
+          # missing here is missing at runtime - and the symptom is a game
+          # that starts and never opens the multiplayer menu
+          # both per-version client runtimes, plus the cef pieces that are not
+          # dlls and were silently left out of the payload before
+          foreach ($item in 'SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll',`
+                            'libcef.dll','TPProcess.exe','icudtl.dat','resources.pak','locales','UI') {
+            $path = "str-build/SkyrimTogetherRuntime/$item"
+            if (!(Test-Path $path)) { throw "playable build payload is missing $item" }
+            Write-Host "payload ok: $item"
           }
 
-      - name: Remove unnecessary build files, keep .pdb
+      - name: Split the debug symbols out of the build
         run: |
           New-Item -ItemType Directory -Force -Path str-pdb | Out-Null
-          mv str-build/SkyrimTogetherReborn/SkyrimTogether.pdb, str-build/SkyrimTogetherReborn/SkyrimTogetherServer.pdb str-pdb
-          rm str-build/SkyrimTogetherReborn/*.pdb, str-build/SkyrimTogetherReborn/*.lib, str-build/SkyrimTogetherReborn/*.exp
-          rm str-build/SkyrimTogetherReborn/*Tests.exe
+          Move-Item -Path str-build/SkyrimTogetherReborn/*.pdb -Destination str-pdb -ErrorAction SilentlyContinue
+          Remove-Item -Path str-build/SkyrimTogetherReborn/*.lib,str-build/SkyrimTogetherReborn/*.exp,`
+                            str-build/SkyrimTogetherReborn/*Tests.exe -ErrorAction SilentlyContinue
 
       - name: Upload playable build
         uses: actions/upload-artifact@v4

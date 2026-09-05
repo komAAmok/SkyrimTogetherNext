@@ -255,9 +255,19 @@ bool StartClient(const std::filesystem::path& acGameRoot)
 {
     const bool legacy = IsLegacyGame();
     const auto clientPath = acGameRoot / (legacy ? kClientDllLegacyName : kClientDllName);
+
+    // Records which runtime was picked before trying to load it. Without this
+    // line a plugin that SKSE never loaded and a plugin that loaded but chose
+    // the wrong dll look identical from the outside.
+    AppendLog(acGameRoot / L"st_boot.log", std::wstring(L"[bootstrap] game version is ") +
+                                              (legacy ? L"1.5.x, loading " : L"1.6.x/1.7.x, loading ") +
+                                              clientPath.wstring());
+
     HMODULE h = LoadLibraryW(clientPath.c_str());
     if (!h)
     {
+        const DWORD error = GetLastError();
+
         // diagnostic marker so a failure to start the client is not silent:
         // which dll was picked, its size on disk (a truncated copy from an
         // interrupted deploy fails with error 182) and the loader error
@@ -268,7 +278,7 @@ bool StartClient(const std::filesystem::path& acGameRoot)
         swprintf_s(buf, L"selected=%s size=%llu error=%lu\r\n",
                    legacy ? kClientDllLegacyName : kClientDllName,
                    ec ? 0ull : static_cast<unsigned long long>(fileSize),
-                   GetLastError());
+                   error);
         const HANDLE f = CreateFileW(marker.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
                                      nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f != INVALID_HANDLE_VALUE)
@@ -293,13 +303,33 @@ bool StartClient(const std::filesystem::path& acGameRoot)
             }
             CloseHandle(f);
         }
+
+        // Without this the failure is invisible in game: SKSE ignores a plugin
+        // that returns false, the game keeps running, and the only symptom is
+        // that the multiplayer menu never opens. Say so instead.
+        std::wstring msg = L"Skyrim Together could not start.\n\nIt tried to load\n  " + clientPath.wstring() +
+                           L"\nbut Windows refused with error " + std::to_wstring(error) + L".";
+        if (error == ERROR_MOD_NOT_FOUND || error == ERROR_FILE_NOT_FOUND)
+        {
+            msg += legacy ? L"\n\nThis build does not contain the 1.5.x runtime "
+                            L"(SkyrimTogetherRuntime_1_5.dll). Your game is version 1.5.x, which needs it - "
+                            L"please download a mod package that ships it."
+                          : L"\n\nThe runtime was not deployed into the game folder.";
+        }
+        msg += L"\n\nDetails were written to st_client_error.log in the game folder.";
+        MessageBoxW(nullptr, msg.c_str(), L"Skyrim Together", MB_ICONERROR | MB_OK);
+
         return false;
     }
 
     using BootstrapFn = bool (*)(const wchar_t*);
     const auto bootstrap = reinterpret_cast<BootstrapFn>(GetProcAddress(h, kClientEntry));
     if (!bootstrap)
+    {
+        AppendLog(acGameRoot / L"st_client_error.log", std::wstring(L"loaded ") + clientPath.filename().wstring() +
+                                                          L" but it has no STClient_Bootstrap export");
         return false;
+    }
 
     return bootstrap(acGameRoot.c_str());
 }

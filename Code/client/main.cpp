@@ -55,22 +55,32 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
         ShowAddressLibraryError(acGamePath.c_str(), aExeVersion);
     }
 
-    if (VersionDb::Get().IsLegacyFormat())
-    {
-        // Legacy 1.5.x: 99.2% of the address map is resolved. The remaining
-        // ids (near-twin sibling functions, tiny bodies, data statics) resolve
-        // to no-op stubs and RTTI lookups are null-guarded, so sync features
-        // degrade instead of crashing. Struct member offsets are compiled for
-        // 1.6.x; a handful differ on 1.5.x (observed 8-byte shifts), so treat
-        // any 1.5.x crash as worth reporting rather than assuming a bug.
-        spdlog::warn("legacy game version detected (1.5.x): address map is 99.2% "
-                     "complete; remaining ids degrade to stubs; struct offsets "
-                     "were built for 1.6.x and may differ on 1.5.x.");
-    }
-
     // VersionDb::Get().DumpToTextFile(R"(S:\Work\Tilted\fallout\_addresslib.txt)");
 
+    // The TiltedOnlineApp constructor installs the file logger, so anything
+    // worth keeping has to be logged after this point.
     g_appInstance = std::make_unique<TiltedOnlineApp>();
+
+    // Which address library got picked decides whether the hooks below can
+    // land at all, so record it: a wrong or partial pick then shows up here
+    // instead of as a silent "F2 does nothing".
+    spdlog::info("address library loaded: game {}, {} ids, {}", VersionDb::Get().GetLoadedVersionString(),
+                 VersionDb::Get().GetOffsetMap().size(),
+                 VersionDb::Get().IsLegacyFormat() ? "pre-AE library + AE id map" : "AE library");
+
+    if (VersionDb::Get().IsLegacyFormat())
+    {
+        // Legacy 1.5.x: most of the address map is resolved. The remaining ids
+        // (near-twin sibling functions, tiny bodies, data statics) resolve to
+        // no-op stubs and RTTI lookups are null-guarded, so sync features
+        // degrade instead of crashing; patch sites are skipped outright
+        // (Games/GamePatch.h) because their 1.6.x offsets do not hold here.
+        // Struct member offsets are compiled for 1.6.x and a handful differ on
+        // 1.5.x (observed 8-byte shifts), so treat any 1.5.x crash as worth
+        // reporting rather than assuming a bug.
+        spdlog::warn("legacy game version detected (1.5.x): unmapped ids degrade to stubs, "
+                     "1.6.x-only patches are skipped, struct offsets may differ.");
+    }
 
     TiltedOnlineApp::InstallHooks2();
     TP_HOOK_COMMIT;

@@ -84,7 +84,22 @@ FOMOD 向导的"启动方式"步骤可勾选"附带独立启动器",安装后位
 服务器 `SkyrimTogetherServer.exe` 与 MO2 无关,房主在任意位置运行即可。方式 A 则完全依赖 MO2 的虚拟文件系统,无需手动
 > 复制任何数据文件。
 
-## 四、给联机伙伴的最低要求
+## 四、按 F2 没有反应时怎么排查
+
+游戏能进、但联机界面不出来,几乎总是"客户端根本没跑起来"。按顺序看这几个文件
+(前三个在**游戏根目录**,即 `SkyrimSE.exe` 同级):
+
+| 文件 | 说明 |
+|---|---|
+| `st_boot.log` | 每次启动都会追加。看得到 `[bootstrap] game version is ...` 说明 SKSE 已加载引导插件并选好了运行时 DLL;完全没有这个文件,就是 SKSE 没加载 `SkyrimTogetherSKSE.dll`(检查 mod 是否启用、是否走 MO2 启动 `skse64_loader.exe`)。 |
+| `st_client_error.log` | 运行时 DLL 加载失败时才有。`error=126` 表示文件缺失或它的依赖缺失;1.5.x 玩家若看到 `selected=SkyrimTogetherRuntime_1_5.dll size=0`,说明这个包里没带 1.5.x 运行时。 |
+| `st_deploy_error.log` | 自部署失败时才有。通常是权限或杀软拦截,按弹窗提示手动复制一次即可。 |
+| `logs\tp_client.log` | 客户端自己的日志。`address library loaded: game 1.5.97.0, ... ids` 确认地址库选对了;`renderer init: swapchain ...` 确认渲染钩子挂上了;`overlay render pump is live` 确认每帧回调在跑;`overlay in-game state: true` 之后 F2 才会生效(主菜单里按 F2 本来就不响应,要先进游戏)。 |
+
+`tp_client.log` 里 `patch '...' skipped: address library id N is not mapped` 是 1.5.x 的正常
+输出——这些 1.6.x 专有的字节补丁在 1.5.x 上被跳过,不影响联机。
+
+## 五、给联机伙伴的最低要求
 
 - 所有人使用**同一个 Release 构建的客户端**(服务器会校验构建号)。
 - 游戏版本可以不同(服务器不校验),但建议一致。

@@ -115,6 +115,15 @@ void DescribeAddress(const char* acpWhat, const uintptr_t aAddress)
                       reinterpret_cast<uintptr_t>(mbi.AllocationBase), mbi.RegionSize);
     }
 
+    // A near-null target is a pointer that was never set, not an address with a
+    // place in the image, so the distance below would only be noise
+    if (aAddress < 0x10000)
+    {
+        spdlog::error(__FUNCTION__ ": {} {:#x} is a null pointer that was called, not a real address", acpWhat,
+                      aAddress);
+        return;
+    }
+
     if (const auto gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))
     {
         const auto delta = static_cast<int64_t>(aAddress) - static_cast<int64_t>(gameBase);

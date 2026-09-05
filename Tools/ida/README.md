@@ -40,9 +40,29 @@ Feed the result into the map generator:
 Status: 3033/3058 codebase ids mapped (99.2%); all 10 1.5.x maps regenerate
 and validate against version-1-5-97-0.bin (3667/3667).
 
+Note: the 29 ids still unmapped are listed in Tools/missing_1_5_97_ids.txt.
+Nine of them are patch anchors rather than call targets, and the patches that
+used to hang off them are now skipped on 1.5.x (Code/client/Games/GamePatch.h),
+so recovering those nine only restores 1.6.x-only niceties - menu unfreezing,
+thread names, the startup-movie skip - not core sync.
+
 ## Legacy IDA kit (superseded)
 
 `1_apply_st_map.py` / `2_apply_ae_labels.py` / `3_export_targets.py` were the
 IDA-Pro flow used before `match_capstone.py`; keep them only as reference for
-manually resolving the last 25 ids (near-twin siblings, tiny bodies, data
+manually resolving the last ids (near-twin siblings, tiny bodies, data
 statics listed in Tools/missing_1_5_97_ids.txt).
+
+The IDA-side workbench built on top of that flow, in pipeline order:
+
+| script | role |
+|---|---|
+| `export_target_meta_1170.py` | dumps size/decompile/callees/strings per target from the 1.6.1170 IDB -> `st_target_meta_1170.json` |
+| `extract_candidates_1597.py` | enumerates 1.5.97 candidates per bracket with their matching signals |
+| `match_targets_1597.py` | scores candidates inside the IDB -> `st_match_report.json` |
+| `match_offline.py` | same scoring without IDA in memory, merges vtable-derived overrides |
+| `probe_1597.py` | interactive xref / byte-pattern / decompile probe used for the last hand-resolved ids |
+| `find_comctl32_345.py` | one-off: locates who referenced the COMCTL32 ordinal-345 import slot |
+| `post_analysis_idalib.py` | labels + target workbench pass over a freshly analysed IDB |
+
+All of them need a local IDB and are not part of any build.

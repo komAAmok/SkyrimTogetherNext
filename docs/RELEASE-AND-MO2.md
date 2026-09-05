@@ -97,8 +97,15 @@ FOMOD 向导的"可选组件"步骤可勾选"独立启动器",安装后位于
 | `st_deploy_error.log` | 自部署失败时才有。里面会记录插件的实际加载路径、MO2 虚拟文件系统是否生效、以及游戏进程看到的 `Data\` 下有哪些子目录——`SkyrimTogetherRuntime` 不在其中就是 mod 没装好或没启用,不是权限问题也不是和 SKSE 冲突。 |
 | `logs\tp_client.log` | 客户端自己的日志。`address library loaded: game 1.5.97.0, ... ids` 确认地址库选对了;`renderer init: swapchain ...` 确认渲染钩子挂上了;`overlay render pump is live` 确认每帧回调在跑;`overlay in-game state: true` 之后 F2 才会生效(主菜单里按 F2 本来就不响应,要先进游戏)。 |
 
-`tp_client.log` 里 `patch '...' skipped: address library id N is not mapped` 是 1.5.x 的正常
-输出——这些 1.6.x 专有的字节补丁在 1.5.x 上被跳过,不影响联机。
+`tp_client.log` 里 `patch '...' skipped` 是 1.5.x 的正常输出——那些字节补丁的偏移
+是在 1.6.x 上量的,1.5.x 需要各自的偏移且必须逐个核对字节才敢用,目前全部跳过。
+它们只影响体验(菜单不冻结游戏、收藏栏编号、统计菜单),不影响联机本身。
+
+崩溃时 `tp_client.log` 会记录 `VectoredExceptionHandler: crash occurred!` 及其后的
+寄存器、故障地址与字节现场。如果 `access type` 是 `execute` 且目标地址 `unmapped`,
+说明线程跳到了没有代码的地方(通常是补丁改错了调用点,或钩子的跳板失效);此时日志还会
+打印栈顶能落到模块里的返回地址和完整模块地址表,**第一条落在模块里的返回地址就是肇事的
+调用方**,发日志时请把这一段一起带上。
 
 ## 五、给联机伙伴的最低要求
 

@@ -2,6 +2,7 @@
 #include "CrashHandler.h"
 #include <DbgHelp.h>
 #include <Windows.h>
+#include <Psapi.h>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -43,6 +44,33 @@ void FormatModuleOffset(uintptr_t apAddress, char (&aBuf)[MAX_PATH + 48])
         }
     }
     sprintf_s(aBuf, sizeof(aBuf), "unmapped 0x%llx", apAddress);
+}
+
+// The loaded modules with their address ranges. An address that resolves to no
+// module can still be placed with this: landing just outside a module points at
+// a patched call site or a dead trampoline, while landing nowhere near one
+// points at a wild pointer.
+void WriteModuleList()
+{
+    HMODULE mods[512];
+    DWORD needed = 0;
+    if (!EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &needed))
+        return;
+
+    const size_t count = needed / sizeof(HMODULE);
+    spdlog::error("WriteCrashReport: {} loaded modules", count);
+    for (size_t i = 0; i < count && i < 512; i++)
+    {
+        char name[MAX_PATH] = {};
+        MODULEINFO info{};
+        if (!GetModuleFileNameA(mods[i], name, MAX_PATH) ||
+            !GetModuleInformation(GetCurrentProcess(), mods[i], &info, sizeof(info)))
+            continue;
+        const char* leaf = strrchr(name, '\\');
+        const auto base = reinterpret_cast<uintptr_t>(info.lpBaseOfDll);
+        spdlog::error("  module {:#x}..{:#x} {}", base, base + info.SizeOfImage,
+                      leaf ? leaf + 1 : name);
+    }
 }
 
 // Guarded copy so a crash report never faults while reading the crash site.
@@ -95,6 +123,29 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
         FormatModuleOffset(apRecord->ExceptionInformation[1], target);
         spdlog::error(__FUNCTION__ ": access type {} (code {}), target address {:#x} ({})", access,
                       apRecord->ExceptionInformation[0], apRecord->ExceptionInformation[1], target);
+
+        // An execute fault means the thread jumped somewhere that holds no
+        // code, so the faulting address says nothing about who is at fault -
+        // the answer is the return address the call pushed, which is still on
+        // the stack. Dump the top of the stack with every value that resolves
+        // to a module annotated, and the module list to place the rest.
+        if (apRecord->ExceptionInformation[0] == 8 && apContext)
+        {
+            spdlog::error(__FUNCTION__ ": jumped to code that is not there; stack top follows, "
+                                      "the first entry inside a module is the caller");
+            uintptr_t slots[24]{};
+            const size_t got = SafeReadBytes(slots, sizeof(slots), apContext->Rsp);
+            for (size_t i = 0; i < got / sizeof(uintptr_t); i++)
+            {
+                if (slots[i] < 0x10000)
+                    continue;
+                char who[MAX_PATH + 48];
+                FormatModuleOffset(slots[i], who);
+                if (strncmp(who, "unmapped", 8) != 0)
+                    spdlog::error("  [rsp+{:#03x}] {:#x}  {}", i * sizeof(uintptr_t), slots[i], who);
+            }
+            WriteModuleList();
+        }
     }
 
     // Hexdump around the faulting instruction so the whole function can be

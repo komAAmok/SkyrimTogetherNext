@@ -74,6 +74,9 @@ target(name)
     add_syslinks(
         "version",
         "dbghelp",
+        -- EnumProcessModules/GetModuleInformation, used by the crash report to
+        -- place an address that resolves to no module
+        "psapi",
         "kernel32")
 end
 

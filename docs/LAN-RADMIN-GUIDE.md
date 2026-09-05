@@ -22,14 +22,16 @@ Radmin LAN、Hamachi 或同一物理局域网直连即可联机,**无需 Steam �
 "AE ID → 该版本偏移"的翻译表。本项目仓库已随
 `GameFiles/Skyrim/SKSE/Plugins/` 提供全部 10 个 1.5.x 版本的映射表
 (由 `Tools/Scripts/gen_se_map_from_history.py` 从本仓库 git 历史中的
-1.5.97 原始偏移自动生成,并叠加 `Tools/ida/match_capstone.py` 用
-capstone 指令级相似度恢复的 66 个地址,覆盖代码中 99.2% 的地址引用),
-随 mod 安装时会一并复制到 `Data/SKSE/Plugins/`。
+1.5.97 原始偏移自动生成,再叠加 `Tools/ida/match_capstone.py` 的指令相似度
+匹配与 `Tools/ida/recover_1597.py` 的字符串/调用图/全局变量定位,共覆盖代码
+引用的 **99.7%** 地址),随 mod 安装时会一并复制到 `Data/SKSE/Plugins/`。
+全部 3699 条映射都能在官方地址库中找到对应符号。
 
-**务必知悉**:剩余约 1%(25 个)的地址(近孪生兄弟函数、微小函数、数据
-静态变量)在 1.5.x 上无法可靠恢复,运行时会安全降级(空实现桩 / RTTI
-空指针保护),不会崩溃,但对应功能(少量物品附加数据、个别天气/字幕/
-任务操作)可能不同步。可以联机。
+**务必知悉**:剩余 9 个地址在 1.5.x 上仍未恢复,运行时安全降级(空实现桩 /
+RTTI 空指针保护 / 跳过字节补丁),不会崩溃。其中只有一个会被玩家察觉:
+远程玩家动画重播时不会重置动画图,个别重播动作可能显示异常。其余分别属于
+调试视图、调试器里的线程名、以及没有调用者的模块。清单见
+[../Tools/missing_1_5_97_ids.txt](../Tools/missing_1_5_97_ids.txt)。可以联机。
 
 **按版本双运行时**:1.5.x 与 1.6.x/1.7.x 的引擎结构体布局不同(如
 `BSExtraDataList` 在 1.5.x 无虚表,Actor/PlayerCharacter/TESObjectCELL/

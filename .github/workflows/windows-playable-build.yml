@@ -50,6 +50,17 @@ jobs:
           if (Test-Path str-build/SkyrimTogetherReborn/UI) { Move-Item str-build/SkyrimTogetherReborn/UI str-build/SkyrimTogetherRuntime/UI }
           New-Item -ItemType File -Path str-build/SkyrimTogetherRuntime/.str_version | Out-Null
 
+      - name: Verify both per-version runtimes are in the payload
+        run: |
+          # the SKSE bootstrap picks one by game version; a package missing
+          # either leaves those players with a game that starts and never
+          # opens the multiplayer menu
+          foreach ($dll in 'SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll') {
+            $path = "str-build/SkyrimTogetherRuntime/$dll"
+            if (!(Test-Path $path)) { throw "playable build is missing $dll" }
+            Write-Host "$dll $((Get-Item $path).Length) bytes"
+          }
+
       - name: Remove unnecessary build files, keep .pdb
         run: |
           New-Item -ItemType Directory -Force -Path str-pdb | Out-Null

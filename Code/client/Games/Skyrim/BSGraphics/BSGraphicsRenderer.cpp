@@ -157,6 +157,22 @@ void Hook_StopTimer(int type)
     StopTimer(type);
 }
 
+// 1.5.97 does not reach the pump through that call site. Both builds do open
+// id 77246 with sub rsp / mov ecx,1 / call rel32, so swapping the call at +9
+// writes cleanly there and reports success - and then never fires, because on
+// 1.5.97 it is not the callee the frame end runs through. Detour the whole
+// function instead, which is what this code base did while it still targeted
+// 1.5.97: Games/Renderer.cpp before commit 8eaca858 hooked RVA 0xD6A2B0 as
+// s_realRenderPresent, and that is exactly what id 77246 maps to.
+void (*RenderFrameEnd)() = nullptr;
+
+void Hook_RenderFrameEnd()
+{
+    PumpOverlay();
+
+    RenderFrameEnd();
+}
+
 static TiltedPhoques::Initializer s_viewportHooks(
     []()
     {
@@ -185,12 +201,19 @@ static TiltedPhoques::Initializer s_viewportHooks(
 
         // The overlay is drawn from here; without it the UI never renders and
         // OverlayService never learns that the player is in game, which is
-        // what gates the F2 toggle. Both builds put the call this replaces at
-        // the same offset - verified byte for byte, not assumed.
+        // what gates the F2 toggle.
         if (auto* pFrameEnd = GamePatch::Anchor(77246, "frame end"))
         {
-            GamePatch::SwapCall(GamePatch::At(pFrameEnd, {9, 9}, "frame end"),
-                                StopTimer, &Hook_StopTimer, "frame end");
+            if (VersionDb::Get().IsLegacyFormat())
+            {
+                RenderFrameEnd = reinterpret_cast<decltype(RenderFrameEnd)>(pFrameEnd);
+                TP_HOOK_IMMEDIATE(&RenderFrameEnd, &Hook_RenderFrameEnd);
+            }
+            else
+            {
+                GamePatch::SwapCall(GamePatch::At(pFrameEnd, {9}, "frame end"),
+                                    StopTimer, &Hook_StopTimer, "frame end");
+            }
         }
 
         if (pRendererInit)

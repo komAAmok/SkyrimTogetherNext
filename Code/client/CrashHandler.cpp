@@ -89,6 +89,113 @@ size_t SafeReadBytes(void* apDst, size_t aLen, uintptr_t apAddress)
     return read;
 }
 
+// What the memory at an address is, and where it sits relative to the game
+// image. The state separates the cases a bare address cannot: free memory is a
+// wild pointer or a trampoline that has been released, reserved-not-committed
+// is a trampoline whose page was never brought in, committed means the memory
+// is there and only the permissions were wrong. The distance from the game
+// image is what makes two reports comparable at all - ASLR moves every module
+// per run, so an address that keeps the same distance across runs was computed
+// from the image, while one that moves with the modules was allocated.
+void DescribeAddress(const char* acpWhat, const uintptr_t aAddress)
+{
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (VirtualQuery(reinterpret_cast<LPCVOID>(aAddress), &mbi, sizeof(mbi)) == sizeof(mbi))
+    {
+        const char* state = "unknown state";
+        if (mbi.State == MEM_FREE)
+            state = "free: nothing is allocated there (wild pointer, or a trampoline that was released)";
+        else if (mbi.State == MEM_RESERVE)
+            state = "reserved but not committed: allocated range, no memory behind it";
+        else if (mbi.State == MEM_COMMIT)
+            state = "committed";
+
+        spdlog::error(__FUNCTION__ ": {} {:#x} is {}, protect {:#x}, allocation base {:#x}, region size {:#x}",
+                      acpWhat, aAddress, state, mbi.Protect,
+                      reinterpret_cast<uintptr_t>(mbi.AllocationBase), mbi.RegionSize);
+    }
+
+    if (const auto gameBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))
+    {
+        const auto delta = static_cast<int64_t>(aAddress) - static_cast<int64_t>(gameBase);
+        spdlog::error(__FUNCTION__ ": {} {:#x} is {:#x} bytes {} the game image base {:#x}", acpWhat, aAddress,
+                      static_cast<uint64_t>(delta < 0 ? -delta : delta), delta < 0 ? "below" : "above", gameBase);
+    }
+}
+
+// The call that led into a bad address is the handful of bytes in front of the
+// return address, and its form names the owner of the pointer: a call through
+// memory has its slot at a fixed place, which can be resolved to a module and
+// read back, a direct call means the call site itself was patched, and a call
+// through a register means the value was computed earlier and only a dump of
+// the caller can say where from. The raw bytes are logged either way so any
+// other form can still be decoded by hand.
+void DescribeCall(const uintptr_t aReturnAddress)
+{
+    uint8_t code[16]{};
+    if (SafeReadBytes(code, sizeof(code), aReturnAddress - sizeof(code)) != sizeof(code))
+        return;
+
+    char bytes[3 * sizeof(code) + 1]{};
+    for (size_t i = 0; i < sizeof(code); i++)
+        sprintf_s(bytes + i * 3, sizeof(bytes) - i * 3, "%02x ", code[i]);
+    spdlog::error(__FUNCTION__ ": the 16 bytes in front of the return address are {}", bytes);
+
+    // call [rip+disp32]: rip is the return address, so the slot is right there
+    const uint8_t* pIndirect = code + sizeof(code) - 6;
+    if (pIndirect[0] == 0xFF && pIndirect[1] == 0x15)
+    {
+        int32_t disp = 0;
+        memcpy(&disp, pIndirect + 2, sizeof(disp));
+        const uintptr_t slot = aReturnAddress + disp;
+
+        char who[MAX_PATH + 48];
+        FormatModuleOffset(slot, who);
+
+        uintptr_t held = 0;
+        SafeReadBytes(&held, sizeof(held), slot);
+
+        char target[MAX_PATH + 48];
+        FormatModuleOffset(held, target);
+
+        spdlog::error(__FUNCTION__ ": called through the pointer at {:#x} ({}), which holds {:#x} ({})", slot, who,
+                      held, target);
+        return;
+    }
+
+    // call rel32: the target is fixed at link time, so it is the entry of the
+    // function that was called - dump it, because a hook that redirects a
+    // function writes its jump over exactly those bytes
+    const uint8_t* pDirect = code + sizeof(code) - 5;
+    if (pDirect[0] == 0xE8)
+    {
+        int32_t disp = 0;
+        memcpy(&disp, pDirect + 1, sizeof(disp));
+        const uintptr_t called = aReturnAddress + disp;
+
+        char what[MAX_PATH + 48];
+        FormatModuleOffset(called, what);
+
+        uint8_t entry[16]{};
+        char entryBytes[3 * sizeof(entry) + 1]{};
+        if (SafeReadBytes(entry, sizeof(entry), called) == sizeof(entry))
+        {
+            for (size_t i = 0; i < sizeof(entry); i++)
+                sprintf_s(entryBytes + i * 3, sizeof(entryBytes) - i * 3, "%02x ", entry[i]);
+        }
+
+        spdlog::error(__FUNCTION__ ": direct call to {:#x} ({}), whose first bytes are {}", called, what, entryBytes);
+        DescribeAddress("called address", called);
+        return;
+    }
+
+    // call r64, with or without a REX prefix
+    const uint8_t* pRegister = code + sizeof(code) - 2;
+    if (pRegister[0] == 0xFF && (pRegister[1] & 0xF8) == 0xD0)
+        spdlog::error(__FUNCTION__ ": called through a register, so the value was loaded earlier and not from a "
+                                   "fixed slot");
+}
+
 void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext)
 {
     char where[MAX_PATH + 48];
@@ -124,6 +231,8 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
         spdlog::error(__FUNCTION__ ": access type {} (code {}), target address {:#x} ({})", access,
                       apRecord->ExceptionInformation[0], apRecord->ExceptionInformation[1], target);
 
+        DescribeAddress("target address", apRecord->ExceptionInformation[1]);
+
         // An execute fault means the thread jumped somewhere that holds no
         // code, so the faulting address says nothing about who is at fault -
         // the answer is the return address the call pushed, which is still on
@@ -135,6 +244,7 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
                                       "the first entry inside a module is the caller");
             uintptr_t slots[24]{};
             const size_t got = SafeReadBytes(slots, sizeof(slots), apContext->Rsp);
+            bool callDescribed = false;
             for (size_t i = 0; i < got / sizeof(uintptr_t); i++)
             {
                 if (slots[i] < 0x10000)
@@ -142,7 +252,17 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
                 char who[MAX_PATH + 48];
                 FormatModuleOffset(slots[i], who);
                 if (strncmp(who, "unmapped", 8) != 0)
+                {
                     spdlog::error("  [rsp+{:#03x}] {:#x}  {}", i * sizeof(uintptr_t), slots[i], who);
+
+                    // The first one is the caller, so its call instruction is
+                    // the one that went nowhere
+                    if (!callDescribed)
+                    {
+                        DescribeCall(slots[i]);
+                        callDescribed = true;
+                    }
+                }
             }
             WriteModuleList();
         }

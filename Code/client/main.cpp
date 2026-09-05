@@ -84,6 +84,12 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
 
     TiltedOnlineApp::InstallHooks2();
     TP_HOOK_COMMIT;
+
+    // A hook that fails to install says nothing, it just never runs, and one
+    // that shares its function with another mod comes down to who patched last.
+    // Both end as a crash with no trace of the hook behind it, so check what
+    // the installs actually did while the answer is still cheap to get.
+    HookAudit::Report();
 }
 
 void RunTiltedApp()

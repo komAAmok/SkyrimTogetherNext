@@ -358,6 +358,15 @@ public:
         {
             _legacy = true;
 
+            // The entries parsed above answer to *SE* ids. Keeping them would
+            // make an unmapped AE id resolve to whatever SE symbol happens to
+            // share its number - an unrelated address that callers then use as
+            // a function pointer, instead of the null that makes them fall
+            // back to the no-op stub. Only the translation table may answer
+            // lookups on a legacy runtime.
+            _data.clear();
+            _rdata.clear();
+
             size_t mappedCount = 0;
             char mapName[256];
             _snprintf_s(mapName, 256, "versionlib-ae-to-se-%d-%d-%d-%d.map", major, minor, revision, build);

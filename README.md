@@ -1,7 +1,6 @@
 # Skyrim Together Next
 
 [![Build windows](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml/badge.svg)](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml)
-[![Build linux](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/linux.yml/badge.svg)](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/linux.yml)
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 为 Bethesda 游戏提供联机能力的开源框架,当前支持 **上古卷轴 5:天际特别版(Skyrim Special Edition)**,也就是广为人知的 **Skyrim Together**。

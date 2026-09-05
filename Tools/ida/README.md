@@ -40,11 +40,49 @@ Feed the result into the map generator:
 Status: 3033/3058 codebase ids mapped (99.2%); all 10 1.5.x maps regenerate
 and validate against version-1-5-97-0.bin (3667/3667).
 
-Note: the 29 ids still unmapped are listed in Tools/missing_1_5_97_ids.txt.
-Nine of them are patch anchors rather than call targets, and the patches that
-used to hang off them are now skipped on 1.5.x (Code/client/Games/GamePatch.h),
-so recovering those nine only restores 1.6.x-only niceties - menu unfreezing,
-thread names, the startup-movie skip - not core sync.
+## Bracket-free recovery: `recover_1597.py` (no IDA required)
+
+`match_capstone.py` interpolates between mapped neighbours, so it gives up
+where the neighbourhood is empty ("no bracket") and on data statics whose
+referencing functions are all unmapped. `recover_1597.py` drops the bracket and
+identifies an individual 1.6.1170 function directly:
+
+* **string literals** it references - the bytes are identical in both builds,
+  so the same literal in 1.5.97 `.rdata` leads back to the same function;
+* its **position in the call graph** relative to already-mapped functions;
+* the **globals it touches** that are already mapped - the anchor grid is
+  mostly RTTI and data, so this is often the only signal a literal-free
+  function has;
+* normalized token similarity as the tie breaker.
+
+With a function located, a data static referenced from it follows: the ordered
+rip-relative references of both bodies are aligned with each other and the slot
+holding the target on the 1.6 side names its 1.5.97 counterpart. Feeding
+CommonLibSSE-NG's `RELOCATION_ID`/`VariantID` SE-id pairs in as extra anchors
+tripled the grid (3679 -> 11966) and agreed with the history-derived map on
+698 of the 701 ids they share.
+
+    python3 Tools/ida/recover_1597.py \
+        --ae-exe "<1.6.1170 SkyrimSE.exe>" --se-exe "<1.5.97 SkyrimSE.exe>" \
+        --ae-bin GameFiles/Skyrim/SKSE/Plugins/versionlib-1-6-1170-0.bin \
+        --se-bin GameFiles/Skyrim/SKSE/Plugins/version-1-5-97-0.bin \
+        --map    GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-1-5-97-0.map \
+        --missing Tools/missing_1_5_97_ids.txt \
+        --out-overrides Tools/ida/st_overrides_graph.txt \
+        --out-report    Tools/ida/st_graph_report.json
+
+## Patch offsets: `patch_offsets_1597.py`
+
+Mapping an id only names a function start. The client also patches *inside*
+those functions at offsets measured on 1.6.1170, and those do not survive a
+recompile. This aligns the two disassemblies instruction by instruction and
+reports where each site moved to, refusing any result whose instruction
+mnemonic or length disagrees. Output: `st_patch_offsets_1597.tsv`, consumed by
+hand into the `GamePatch::Site` entries in the client.
+
+Status: 3066/3075 codebase ids mapped (99.7%), 3699/3699 offsets validated
+against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 9 that remain
+and what they cost are listed in Tools/missing_1_5_97_ids.txt.
 
 ## Legacy IDA kit (superseded)
 

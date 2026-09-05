@@ -209,11 +209,16 @@ def collect_codebase_ids():
     pattern = re.compile(r"POINTER_SKYRIMSE\s*\([^,]+,\s*[^,]+,\s*(\d+)\s*\)")
     # e.g. "internal::RttiLocator<IFormFactory> registerRtti_IFormFactory(392214);"
     rtti_pattern = re.compile(r"RttiLocator(?:<[^>]*>)?\s*\w+\s*\(\s*(\d+)\s*\)")
+    # ids reaching the address library outside a VersionDbPtr: byte-patch
+    # anchors go through GamePatch::Anchor, and a few sites still build a
+    # VersionDbPtr directly. They count towards coverage just the same.
+    anchor_pattern = re.compile(r"GamePatch::Anchor\s*\(\s*(\d+)")
+    raw_pattern = re.compile(r"VersionDbPtr\s*<[^>]*>\s*\w+\s*\(\s*(\d+)")
     for path in glob.glob(str(CLIENT_DIR / "**" / "*.[ch]pp"), recursive=True):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-            ids.update(int(m) for m in pattern.findall(content))
-            ids.update(int(m) for m in rtti_pattern.findall(content))
+            for p in (pattern, rtti_pattern, anchor_pattern, raw_pattern):
+                ids.update(int(m) for m in p.findall(content))
     return ids
 
 

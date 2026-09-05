@@ -1,46 +1,42 @@
-# Skyrim Together Next - 1.5.97 missing address manifest (29 ids)
+# Skyrim Together Next - 1.5.97 missing address manifest (9 ids)
 #
-# The earlier count of 14 only covered POINTER_SKYRIMSE call/data sites. The
-# ids used as *patch anchors* (raw byte patches at an offset into a function)
-# were never counted, and 9 of them are unmapped on 1.5.97 - which used to
-# matter a great deal, because VersionDbPtr substitutes a shared 7-byte stub
-# for an unmapped id and the patch code then wrote into that stub instead of
-# the game. Patch sites now go through Games/GamePatch.h, which refuses an
-# unmapped anchor and logs the skip.
+# Coverage 3066/3075 codebase ids (99.7%), and all 3699 map entries validate
+# against version-1-5-97-0.bin. Tools/ida/recover_1597.py closed 20 of the
+# previous 29 by identifying the 1.6.1170 function on its own terms (referenced
+# string literals, call-graph position, globals it touches) instead of
+# interpolating between mapped neighbours; see Tools/ida/st_overrides_graph.txt
+# for the per-id evidence.
 #
-# call/data   -> resolves to the zero-returning stub; the feature degrades
-# patch anchor -> the patch is skipped; the 1.6.x offset would not hold anyway
-# rtti        -> null-guarded lookup
+# What the remaining 9 cost, in order of how much anyone would notice:
 #
-# See Tools/missing_1_5_97_analysis.md for the investigation state of the
-# function-shaped ids.
+#   32883  animation graph revert. AnimationSystem only calls it when a remote
+#          player's animation is replayed with ResetAnimationGraphForReplay, so
+#          the graph is not reverted and a replayed animation can look wrong.
+#          The only entry here with real gameplay effect.
+#   21600  PlayerCamera::IsFirstPerson. Read once, from the optional animation
+#          mod compat path (ModCompat/BehaviorVar.cpp), and only for the local
+#          player; degrades to "third person".
+#   82088  UI::CloseAllMenus, reached only from a debug view.
+#   69554  tasklet thread names - thread labels in a debugger, nothing else.
+#   400180 RTTI descriptor for BSWin32GameDataSystemUtility; nothing casts to it.
+#   36548  startup movie skip. One candidate exists and shares a literal, but
+#          its body diverges from the 1.6 function within eight instructions,
+#          so it was rejected rather than shipped on a guess.
+#   57704  havok thread names, inside an #if 0 block.
+#   14774  BSRandom generator accessor  } the module has no callers at all
+#   68276  BSRandom unsigned int        }
+#
+# 21600, 32883 and 82088 are near twins of large sibling families with no
+# string references and no mapped call-graph neighbours, which is what defeats
+# every automated signal; Tools/missing_1_5_97_analysis.md records the
+# structural fingerprints and the candidates already ruled out.
 #
 # ae=14774 | call/data | getGenerator | Games/Skyrim/BSRandom/BSRandom.cpp:20
 # ae=21600 | call/data | isFirstPerson | Games/Skyrim/Camera/PlayerCamera.cpp:15
 # ae=32883 | call/data | InternalRevertAnimationGraphManager | Games/IAnimationGraphManagerHolder.cpp:34
-# ae=34452 | patch anchor | projectile null check | Games/Skyrim/Projectiles/Projectile.cpp:124
 # ae=36548 | patch anchor | skip startup movie | Games/Skyrim/Interface/UI.cpp:133
-# ae=37717 | call/data | setPlayerTeammate | Games/Skyrim/Actor.cpp:823
-# ae=51538 | patch anchor | favorites menu numbering | Games/Skyrim/Interface/UI.cpp:138
-# ae=52510 | patch anchor | stats menu | Games/Skyrim/Interface/Menus/SkillsMenu.cpp:12
-# ae=52518 | patch anchor | stats menu controls | Games/Skyrim/Interface/Menus/SkillsMenu.cpp:23
-# ae=53112 | call/data | hookLoc (map menu, patch is #if 0) | Games/Skyrim/Interface/Menus/MapMenu.cpp:12
-# ae=57704 | call/data | createHavokThread (patch is #if 0) | Games/Skyrim/BSSystem/BSThread.cpp:94
-# ae=68261 | patch anchor | thread names | Games/Skyrim/BSSystem/BSThread.cpp:83
+# ae=57704 | patch anchor | havok thread names (#if 0) | Games/Skyrim/BSSystem/BSThread.cpp:94
 # ae=68276 | call/data | unsignedInt | Games/Skyrim/BSRandom/BSRandom.cpp:17
-# ae=68781 | patch anchor | dinput cooperative level | Games/Skyrim/BSGraphics/BSGraphicsRenderer.cpp:133
-# ae=69066 | patch anchor | thread naming api | Games/Skyrim/BSSystem/BSThread.cpp:90
 # ae=69554 | patch anchor | tasklet thread names | Games/Skyrim/BSSystem/BSTaskletManager.cpp:35
-# ae=82082 | patch anchor | menu unfreeze | Games/Skyrim/Interface/UI.cpp:125
 # ae=82088 | call/data | s_CloseAll | Games/Skyrim/Interface/UI.cpp:32
-# ae=370892 | call/data | s_greetDistance | Games/References.cpp:44
-# ae=381472 | call/data | s_difficulty | Games/References.cpp:38
-# ae=382393 | call/data | s_value | Services/Debug/Views/CombatView.cpp:57
-# ae=382400 | call/data | s_value | Services/Debug/Views/CombatView.cpp:63
 # ae=400180 | rtti | BSWin32GameDataSystemUtility | Games/Skyrim/RTTI.cpp:5620
-# ae=404125 | call/data | s_value (AI timer) | Games/Skyrim/AI/AITimer.h:7
-# ae=405282 | call/data | s_value | Services/Debug/Views/CombatView.cpp:90
-# ae=406126 | call/data | s_matrix | Games/Skyrim/Interface/Menus/HUDMenuUtils.cpp:19
-# ae=406160 | call/data | s_port | Games/Skyrim/Interface/Menus/HUDMenuUtils.cpp:20
-# ae=410506 | call/data | NiCameraRTTI | Games/Skyrim/Camera/TESCamera.cpp:8
-# ae=414391 | call/data | s_policy | Games/Skyrim/Misc/BSScript.cpp:108

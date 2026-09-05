@@ -195,6 +195,58 @@ void AppendLog(const std::filesystem::path& acFile, const std::wstring& acLine)
     CloseHandle(f);
 }
 
+// Where this dll was loaded from. Under Mod Organizer the SKSE plugin comes
+// out of the *virtual* Data\SKSE\Plugins; a real path means someone copied it
+// into the game folder by hand, in which case the rest of the mod may not be
+// installed in MO2 at all - which looks exactly like a missing payload.
+std::wstring SelfPath()
+{
+    HMODULE self = nullptr;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(&SelfPath), &self))
+        return L"<unknown>";
+    wchar_t path[MAX_PATH]{};
+    GetModuleFileNameW(self, path, MAX_PATH);
+    return path;
+}
+
+// Mod Organizer runs the game inside its virtual file system; without it the
+// mod's files are simply not there, no matter how the mod list looks.
+bool IsVirtualFileSystemActive()
+{
+    return GetModuleHandleW(L"usvfs_x64.dll") || GetModuleHandleW(L"usvfs.dll");
+}
+
+// Immediate children of the Data folder, as the game process sees them.
+std::wstring DescribeDataFolder(const std::filesystem::path& acGameRoot)
+{
+    const auto data = acGameRoot / L"Data";
+    std::error_code ec;
+    if (!std::filesystem::exists(data, ec))
+        return L"Data does not exist";
+
+    std::wstring names;
+    size_t shown = 0;
+    for (auto it = std::filesystem::directory_iterator(data, ec);
+         it != std::filesystem::directory_iterator(); it.increment(ec))
+    {
+        if (ec)
+            break;
+        if (!it->is_directory(ec))
+            continue;
+        if (shown++ >= 24)
+        {
+            names += L", ...";
+            break;
+        }
+        if (!names.empty())
+            names += L", ";
+        names += it->path().filename().wstring();
+    }
+    return names.empty() ? L"Data has no subfolders" : names;
+}
+
 bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload,
                    std::vector<std::wstring>& aFailures)
 {
@@ -236,10 +288,17 @@ bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesyste
 void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesystem::path& acPayload,
                      const std::vector<std::wstring>& aFailures)
 {
+    const bool payloadMissing = !std::filesystem::exists(acPayload);
+    const bool underMo2 = IsVirtualFileSystemActive();
+
     // write the detailed list to the game root so the user can report it
     const auto log = acGameRoot / L"st_deploy_error.log";
     AppendLog(log, L"[deploy] game root: " + acGameRoot.wstring());
     AppendLog(log, L"[deploy] payload: " + acPayload.wstring());
+    AppendLog(log, L"[deploy] this plugin was loaded from: " + SelfPath());
+    AppendLog(log, std::wstring(L"[deploy] mod organizer virtual file system: ") +
+                       (underMo2 ? L"active" : L"NOT active"));
+    AppendLog(log, L"[deploy] Data contains: " + DescribeDataFolder(acGameRoot));
     for (const auto& failure : aFailures)
         AppendLog(log, L"[deploy] " + failure);
 
@@ -253,12 +312,34 @@ void ShowDeployError(const std::filesystem::path& acGameRoot, const std::filesys
     if (aFailures.size() > shown)
         detail += L"\n  ... and " + std::to_wstring(aFailures.size() - shown) + L" more (see st_deploy_error.log)";
 
+    // A missing payload and a payload that would not copy are different
+    // problems with different fixes, and telling everyone to copy files by
+    // hand sends the common case down the wrong path.
+    std::wstring advice;
+    if (payloadMissing)
+    {
+        advice = L"\n\nThe mod's SkyrimTogetherRuntime folder is not visible to the game, so there is "
+                 L"nothing to deploy. This is not a conflict with SKSE or with other SKSE mods.\n\n";
+        advice += underMo2
+                      ? L"Mod Organizer is managing this game, so check that the Skyrim Together mod is "
+                        L"ticked in the left pane and that it contains a SkyrimTogetherRuntime folder. "
+                        L"If this plugin was loaded from the game folder rather than from the mod (see "
+                        L"st_deploy_error.log), delete that stray copy of SkyrimTogetherSKSE.dll - it "
+                        L"runs even when the mod is disabled."
+                      : L"The game was not started through Mod Organizer, so only files that really sit "
+                        L"in Data are visible. Either start the game through Mod Organizer, or install "
+                        L"the mod by extracting it into Data directly.";
+    }
+    else
+    {
+        advice = L"\n\nPlease copy the contents of the payload folder into the game root "
+                 L"manually (libcef.dll and friends), or run the game as administrator once.";
+    }
+
     const std::wstring msg = L"Skyrim Together could not deploy its runtime files.\n\n"
                              L"Payload: " + acPayload.wstring() +
                              L"\nGame root: " + acGameRoot.wstring() +
-                             detail +
-                             L"\n\nPlease copy the contents of the payload folder into the game root "
-                             L"manually (libcef.dll and friends), or run the game as administrator once.";
+                             detail + advice;
     MessageBoxW(nullptr, msg.c_str(), L"Skyrim Together", MB_ICONERROR | MB_OK);
 }
 
@@ -356,6 +437,15 @@ __declspec(dllexport) bool SKSEPlugin_Load(const void*)
     const auto gameRoot = GetGameRoot();
     if (gameRoot.empty())
         return false;
+
+    // Recorded every launch, because it answers the two questions every
+    // "nothing happened" report turns out to hinge on: whether Mod Organizer
+    // is actually managing this process, and whether this plugin came from the
+    // mod or from a stray copy left in the game folder.
+    AppendLog(gameRoot / L"st_boot.log", L"[bootstrap] loaded from " + SelfPath() +
+                                             (IsVirtualFileSystemActive()
+                                                  ? L", mod organizer vfs active"
+                                                  : L", mod organizer vfs NOT active"));
 
     // Data/<RuntimeDir> - MO2 virtualizes this when installed as a mod; a
     // manual Data copy resolves to the same location

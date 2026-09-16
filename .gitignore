@@ -94,3 +94,6 @@ packaged/*
 # 文件名含控制字符的垃圾文件(禁止再次加入)
 *.garbage
 [0-1]S@@*
+
+# agent working memory (not part of the shipped tree)
+.workbuddy/

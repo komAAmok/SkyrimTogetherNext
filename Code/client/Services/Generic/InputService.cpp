@@ -97,9 +97,42 @@ bool IsDisableKey(int aKey) noexcept
     return aKey == VK_ESCAPE;
 }
 
+// The game reads the keyboard through DirectInput and never registers raw
+// input itself, so this registration is ours alone to own. It has to be on
+// the thread that owns the game window: that is the only thread WM_INPUT is
+// delivered to.
+static void RegisterRawInput() noexcept
+{
+    RAWINPUTDEVICE device[2];
+
+    device[0].usUsagePage = 0x01;
+    device[0].usUsage = 0x06;
+    device[0].dwFlags = 0;
+    device[0].hwndTarget = nullptr;
+
+    device[1].usUsagePage = 0x01;
+    device[1].usUsage = 0x02;
+    device[1].dwFlags = 0;
+    device[1].hwndTarget = nullptr;
+
+    RegisterRawInputDevices(device, 2, sizeof(RAWINPUTDEVICE));
+}
+
+void InputService::SetCaptureEnabled(bool aEnabled) noexcept
+{
+    TiltedPhoques::DInputHook::Get().SetEnabled(aEnabled);
+
+    // DInputHook::Update() issues an explicit RIDEV_REMOVE every time the
+    // hook is switched off, and only re-registers while it is on. Left as
+    // is, the first F2 after each close was spent re-arming raw input
+    // through the DirectInput path instead of reaching this code, which is
+    // what made the toggle fire only sometimes.
+    RegisterRawInput();
+}
+
 void SetUIActive(OverlayService& aOverlay, auto apRenderer, bool aActive)
 {
-    TiltedPhoques::DInputHook::Get().SetEnabled(aActive);
+    InputService::SetCaptureEnabled(aActive);
     aOverlay.SetActive(aActive);
 
     // Ensures the game is actually loaded, in case the initial event was sent too early
@@ -195,7 +228,7 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
     {
         if (!overlay.GetInGame())
         {
-            TiltedPhoques::DInputHook::Get().SetEnabled(false);
+            InputService::SetCaptureEnabled(false);
         }
         else if (aType == KEYEVENT_KEYUP)
         {
@@ -300,6 +333,18 @@ UINT GetRealACP()
 
 LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    // The toggle key arrives as WM_INPUT. Nothing registers raw input before
+    // the overlay is first opened, so without this the very first F2 has no
+    // way to reach ProcessKeyboard - it only arms the hook through the
+    // DirectInput path and opens nothing. Doing it here puts the
+    // registration on the window's own thread instead of whichever thread
+    // booted the client.
+    static const bool s_rawInputRegistered = [] {
+        RegisterRawInput();
+        return true;
+    }();
+    (void)s_rawInputRegistered;
+
     const auto pApp = s_pOverlay->GetOverlayApp();
     if (!pApp)
         return 0;
@@ -404,7 +449,7 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
     // When player tabs in, force the UI state
     else if (uMsg == WM_SETFOCUS && s_pOverlay->GetActive())
     {
-        TiltedPhoques::DInputHook::Get().SetEnabled(true);
+        InputService::SetCaptureEnabled(true);
         s_pOverlay->SetActive(true);
         pRenderer->SetCursorVisible(true);
     }

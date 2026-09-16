@@ -2,6 +2,8 @@
 
 #include <Services/OverlayService.h>
 
+#include <Services/InputService.h>
+
 #include <OverlayApp.hpp>
 
 #include <D3D11Hook.hpp>
@@ -170,11 +172,13 @@ void OverlayService::Reset() const noexcept
 void OverlayService::Reload() noexcept
 {
     SetInGame(false);
-    SetActive(false);
-    GetOverlayApp()->GetClient()->GetBrowser()->Reload();
+
+    const auto pBrowser = GetOverlayApp()->GetClient()->GetBrowser();
+    if (pBrowser)
+        pBrowser->Reload();
+
     Initialize();
     SetInGame(true);
-    m_pOverlay->ExecuteAsync("enterGame");
     SetActive(true);
 }
 
@@ -185,12 +189,20 @@ void OverlayService::Initialize() noexcept
 
 void OverlayService::SetActive(bool aActive) noexcept
 {
-    if (!m_inGame)
-        return;
-    if (m_active == aActive)
+    // Activating follows the game state, deactivating is always allowed.
+    // Refusing to deactivate outside the game is what let a UI left open
+    // when the world went away stay stuck open.
+    if (aActive && !m_inGame)
         return;
 
+    // Send the event even when the flag already matches. The page can have
+    // been rebuilt since the last one (enter/exit game, reload, renderer
+    // restart) and this is the only thing that puts the C++ flag and the
+    // page back in agreement, instead of leaving the mismatch to be
+    // discovered by the next F2 press.
     m_active = aActive;
+
+    spdlog::info("overlay active state: {} (in game: {})", m_active, m_inGame);
 
     m_pOverlay->ExecuteAsync(m_active ? "activate" : "deactivate");
 }
@@ -200,10 +212,44 @@ bool OverlayService::GetActive() const noexcept
     return m_active;
 }
 
+// Closes the UI without going through SetActive, which refuses to run once
+// m_inGame has flipped. The DirectInput hook and the software cursor belong
+// to the same state, so they are released with it: leaving them on would
+// freeze game input while nothing is on screen to take it.
+void OverlayService::ForceDeactivate() noexcept
+{
+    if (!m_active)
+        return;
+
+    m_active = false;
+    m_pOverlay->ExecuteAsync("deactivate");
+
+    spdlog::info("overlay force-deactivated, leaving the game with the UI open");
+
+    InputService::SetCaptureEnabled(false);
+
+    const auto pClient = m_pOverlay->GetClient();
+    if (!pClient)
+        return;
+
+    const auto pRenderer = pClient->GetOverlayRenderHandler();
+    if (pRenderer)
+        pRenderer->SetCursorVisible(false);
+}
+
 void OverlayService::SetInGame(bool aInGame) noexcept
 {
     if (m_inGame == aInGame)
         return;
+
+    // Close the UI while m_inGame is still true. Doing it after the flip made
+    // SetActive() a no-op, which left m_active set while the page had been
+    // told to tear itself down. The next F2 then hit the "already active"
+    // early return, sent no "activate", and only the software cursor came
+    // back - which is exactly the "F2 shows a cursor and nothing else" report.
+    if (!aInGame)
+        ForceDeactivate();
+
     m_inGame = aInGame;
 
     // the F2 toggle is ignored until this flips, so it is worth a line
@@ -213,12 +259,16 @@ void OverlayService::SetInGame(bool aInGame) noexcept
     {
         SetVersion(BUILD_COMMIT);
         m_pOverlay->ExecuteAsync("enterGame");
+
+        // The page may have been rebuilt while the flag stayed set, so push
+        // the activation state again rather than waiting for the next F2 to
+        // disagree with it.
+        if (m_active)
+            m_pOverlay->ExecuteAsync("activate");
     }
     else
     {
         m_pOverlay->ExecuteAsync("exitGame");
-        // TODO: this does nothing, since m_inGame is false
-        SetActive(false);
     }
 }
 

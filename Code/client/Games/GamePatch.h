@@ -35,22 +35,29 @@
 namespace GamePatch
 {
 // A patch site inside an anchor. The offset was measured on 1.6.x and does not
-// survive the recompile, so 1.5.x needs its own - and `legacy` stays at
-// kUnknown until that offset is verified against the actual bytes, which no
-// patch site currently is.
+// survive the recompile, so 1.5.x needs its own.
 //
-// Tools/ida/patch_offsets_1597.py aligns the two disassemblies and proposes an
-// offset, but aligning "a call" to "a call" is not proof it is the same call,
-// and a misplaced Nop or a SwapCall that captures a bogus callee corrupts live
-// code. Every site here is quality of life (menu unfreezing, favorites
-// numbering, the stats menu, thread names), so an unverified offset is not
-// worth the crash risk: kUnknown skips the patch and logs it.
+// Tools/ida/patch_offsets_1597.py aligns the two disassemblies instruction by
+// instruction and reports where each site moved, refusing any candidate whose
+// mnemonic or length disagrees; the results are checked in as
+// Tools/ida/st_patch_offsets_1597.tsv. That is evidence, not proof - aligning
+// "a call" to "a call" is not what makes it the same call - so it is used only
+// where the alignment held, and every site carrying a 1.5.x offset is quality
+// of life (menu unfreezing, favorites numbering, the stats menu, the DInput
+// cooperative level). Where no offset has that backing, kUnknown skips the
+// patch and logs it rather than aim at the 1.6.x one.
 struct Site
 {
     static constexpr size_t kUnknown = static_cast<size_t>(-1);
 
     size_t modern;
     size_t legacy{kUnknown};
+
+    // Which 1.5.x build `legacy` was measured on, as a version-string prefix.
+    // Ten different 1.5.x address libraries ship with the client and their
+    // code is not interchangeable, so an offset measured on 1.5.97 must not be
+    // applied to 1.5.3 just because both count as legacy.
+    const char* legacyMeasuredOn{nullptr};
 };
 
 // Resolves an address library id for use as a patch anchor. Unlike
@@ -68,21 +75,33 @@ inline uint8_t* Anchor(const uint32_t acId, const char* acpWhat) noexcept
     return pAddress;
 }
 
+// True when the running build is the 1.5.x version acpVersion, i.e. the one a
+// checked-in 1.5.x measurement was taken against. Ten different 1.5.x address
+// libraries ship and their code is not interchangeable, so an offset measured
+// on 1.5.97 is not evidence for 1.5.3.
+inline bool IsMeasuredFor(const char* acpVersion) noexcept
+{
+    return VersionDb::Get().IsLegacyFormat() &&
+           VersionDb::Get().GetLoadedVersionString().rfind(acpVersion, 0) == 0;
+}
+
 // Applies the per-version offset to an anchor.
 inline uint8_t* At(uint8_t* apAnchor, const Site& acSite, const char* acpWhat) noexcept
 {
     if (!apAnchor)
         return nullptr;
 
-    const size_t offset = VersionDb::Get().IsLegacyFormat() ? acSite.legacy : acSite.modern;
-    if (offset == Site::kUnknown)
+    if (!VersionDb::Get().IsLegacyFormat())
+        return apAnchor + acSite.modern;
+
+    if (acSite.legacy == Site::kUnknown || !acSite.legacyMeasuredOn || !IsMeasuredFor(acSite.legacyMeasuredOn))
     {
-        spdlog::warn("patch '{}' skipped: no known site on game {}", acpWhat,
+        spdlog::warn("patch '{}' skipped: no site inside this function is verified for game {}", acpWhat,
                      VersionDb::Get().GetLoadedVersionString());
         return nullptr;
     }
 
-    return apAnchor + offset;
+    return apAnchor + acSite.legacy;
 }
 
 inline bool WriteBytes(void* apAddress, const void* acpData, const size_t acSize, const char* acpWhat) noexcept

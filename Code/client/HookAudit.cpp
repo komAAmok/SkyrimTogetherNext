@@ -2,6 +2,7 @@
 
 #include <CrashHandler.h>
 #include <HookAudit.h>
+#include <VersionDb.h>
 
 #include <cstring>
 
@@ -9,8 +10,8 @@ namespace
 {
 struct RecordedHook
 {
-    void* pTarget{nullptr};
-    uint8_t before[8]{};
+    void* pTarget{nullptr}; // the address MinHook was told to patch
+    uint8_t before[8]{};    // the bytes that were there before it did
 };
 
 TiltedPhoques::Vector<RecordedHook>& Recorded() noexcept
@@ -61,6 +62,28 @@ void HookAudit::Record(void** appTargetSlot) noexcept
 
     RecordedHook recorded{};
     recorded.pTarget = *appTargetSlot;
+
+    // An id with no mapping degrades to a shared stub, and hooking it means
+    // patching the stub: the hook "lands" there and never runs, and whoever
+    // calls the stub gets our jump instead of a graceful zero. Say so now,
+    // because later it only looks like a hook that never fires.
+    if (recorded.pTarget == VersionDb::GetUnresolvedStub())
+    {
+        spdlog::error("hook target is the unresolved-id stub: the address library has no mapping for it, so this hook "
+                      "is patched onto the fallback and can never reach the game");
+    }
+
+    for (const auto& previous : Recorded())
+    {
+        if (previous.pTarget == recorded.pTarget)
+        {
+            spdlog::error("hook target {:#x} is already claimed by another hook in this mod; one of the two will be "
+                          "installed and one silently dropped",
+                          reinterpret_cast<uintptr_t>(recorded.pTarget));
+            break;
+        }
+    }
+
     SafeReadCode(recorded.before, recorded.pTarget, sizeof(recorded.before));
 
     Recorded().push_back(recorded);

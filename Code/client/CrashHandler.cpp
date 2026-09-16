@@ -1,6 +1,7 @@
 #include <BranchInfo.h>
 #include "CrashHandler.h"
 #include <DbgHelp.h>
+#include <HookAudit.h>
 #include <Windows.h>
 #include <Psapi.h>
 #include <chrono>
@@ -132,6 +133,89 @@ void DescribeAddress(const char* acpWhat, const uintptr_t aAddress)
     }
 }
 
+// One hop past a pointer slot: what the stub the slot holds does decides the
+// rest of the story, because a branch stub is a jump, and where its jump lands
+// is either a real function or the reason everything went nowhere. The raw
+// bytes are logged either way so any other form can be decoded by hand.
+static void DescribeHeldCode(const uintptr_t aHeld)
+{
+    uint8_t code[16]{};
+    if (SafeReadBytes(code, sizeof(code), aHeld) != sizeof(code))
+    {
+        spdlog::error(__FUNCTION__ ": the bytes at the held address {:#x} could not be read", aHeld);
+        return;
+    }
+
+    char bytes[3 * sizeof(code) + 1]{};
+    for (size_t i = 0; i < sizeof(code); i++)
+        sprintf_s(bytes + i * 3, sizeof(bytes) - i * 3, "%02x ", code[i]);
+    spdlog::error(__FUNCTION__ ": the first 16 bytes at the held address are {}", bytes);
+
+    char lands[MAX_PATH + 48];
+    uintptr_t destination = 0;
+
+    // ff 25 disp32: jump through a pointer right behind the instruction
+    if (code[0] == 0xFF && code[1] == 0x25)
+    {
+        int32_t disp = 0;
+        memcpy(&disp, code + 2, sizeof(disp));
+        const uintptr_t slot = aHeld + 6 + disp;
+
+        char where[MAX_PATH + 48];
+        FormatModuleOffset(slot, where);
+
+        uintptr_t held = 0;
+        SafeReadBytes(&held, sizeof(held), slot);
+        FormatModuleOffset(held, lands);
+
+        spdlog::error(__FUNCTION__ ": it jumps through the pointer at {:#x} ({}), which holds {:#x} ({})", slot, where,
+                      held, lands);
+
+        DescribeAddress("the address that jump lands on", held);
+        return;
+    }
+
+    // e9 rel32 / eb rel8: relative jumps, exactly the instruction a copied
+    // prologue has to relocate - a displacement computed for a different place
+    // lands several megabytes off, which is what a jump into a hole looks like
+    const char* form = nullptr;
+    if (code[0] == 0xE9)
+    {
+        int32_t disp = 0;
+        memcpy(&disp, code + 1, sizeof(disp));
+        destination = aHeld + 5 + disp;
+        form = "a 5 byte relative jump";
+    }
+    else if (code[0] == 0xEB)
+    {
+        destination = aHeld + 2 + static_cast<int8_t>(code[1]);
+        form = "a 2 byte relative jump";
+    }
+
+    if (form)
+    {
+        FormatModuleOffset(destination, lands);
+        spdlog::error(__FUNCTION__ ": it is {} that lands on {:#x} ({})", form, destination, lands);
+
+        DescribeAddress("the address that jump lands on", destination);
+        return;
+    }
+
+    // 48 b8 imm64: mov rax, imm64, the absolute load a 64 bit jump follows
+    if (code[0] == 0x48 && code[1] == 0xB8)
+    {
+        memcpy(&destination, code + 2, sizeof(destination));
+        FormatModuleOffset(destination, lands);
+        spdlog::error(__FUNCTION__ ": it loads {:#x} ({}) into rax, which a jump through rax would follow",
+                      destination, lands);
+
+        DescribeAddress("the address that load names", destination);
+        return;
+    }
+
+    spdlog::error(__FUNCTION__ ": no branch at the top, so the held address is plain code");
+}
+
 // The call that led into a bad address is the handful of bytes in front of the
 // return address, and its form names the owner of the pointer: a call through
 // memory has its slot at a fixed place, which can be resolved to a module and
@@ -169,6 +253,9 @@ void DescribeCall(const uintptr_t aReturnAddress)
 
         spdlog::error(__FUNCTION__ ": called through the pointer at {:#x} ({}), which holds {:#x} ({})", slot, who,
                       held, target);
+
+        DescribeAddress("the address the pointer holds", held);
+        DescribeHeldCode(held);
         return;
     }
 
@@ -273,6 +360,11 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
                     }
                 }
             }
+
+            // Whatever the chain above pointed at, the story only holds while
+            // our own hooks are still in place; if one of them was taken over
+            // or never landed, this says which one.
+            HookAudit::Verify("a crash just happened");
             WriteModuleList();
         }
     }

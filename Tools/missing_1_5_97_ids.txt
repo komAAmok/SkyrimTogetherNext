@@ -40,3 +40,22 @@
 # ae=69554 | patch anchor | tasklet thread names | Games/Skyrim/BSSystem/BSTaskletManager.cpp:35
 # ae=82088 | call/data | s_CloseAll | Games/Skyrim/Interface/UI.cpp:32
 # ae=400180 | rtti | BSWin32GameDataSystemUtility | Games/Skyrim/RTTI.cpp:5620
+#
+# 2026-09-16, with both builds on disk (1.6.1170 and 1.5.97):
+#   14774  resolved and hand verified at 0x165f60 (BSRandom::GetGenerator).
+#          Nothing in the code base calls BSRandom::UnsignedInt, so folding it
+#          in changes no behaviour; it is recorded in
+#          Tools/ida/st_overrides_graph.txt for the next map regeneration.
+#   21600  the tool's candidate 0x2dc490 is wrong (stores a double, not a
+#          bool). Rejected, do not re-add.
+#   36548  still rejected; and even mapped it would not help, because the
+#          patch site at +0xFE has no aligned 1.5.97 offset
+#          (Tools/ida/st_patch_offsets_1597.tsv), so the patch stays skipped.
+#   32883  still open, and the only one of the nine with gameplay effect. It
+#          has no caller anywhere in the 1.6.1170 image - no E8 call site and
+#          no vtable slot points at it - and its two callees (63370, 13129)
+#          are themselves unmapped, so there is no anchor left to pull on.
+#          The 1.5.97 twin of its 1.6 neighbour interpolation (0x4f24b0,
+#          0x4f0440) and the token-similarity candidate 0x4f1f90 were all
+#          disassembled and rejected: 0x4f1f90 reads a second argument from
+#          rdx, which RevertAnimationGraphManager does not have.

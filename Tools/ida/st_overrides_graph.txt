@@ -15,7 +15,15 @@
 # ae_id 0xRVA
 
 # --- functions -------------------------------------------------------------
+14774 0x165f60   # BSRandom::GetGenerator; hand verified against 1.6 0x1e5190:
+                 # identical prologue, same TLS slot index 0x2a08 and the same
+                 # thread-state compare; only the register allocation and the
+                 # branch polarity differ. Not yet folded into the map - see
+                 # Tools/missing_1_5_97_ids.txt.
 34452 0x5506c0   # projectile null check; sim 0.87, single candidate
+# 21600 was rejected after disassembly: the tool's 0x2dc490 clears its output
+# pointer, reads the PlayerCamera singleton and stores a *double* into it
+# (movsd); AE isFirstPerson returns a bool. Wrong function, do not re-add.
 # 36548 was rejected: the only 1.5.97 candidate shares one literal
 # (TESInitThread) but its body diverges from 1.6 0x641190 within eight
 # instructions, so the match is not demonstrable. Left unmapped.

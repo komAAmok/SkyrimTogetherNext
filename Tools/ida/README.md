@@ -84,6 +84,14 @@ Status: 3066/3075 codebase ids mapped (99.7%), 3699/3699 offsets validated
 against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 9 that remain
 and what they cost are listed in Tools/missing_1_5_97_ids.txt.
 
+Consumed by the client: the rows of `st_patch_offsets_1597.tsv` that report an
+aligned offset are wired into the `GamePatch::Site` entries in the client as
+`{modern, legacy, "1.5.97"}`. `Site::legacyMeasuredOn` records the build the
+offset was measured on, and `GamePatch::At()` refuses to apply it to any other
+1.5.x version - ten different 1.5.x libraries ship and their code is not
+interchangeable. Sites with no aligned row stay at `kUnknown` and are skipped
+and logged at runtime.
+
 ## Legacy IDA kit (superseded)
 
 `1_apply_st_map.py` / `2_apply_ae_labels.py` / `3_export_targets.py` were the

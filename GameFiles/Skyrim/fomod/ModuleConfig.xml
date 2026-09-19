@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
-    <moduleName>Skyrim Together Next — 作者 komAAmok — https://github.com/komAAmok/SkyrimTogetherNext</moduleName>
+    <!-- Author, version and project URL live in fomod/info.xml: MO2 shows them
+         in their own fields at the top of the wizard, so packing them into the
+         module name only duplicated them. -->
+    <moduleName>Skyrim Together Next</moduleName>
 
     <requiredInstallFiles>
         <folder source="SKSE" destination="SKSE" />

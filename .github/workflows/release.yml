@@ -45,6 +45,15 @@ jobs:
           # at the root as well.
           New-Item -ItemType Directory -Force -Path mod-pack/fomod,mod-pack/launcher,server-pack | Out-Null
           Copy-Item -Recurse GameFiles/Skyrim/fomod/* mod-pack/fomod/
+          # The wizard reads author/version/website from fomod/info.xml. Stamp
+          # the version from the tag so it can never drift from the zip, and
+          # drop the leading "v" because the field shows a version, not a tag.
+          $infoVer = "${{ needs.build-windows.outputs.str-version }}" -replace '^v', ''
+          (Get-Content mod-pack/fomod/info.xml) -replace '<Version>[^<]*</Version>', "<Version>$infoVer</Version>" |
+            Set-Content mod-pack/fomod/info.xml
+          if (!(Select-String -Path mod-pack/fomod/info.xml -Pattern "<Version>$infoVer</Version>" -Quiet)) {
+            throw "fomod/info.xml was not stamped with version $infoVer"
+          }
           Get-ChildItem GameFiles/Skyrim -Force | Where-Object { $_.Name -ne 'fomod' } |
             ForEach-Object { Copy-Item -Recurse $_.FullName mod-pack/ }
           # the launch verification script is a wizard option: it relies on a

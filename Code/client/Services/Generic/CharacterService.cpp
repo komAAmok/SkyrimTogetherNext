@@ -1179,6 +1179,7 @@ void CharacterService::OnSubtitleEvent(const SubtitleEvent& acEvent) noexcept
 
 void CharacterService::OnNotifySubtitle(const NotifySubtitle& acMessage) noexcept
 {
+    const bool isLeader = World::Get().GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
     Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
     if (!pActor)
         return;

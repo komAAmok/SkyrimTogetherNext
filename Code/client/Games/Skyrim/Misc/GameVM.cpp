@@ -6,9 +6,10 @@
 
 #include <atomic>
 
-// Where this build's struct puts the vm pointer inside the singleton. It is a
-// 1.6.x offset, so on 1.5.97 it reads something else entirely.
-static constexpr size_t kAssumedVirtualMachineOffset = 0x200;
+// Taken from the struct instead of spelled out so the two cannot drift apart:
+// previous syncs left this saying 0x200 while SkyrimVM had moved to 0x210, so
+// every healthy run reported its own layout as wrong.
+static constexpr size_t kAssumedVirtualMachineOffset = offsetof(SkyrimVM, virtualMachine);
 
 namespace
 {

@@ -1114,6 +1114,7 @@ void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
 void CharacterService::OnNotifyDialogue(const NotifyDialogue& acMessage) noexcept
 {
     // A member can initiate dialogue with an NPC owned by this client.
+    const bool isLeader = World::Get().GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
     Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
     if (!pActor)
         return;

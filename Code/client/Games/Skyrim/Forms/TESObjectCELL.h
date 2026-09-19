@@ -66,7 +66,13 @@ struct TESObjectCELL : TESForm
     // engine does not have (it keeps them as padding), and there is no
     // loadedCellData member -- callers must not touch loadedCellData on 1.5.x.
     uint8_t pad20[0x40 - 0x20];
-    uint8_t cellFlags[5];
+    // Spelled the way 1.6.x spells it instead of as one 5 byte run, because
+    // IsAttached() and the cellFlags bit tests upstream added read these as
+    // fields. No byte moves: this fork used to reach the same byte as
+    // cellFlags[4] == 7, which is exactly cellState == Attached.
+    uint16_t cellFlags;
+    uint16_t cellGameFlags;
+    CellState cellState;
     uint8_t pad45[0x88 - 0x45];
     ReferenceData refData;
     uint8_t unkB0[0x118 - 0xB0];
@@ -101,6 +107,8 @@ struct TESObjectCELL : TESForm
 
 #ifdef SKYRIM_TARGET_LEGACY
 static_assert(offsetof(TESObjectCELL, cellFlags) == 0x40);
+static_assert(offsetof(TESObjectCELL, cellGameFlags) == 0x42);
+static_assert(offsetof(TESObjectCELL, cellState) == 0x44);
 static_assert(offsetof(TESObjectCELL, refData) == 0x88);
 static_assert(offsetof(TESObjectCELL, worldspace) == 0x120);
 static_assert(sizeof(TESObjectCELL) == 0x128);

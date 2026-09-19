@@ -235,7 +235,7 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
             SetUIActive(overlay, pRenderer, !active);
         }
     }
-    else if (active)
+    else if (active && aType != KEYEVENT_CHAR)
     {
         pApp->InjectKey(aType, GetCefModifiers(aKey), aKey, aScanCode);
     }
@@ -245,6 +245,11 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
     // so the character event is sent straight to the browser instead. Doing
     // it after InjectKey keeps the ordering the page expects: keydown first,
     // then the character it produced.
+    //
+    // The InjectKey branch above excludes KEYEVENT_CHAR: CefKeyEvent's
+    // `character` would be left uninitialised there, and the browser would
+    // receive a second, garbage character between the keydown and the real
+    // input.
     if (aType == KEYEVENT_CHAR && active && aCharacter)
     {
         if (const auto pBrowser = pClient->GetBrowser(); pBrowser && pBrowser->GetHost())

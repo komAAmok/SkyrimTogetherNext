@@ -23,6 +23,27 @@ void ForceKillAllInput()
     MenuControls::GetInstance()->SetToggle(false);
 }
 
+// The lock keys describe the layout rather than the stroke, so they are the
+// only flags that survive into a character event. Windows folds every other
+// modifier into the produced character before sending WM_CHAR, and Chromium
+// applies them a second time if the event still carries them.
+uint32_t GetCefLockModifiers()
+{
+    uint32_t modifiers = EVENTFLAG_NONE;
+
+    if (GetKeyState(VK_CAPITAL) & 1)
+    {
+        modifiers |= EVENTFLAG_CAPS_LOCK_ON;
+    }
+
+    if (GetKeyState(VK_NUMLOCK) & 1)
+    {
+        modifiers |= EVENTFLAG_NUM_LOCK_ON;
+    }
+
+    return modifiers;
+}
+
 uint32_t GetCefModifiers(uint16_t aVirtualKey)
 {
     uint32_t modifiers = EVENTFLAG_NONE;
@@ -256,8 +277,24 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
         {
             CefKeyEvent ev;
             ev.type = KEYEVENT_CHAR;
-            ev.modifiers = GetCefModifiers(aKey);
-            ev.windows_key_code = aKey;
+            // A character event carries no key state. By the time Windows
+            // would have sent WM_CHAR the modifier has already been folded
+            // into the character itself, so SHIFT must not be set here:
+            // Chromium peels an attached Shift back off again, which turned
+            // Shift+1 into "1" and Shift+a into "a". GetCefModifiers() is
+            // deliberately not used, it reports the physical modifier state
+            // of the key that produced this text.
+            ev.modifiers = GetCefLockModifiers();
+            // For a character event CEF reads the text out of
+            // `windows_key_code`, not out of `character`. Leaving the
+            // virtual key there (aKey) makes every punctuation mark come out
+            // as the character with the same numeric value as its VK code:
+            // VK_OEM_PERIOD is 0xBE, so "." typed U+00BE "3/4". Digits only
+            // appeared to work because VK '1'..'9' (0x31..0x39) coincide with
+            // their ASCII code points. The produced code unit has to go in
+            // both fields; the physical key is still described by
+            // `native_key_code`.
+            ev.windows_key_code = aCharacter;
             ev.native_key_code = aScanCode;
             ev.character = aCharacter;
             ev.unmodified_character = aCharacter;

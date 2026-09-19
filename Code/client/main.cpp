@@ -10,8 +10,9 @@
 
 #include <GameRoot.h>
 
-// 1 - Steam, 2 - GOG
-inline constexpr std::string_view kSupportedGameVersions[2] = {"1.7.104.0", "1.7.104.0"};
+// This build ships two runtimes and address libraries for 1.5.x (legacy,
+// pre-AE) through 1.7.x. The version gate is a major.minor prefix check, so
+// there is no single fixed pair to display; the dialog states the range.
 
 std::unique_ptr<TiltedOnlineApp> g_appInstance{nullptr};
 
@@ -53,10 +54,8 @@ static void ShowAddressLibraryError(const wchar_t* apGamePath, const String& acE
 static void ShowIncompatibleVersionError(const char* apDetectedGameVersion, const wchar_t* apGamePath)
 {
     constexpr wchar_t kModPageUrl[] = LR"(https://www.nexusmods.com/skyrimspecialedition/mods/69993?tab=files)";
-    const auto [steamVer, gogVer] = kSupportedGameVersions;
 
-    std::string supportedVersions = steamVer != gogVer ? fmt::format("{} (or {} if GOG)", steamVer, gogVer) : std::string{steamVer};
-    std::string message = fmt::format("Skyrim Together {} requires Skyrim SE {}, but your installed version is {}\n\nUpdate or downgrade to match, then relaunch", BUILD_COMMIT + 1, supportedVersions, apDetectedGameVersion);
+    std::string message = fmt::format("Skyrim Together {} requires Skyrim SE 1.5.x, 1.6.x or 1.7.x, but your installed version is {}\n\nUpdate or downgrade to match, then relaunch", BUILD_COMMIT + 1, apDetectedGameVersion);
     std::wstring wideMessage(message.begin(), message.end());
 
     const auto optionalDetails = fmt::format(L"Installed here: {}", apGamePath);

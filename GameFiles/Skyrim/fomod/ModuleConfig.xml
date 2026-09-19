@@ -9,6 +9,7 @@
         <folder source="meshes" destination="meshes" />
         <folder source="SkyrimTogetherRebornBehaviors" destination="SkyrimTogetherRebornBehaviors" />
         <file source="SkyrimTogether.esp" destination="SkyrimTogether.esp" />
+        <file source="SkyrimTogetherQuestPatches.esp" destination="SkyrimTogetherQuestPatches.esp" />
     </requiredInstallFiles>
 
     <installSteps order="Explicit">

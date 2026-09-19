@@ -23,6 +23,7 @@
 
 #include <Windows.h>
 
+#include <cstdint>
 #include <cstring>
 
 #include <mem/mem.h>
@@ -31,6 +32,12 @@
 #include <spdlog/spdlog.h>
 
 #include <VersionDb.h>
+
+// Declared in the client PCH and defined by whichever host loaded this runtime
+// (the launcher serves it from a buffer beside the manually mapped exe, the
+// SKSE build scans for free pages within +-1GB of the game module). Used here
+// to stage branches that a rel32 cannot reach.
+extern void* RipAllocateN(size_t blockLength);
 
 namespace GamePatch
 {
@@ -149,6 +156,61 @@ inline bool Nop(void* apAddress, const size_t acLength, const char* acpWhat) noe
     return true;
 }
 
+// The runtime is not always within reach of a rel32 branch, and this is the
+// difference between the two launch paths that bites hardest:
+//
+//   - the launcher maps the runtime beside the game image, so a direct
+//     call/jmp to one of our hooks is a short hop;
+//   - under SKSE the Windows loader places it wherever ASLR decides, about
+//     20 GB away from the game image in practice.
+//
+// A 5 byte rel32 written at 20 GB carries a displacement the cast to int32_t
+// silently truncates, so the branch lands in unmapped memory and the game dies
+// with "jumped to code that is not there" pointing at a normal game function.
+// Stage such a transfer through a stub allocated next to the game image: the
+// branch stays short, the stub carries the full 64-bit target, and because a
+// jmp does not touch the stack the callee still returns to the game.
+inline uint8_t* NearStub(const void* acpTarget) noexcept
+{
+    // RipAllocateN already hands out executable pages within +-1GB of the game
+    // module, which is what the rel32 needs.
+    auto* pStub = static_cast<uint8_t*>(RipAllocateN(16));
+    if (!pStub)
+        return nullptr;
+
+    // jmp qword ptr [rip+0]   followed by the absolute target
+    const int32_t kZero = 0;
+    pStub[0] = 0xFF;
+    pStub[1] = 0x25;
+    std::memcpy(pStub + 2, &kZero, sizeof(kZero));
+    std::memcpy(pStub + 6, &acpTarget, sizeof(acpTarget));
+    FlushInstructionCache(GetCurrentProcess(), pStub, 14);
+
+    return pStub;
+}
+
+// True when the rel32 written at apFrom reaches apTo without truncation.
+inline bool Reaches(const void* apFrom, const void* apTo) noexcept
+{
+    const int64_t delta = reinterpret_cast<int64_t>(apTo) - reinterpret_cast<int64_t>(apFrom) - 5;
+    return delta >= INT32_MIN && delta <= INT32_MAX;
+}
+
+// The address a rel32 at apFrom should actually hold, going through a near
+// stub when the real target is out of range. Null means give up and log.
+inline const void* BranchTarget(void* apFrom, const void* apTo, const char* acpWhat) noexcept
+{
+    if (Reaches(apFrom, apTo))
+        return apTo;
+
+    if (auto* pStub = NearStub(apTo))
+        return pStub;
+
+    spdlog::error("patch '{}' skipped: target {} is too far from {} for a rel32 and no near stub could be allocated",
+                  acpWhat, fmt::ptr(apTo), fmt::ptr(apFrom));
+    return nullptr;
+}
+
 // Redirects a single `call rel32` site: reads the current target into
 // aOriginal and points the instruction at aReplacement. Refuses anything
 // that is not a direct call, which is what turns a wrong anchor (a mapped id
@@ -171,8 +233,11 @@ template <class TFunc> bool SwapCall(void* apAddress, TFunc& aOriginal, TFunc aR
     std::memcpy(&displacement, pSite + 1, sizeof(displacement));
     aOriginal = reinterpret_cast<TFunc>(pSite + 5 + displacement);
 
-    const auto target = reinterpret_cast<intptr_t>(aReplacement);
-    displacement = static_cast<int32_t>(target - reinterpret_cast<intptr_t>(pSite) - 5);
+    const void* pTarget = BranchTarget(pSite, reinterpret_cast<const void*>(aReplacement), acpWhat);
+    if (!pTarget)
+        return false;
+
+    displacement = static_cast<int32_t>(reinterpret_cast<intptr_t>(pTarget) - reinterpret_cast<intptr_t>(pSite) - 5);
 
     return WriteBytes(pSite + 1, &displacement, sizeof(displacement), acpWhat);
 }
@@ -183,9 +248,12 @@ template <class TFunc> bool Jump(void* apAddress, TFunc aReplacement, const char
     if (!apAddress)
         return false;
 
+    const void* pTarget = BranchTarget(apAddress, reinterpret_cast<const void*>(aReplacement), acpWhat);
+    if (!pTarget)
+        return false;
+
     uint8_t patch[5]{0xE9};
-    const auto target = reinterpret_cast<intptr_t>(aReplacement);
-    const auto displacement = static_cast<int32_t>(target - reinterpret_cast<intptr_t>(apAddress) - 5);
+    const auto displacement = static_cast<int32_t>(reinterpret_cast<intptr_t>(pTarget) - reinterpret_cast<intptr_t>(apAddress) - 5);
     std::memcpy(patch + 1, &displacement, sizeof(displacement));
 
     return WriteBytes(apAddress, patch, sizeof(patch), acpWhat);
@@ -199,9 +267,12 @@ template <class TFunc> bool PutCall(void* apAddress, TFunc aReplacement, const c
     if (!apAddress)
         return false;
 
+    const void* pTarget = BranchTarget(apAddress, reinterpret_cast<const void*>(aReplacement), acpWhat);
+    if (!pTarget)
+        return false;
+
     uint8_t patch[5]{0xE8};
-    const auto target = reinterpret_cast<intptr_t>(aReplacement);
-    const auto displacement = static_cast<int32_t>(target - reinterpret_cast<intptr_t>(apAddress) - 5);
+    const auto displacement = static_cast<int32_t>(reinterpret_cast<intptr_t>(pTarget) - reinterpret_cast<intptr_t>(apAddress) - 5);
     std::memcpy(patch + 1, &displacement, sizeof(displacement));
 
     return WriteBytes(apAddress, patch, sizeof(patch), acpWhat);

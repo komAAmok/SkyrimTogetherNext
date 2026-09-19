@@ -121,6 +121,8 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
         return;
     }
 
+    const bool isLeader = m_world.GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
+
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
     if (!pActor)
         return;

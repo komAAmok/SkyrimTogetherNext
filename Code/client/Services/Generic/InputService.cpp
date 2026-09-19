@@ -146,7 +146,7 @@ void SetUIActive(OverlayService& aOverlay, auto apRenderer, bool aActive)
         ;
 }
 
-void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aType, bool aE0, bool aE1)
+void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aType, bool aE0, bool aE1, uint16_t aCharacter = 0)
 {
     if (aType != KEYEVENT_CHAR)
     {
@@ -239,6 +239,86 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
     {
         pApp->InjectKey(aType, GetCefModifiers(aKey), aKey, aScanCode);
     }
+
+    // InjectKey has no room for the text a keystroke produces, and the
+    // submodule cannot be patched here (CI force-updates it from upstream),
+    // so the character event is sent straight to the browser instead. Doing
+    // it after InjectKey keeps the ordering the page expects: keydown first,
+    // then the character it produced.
+    if (aType == KEYEVENT_CHAR && active && aCharacter)
+    {
+        if (const auto pBrowser = pClient->GetBrowser(); pBrowser && pBrowser->GetHost())
+        {
+            CefKeyEvent ev;
+            ev.type = KEYEVENT_CHAR;
+            ev.modifiers = GetCefModifiers(aKey);
+            ev.windows_key_code = aKey;
+            ev.native_key_code = aScanCode;
+            ev.character = aCharacter;
+            ev.unmodified_character = aCharacter;
+
+            pBrowser->GetHost()->SendKeyEvent(ev);
+        }
+    }
+}
+
+// The overlay never sees WM_CHAR. The game owns the keyboard through
+// DirectInput, its message loop does no TranslateMessage dispatch for us, and
+// our window procedure is a subclass that only observes what the game's loop
+// happens to pump. WM_INPUT is the one path we actually own, and it carries
+// key state only, never text.
+//
+// So the character has to be produced here: translate the raw virtual key and
+// scan code back into the text the layout would have generated.
+static uint16_t TranslateToCharacter(uint16_t aScanCode, uint16_t aVirtualKey) noexcept
+{
+    // ToUnicodeEx needs the modifier state to decide between "1" and "!",
+    // "a" and "A". GetKeyboardState is unreliable while the game owns the
+    // device, so build the state from GetKeyState together with the toggle
+    // keys, which is what the layout actually consults.
+    BYTE keyboardState[256]{};
+    auto& capslock = keyboardState[VK_CAPITAL];
+    auto& numlock = keyboardState[VK_NUMLOCK];
+    auto& scrolllock = keyboardState[VK_SCROLL];
+
+    if (GetKeyState(VK_SHIFT) & 0x8000)
+        keyboardState[VK_SHIFT] = 0x80;
+    if (GetKeyState(VK_CONTROL) & 0x8000)
+        keyboardState[VK_CONTROL] = 0x80;
+    if (GetKeyState(VK_MENU) & 0x8000)
+        keyboardState[VK_MENU] = 0x80;
+
+    capslock = static_cast<BYTE>(GetKeyState(VK_CAPITAL) & 1);
+    numlock = static_cast<BYTE>(GetKeyState(VK_NUMLOCK) & 1);
+    scrolllock = static_cast<BYTE>(GetKeyState(VK_SCROLL) & 1);
+
+    // A dead key (an accent waiting for its base letter) reports a negative
+    // result and stays pending in the layout, so it is queried twice below.
+    // The buffer is oversized because ToUnicodeEx may emit a whole AltGr
+    // combination in one call.
+    wchar_t buffer[8]{};
+    constexpr int kCharacterBufferSize = static_cast<int>(sizeof(buffer) / sizeof(buffer[0]));
+
+    int produced = ::ToUnicodeEx(aVirtualKey, aScanCode, keyboardState, buffer,
+                                 kCharacterBufferSize, 0, GetKeyboardLayout(0));
+
+    if (produced < 0)
+    {
+        // Flush the dead key, then report "nothing typed" for this stroke.
+        // Leaving it pending would make the next ordinary key get swallowed.
+        ::ToUnicodeEx(aVirtualKey, aScanCode, keyboardState, buffer,
+                      kCharacterBufferSize, 0, GetKeyboardLayout(0));
+        return 0;
+    }
+
+    if (produced <= 0)
+        return 0;
+
+    // ToUnicodeEx can emit several code units at once (a ligature, or an
+    // AltGr combination). Only the first one is a plain keystroke into a
+    // text field; the rest belong to the layout's own composition, which the
+    // renderer handles on its own.
+    return static_cast<uint16_t>(buffer[0]);
 }
 
 void ProcessMouseMove(uint16_t aX, uint16_t aY)
@@ -391,7 +471,26 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         {
             const auto keyboard = input.data.keyboard;
 
-            ProcessKeyboard(keyboard.VKey, keyboard.MakeCode, keyboard.Flags & RI_KEY_BREAK ? KEYEVENT_KEYUP : KEYEVENT_KEYDOWN, keyboard.Flags & RI_KEY_E0, keyboard.Flags & RI_KEY_E1);
+            const bool isKeyUp = (keyboard.Flags & RI_KEY_BREAK) != 0;
+
+            ProcessKeyboard(keyboard.VKey, keyboard.MakeCode, isKeyUp ? KEYEVENT_KEYUP : KEYEVENT_KEYDOWN, keyboard.Flags & RI_KEY_E0, keyboard.Flags & RI_KEY_E1);
+
+            // Synthesise the character for the key-down edge of a printable
+            // key. The game owns the keyboard and never runs TranslateMessage
+            // for us, so WM_CHAR is not an option and this is the only place
+            // the text can be produced. Skip anything with Ctrl or Alt held,
+            // which is a shortcut rather than text, and skip the toggle keys
+            // so opening the overlay cannot type into it.
+            if (active && !isKeyUp && !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
+            {
+                if (!IsToggleKey(keyboard.VKey) && !IsDisableKey(keyboard.VKey))
+                {
+                    if (const uint16_t character = TranslateToCharacter(keyboard.MakeCode, keyboard.VKey))
+                    {
+                        ProcessKeyboard(keyboard.VKey, keyboard.MakeCode, KEYEVENT_CHAR, keyboard.Flags & RI_KEY_E0, keyboard.Flags & RI_KEY_E1, character);
+                    }
+                }
+            }
         }
         else if (input.header.dwType == RIM_TYPEMOUSE)
         {
@@ -433,18 +532,12 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
             }
         }
     }
-    else if (uMsg == WM_CHAR)
-    {
-        uint16_t scancode = (lParam >> 16) & 0xFF;
-        uint16_t virtualKey = static_cast<uint16_t>(wParam);
-        if (!IsWindowUnicode(hwnd))
-        {
-            wchar_t wch;
-            ::MultiByteToWideChar(s_currentACP, MB_PRECOMPOSED, reinterpret_cast<char*>(&virtualKey), 2, &wch, sizeof(wchar_t));
-            virtualKey = wch;
-        }
-        ProcessKeyboard(virtualKey, scancode, KEYEVENT_CHAR, false, false);
-    }
+    // WM_CHAR is deliberately not handled. The character is synthesised from
+    // WM_INPUT instead, because the game's message loop does not call
+    // TranslateMessage for us and so this branch could never fire. Handling
+    // both would insert every character twice on any loader that does pump
+    // WM_CHAR.
+    //
     // If the player tabs out/in with UI visible, this WndProc doesn't run during mouse or keyboard events.
     // When player tabs in, force the UI state
     else if (uMsg == WM_SETFOCUS && s_pOverlay->GetActive())

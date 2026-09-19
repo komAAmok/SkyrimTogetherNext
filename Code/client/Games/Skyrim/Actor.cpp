@@ -5,6 +5,9 @@
 #include <Misc/GameVM.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESNPC.h>
+#include <Forms/TESObjectARMO.h>
+#include <Forms/TESLevItem.h>
+#include <Forms/BGSOutfit.h>
 #include <Forms/TESFaction.h>
 #include <Forms/TESQuest.h>
 #include <Components/TESActorBaseData.h>
@@ -516,7 +519,7 @@ bool Actor::ShouldWearBodyPiece() const noexcept
     if (!pBase)
         return false;
 
-    BGSOutfit* pDefaultOutfit = pBase->outfits[0];
+    BGSOutfit* pDefaultOutfit = pBase->defaultOutfit;
     if (!pDefaultOutfit)
         return false;
 
@@ -559,7 +562,7 @@ void Actor::EquipOutfit(bool aIsSleepOutfit) noexcept
     if (!pBase)
         return;
 
-    BGSOutfit* pDefaultOutfit = pBase->outfits[aIsSleepOutfit ? 1:0];
+    BGSOutfit* pDefaultOutfit = aIsSleepOutfit ? pBase->sleepOutfit : pBase->defaultOutfit;
     if (!pDefaultOutfit)
         return;
 

@@ -1,6 +1,7 @@
 
 #include <TiltedOnlineApp.h>
 #include <TiltedOnlinePCH.h>
+#include <ScriptExtender.h>
 
 #include <Commctrl.h>
 #include <Windows.h>
@@ -8,6 +9,9 @@
 #include <base/dialogues/win/TaskDialog.h>
 
 #include <GameRoot.h>
+
+// 1 - Steam, 2 - GOG
+inline constexpr std::string_view kSupportedGameVersions[2] = {"1.7.104.0", "1.7.104.0"};
 
 std::unique_ptr<TiltedOnlineApp> g_appInstance{nullptr};
 
@@ -46,6 +50,27 @@ static void ShowAddressLibraryError(const wchar_t* apGamePath, const String& acE
     exit(4);
 }
 
+static void ShowIncompatibleVersionError(const char* apDetectedGameVersion, const wchar_t* apGamePath)
+{
+    constexpr wchar_t kModPageUrl[] = LR"(https://www.nexusmods.com/skyrimspecialedition/mods/69993?tab=files)";
+    const auto [steamVer, gogVer] = kSupportedGameVersions;
+
+    std::string supportedVersions = steamVer != gogVer ? fmt::format("{} (or {} if GOG)", steamVer, gogVer) : std::string{steamVer};
+    std::string message = fmt::format("Skyrim Together {} requires Skyrim SE {}, but your installed version is {}\n\nUpdate or downgrade to match, then relaunch", BUILD_COMMIT + 1, supportedVersions, apDetectedGameVersion);
+    std::wstring wideMessage(message.begin(), message.end());
+
+    const auto optionalDetails = fmt::format(L"Installed here: {}", apGamePath);
+
+    Base::TaskDialog dia(g_SharedWindowIcon, L"Error", L"Incompatible game version", wideMessage.c_str(), optionalDetails.c_str());
+    dia.AppendButton(0xBEEF, L"Visit Skyrim Together mod page on nexusmods.com");
+
+    if (dia.Show() == 0xBEEF)
+    {
+        ShellExecuteW(nullptr, L"open", kModPageUrl, nullptr, nullptr, SW_SHOWNORMAL);
+    }
+    exit(4);
+}
+
 void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVersion)
 {
     s_gameRoot = acGamePath;
@@ -55,7 +80,19 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
         ShowAddressLibraryError(acGamePath.c_str(), aExeVersion);
     }
 
-    // VersionDb::Get().DumpToTextFile(R"(S:\Work\Tilted\fallout\_addresslib.txt)");
+    // upstream gates on a hardcoded pair (1.7.104.0) because it ships one
+    // runtime for one game version. This build ships two runtimes and address
+    // libraries for 1.5.x (legacy, pre-AE) through 1.7.x, so the gate is a
+    // major.minor prefix check instead. A version with no usable address
+    // library still fails loudly in ShowAddressLibraryError above, which names
+    // the exact file it looked for.
+    const bool bSupportedVersion = aExeVersion.rfind("1.5.", 0) == 0 ||
+                                   aExeVersion.rfind("1.6.", 0) == 0 ||
+                                   aExeVersion.rfind("1.7.", 0) == 0;
+    if (!bSupportedVersion)
+    {
+        ShowIncompatibleVersionError(aExeVersion.c_str(), acGamePath.c_str());
+    }
 
     // The TiltedOnlineApp constructor installs the file logger, so anything
     // worth keeping has to be logged after this point.
@@ -84,6 +121,11 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
 
     TiltedOnlineApp::InstallHooks2();
     TP_HOOK_COMMIT;
+
+    // upstream loads the script extender at the end of init. The fork's
+    // BeginMain used to do it; the merged TiltedOnlineApp no longer does, so
+    // taking upstream's call site here keeps exactly one caller.
+    LoadScriptExtender();
 
     // A hook that fails to install says nothing, it just never runs, and one
     // that shares its function with another mod comes down to who patched last.

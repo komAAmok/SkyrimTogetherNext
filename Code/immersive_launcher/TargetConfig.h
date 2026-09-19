@@ -10,6 +10,8 @@
 
 struct TargetConfig
 {
+    // fork addition: the client dll the launcher/bootstrap deploys and loads.
+    // upstream's TargetConfig has only the three fields below.
     const wchar_t* dllClientName;
     const wchar_t* fullGameName;
     uint32_t steamAppId;

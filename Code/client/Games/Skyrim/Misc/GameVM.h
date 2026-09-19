@@ -17,8 +17,16 @@ struct SkyrimVM
     static void SetVirtualMachine(BSScript::IVirtualMachine* apVirtualMachine) noexcept;
     static BSScript::IVirtualMachine* GetVirtualMachine() noexcept;
 
-    uint8_t pad8[0x200 - 0x8];
+    // upstream corrected this from 0x200 to 0x210 (virtualMachine really sits
+    // at 0x210); the fork only had the older value because it had not taken
+    // that fix yet.
+    uint8_t pad8[0x210 - 0x8];
     BSScript::IVirtualMachine* virtualMachine;
+    uint8_t pad218[0x690 - 0x218];
+    int32_t inactive;
 };
+
+static_assert(offsetof(SkyrimVM, virtualMachine) == 0x210);
+static_assert(offsetof(SkyrimVM, inactive) == 0x690);
 
 using GameVM = SkyrimVM;

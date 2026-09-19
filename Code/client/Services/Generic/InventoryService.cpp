@@ -43,6 +43,7 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     RunWeaponStateUpdates();
+    // fork-only: upstream dropped this call, the merge dropped it with it.
     RunNakedNPCBugChecks();
 }
 
@@ -58,26 +59,40 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     if (iter == std::end(view))
         return;
 
-    const bool isLeader = m_world.GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
-    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
-    if (!serverIdRes.has_value())
+    uint32_t serverId = 0;
+    if (acEvent.OwnershipEpoch != 0)
     {
-        spdlog::error(
-            __FUNCTION__ ": failed to find server id, target form id: {:X}, isLeader: {}, item id: {:X}, count: {}", acEvent.FormId,
-            isLeader, acEvent.Item.BaseId.LogFormat(), acEvent.Item.Count);
-        return;
-    }
+        const auto* pLocalComponent = m_world.try_get<LocalComponent>(*iter);
+        const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(*iter);
+        const bool ownershipMatches = (pLocalComponent && pLocalComponent->Id == acEvent.ServerId && pLocalComponent->OwnershipEpoch == acEvent.OwnershipEpoch)
+            || (pRemoteComponent && pRemoteComponent->Id == acEvent.ServerId && pRemoteComponent->OwnershipEpoch == acEvent.OwnershipEpoch);
 
-    if (m_world.try_get<WaitingForAssignmentComponent>(*iter))
+        if (!ownershipMatches)
+        {
+            spdlog::debug("Discarded an inventory change for actor {:X} because ownership changed after it was queued (epoch {})", acEvent.ServerId, acEvent.OwnershipEpoch);
+            return;
+        }
+
+        serverId = acEvent.ServerId;
+    }
+    else
     {
-        spdlog::debug(
-            __FUNCTION__ ": WaitingForAssignment, don't send inventory changes actorId: {:X}, serverId {:X}, isLeader: {}, item id: {:X}",
-            acEvent.FormId, serverIdRes.value(), isLeader, acEvent.Item.BaseId.LogFormat());
-        return;
+        if (Cast<Actor>(TESForm::GetById(acEvent.FormId)))
+            return;
+
+        const std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
+        if (!serverIdRes)
+        {
+            spdlog::warn(
+                "Discarded inventory change for form {:X} because it has no server entity (item {:X}, count {})", acEvent.FormId, acEvent.Item.BaseId.BaseId, acEvent.Item.Count);
+            return;
+        }
+        serverId = *serverIdRes;
     }
 
     RequestInventoryChanges request;
-    request.ServerId = serverIdRes.value();
+    request.ServerId = serverId;
+    request.OwnershipEpoch = acEvent.OwnershipEpoch;
     request.Item = acEvent.Item;
     request.Drop = acEvent.Drop;
     request.UpdateClients = acEvent.UpdateClients;
@@ -99,7 +114,13 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
     if (iter == std::end(view))
         return;
 
-    const bool isLeader = m_world.GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
+    const auto* pLocalComponent = m_world.try_get<LocalComponent>(*iter);
+    if (acEvent.OwnershipEpoch == 0 || !pLocalComponent || pLocalComponent->Id != acEvent.ServerId || pLocalComponent->OwnershipEpoch != acEvent.OwnershipEpoch)
+    {
+        spdlog::debug("Discarded an equipment change for actor {:X} because ownership changed after it was queued (epoch {})", acEvent.ServerId, acEvent.OwnershipEpoch);
+        return;
+    }
+
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
     if (!pActor)
         return;
@@ -126,7 +147,8 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
     auto& modSystem = World::Get().GetModSystem();
 
     RequestEquipmentChanges request;
-    request.ServerId = serverIdRes.value();
+    request.ServerId = acEvent.ServerId;
+    request.OwnershipEpoch = acEvent.OwnershipEpoch;
 
     if (!modSystem.GetServerModId(acEvent.EquipSlotId, request.EquipSlotId))
         return;
@@ -149,39 +171,73 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
 {
-    if (acMessage.Drop)
+    if (acMessage.OwnershipEpoch != 0)
     {
-        Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+        Actor* pActor = nullptr;
+
+        auto remoteView = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
+        const auto remoteIt = std::find_if(remoteView.begin(), remoteView.end(), [remoteView, &acMessage](const entt::entity aEntity)
+        {
+            const auto& remoteComponent = remoteView.get<RemoteComponent>(aEntity);
+            return remoteComponent.Id == acMessage.ServerId && remoteComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+        });
+
+        if (remoteIt != remoteView.end())
+            pActor = Cast<Actor>(TESForm::GetById(remoteView.get<FormIdComponent>(*remoteIt).Id));
+        else
+        {
+            auto localView = m_world.view<LocalComponent, FormIdComponent>();
+            const auto localIt = std::find_if(localView.begin(), localView.end(), [localView, &acMessage](const entt::entity aEntity)
+            {
+                const auto& localComponent = localView.get<LocalComponent>(aEntity);
+                return localComponent.Id == acMessage.ServerId && localComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+            });
+
+            if (localIt != localView.end())
+                pActor = Cast<Actor>(TESForm::GetById(localView.get<FormIdComponent>(*localIt).Id));
+        }
+
         if (!pActor)
         {
-            spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
+            spdlog::debug("Discarded an inventory update for actor {:X} because epoch {} is no longer current", acMessage.ServerId, acMessage.OwnershipEpoch);
             return;
         }
 
         ScopedInventoryOverride _;
 
-        pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
-    }
-    else
-    {
-        TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
-        if (!pObject)
-            return;
+        if (acMessage.Drop)
+            pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
+        else
+            pActor->AddOrRemoveItem(acMessage.Item);
 
-        ScopedInventoryOverride _;
-
-        pObject->AddOrRemoveItem(acMessage.Item);
+        return;
     }
+
+    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
+    if (!pObject)
+        return;
+
+    ScopedInventoryOverride _;
+    pObject->AddOrRemoveItem(acMessage.Item);
 }
 
 void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept
 {
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
-    if (!pActor)
+    auto view = m_world.view<RemoteComponent, FormIdComponent>(entt::exclude<LocalComponent>);
+    const auto it = std::find_if(view.begin(), view.end(), [view, &acMessage](const entt::entity aEntity)
     {
-        spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
+        const auto& remoteComponent = view.get<RemoteComponent>(aEntity);
+        return remoteComponent.Id == acMessage.ServerId && remoteComponent.OwnershipEpoch == acMessage.OwnershipEpoch;
+    });
+    if (it == view.end())
+    {
+        spdlog::debug("Discarded an equipment update for actor {:X} because epoch {} is no longer current", acMessage.ServerId, acMessage.OwnershipEpoch);
         return;
     }
+
+    Actor* pActor = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(*it).Id));
+    if (!pActor)
+        return;
 
     auto& modSystem = World::Get().GetModSystem();
 
@@ -221,8 +277,6 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
 
         return;
     }
-
-    auto* pObject = Cast<TESBoundObject>(pItem);
 
     // TODO: ExtraData necessary? probably
     if (acMessage.Unequip)

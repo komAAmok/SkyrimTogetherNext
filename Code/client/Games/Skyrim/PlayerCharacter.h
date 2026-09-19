@@ -133,13 +133,14 @@ struct PlayerCharacter : Actor
         uint64_t instanceCount;
     };
 
+    // upstream corrected this from 0x588 to 0x590 (objectives really sits at
+    // 0x590). The fork's 1.5.x legacy layout is 8 bytes earlier throughout
+    // (Actor base without the ExtraDataList vtable), so the legacy value moves
+    // with it.
 #ifdef SKYRIM_TARGET_LEGACY
-    // 1.5.x: the Actor base is 8 bytes smaller (ExtraDataList without
-    // vtable), so objectives sits at 0x580 instead of 0x588; all following
-    // absolute-anchor pads land 8 bytes earlier automatically.
-    uint8_t pad1[0x580 - sizeof(Actor)];
-#else
     uint8_t pad1[0x588 - sizeof(Actor)];
+#else
+    uint8_t pad1[0x590 - sizeof(Actor)];
 #endif
     GameArray<ObjectiveInstance> objectives;
     uint8_t pad588[0x9B0 - 0x598];
@@ -155,19 +156,20 @@ struct PlayerCharacter : Actor
     uint8_t padPlayerEnd[0xBE0 - 0xB30];
 };
 
+// upstream moved every one of these 8 bytes later (it corrected objectives
+// from 0x588 to 0x590); the fork's 1.5.x values are the same set minus 8.
 #ifdef SKYRIM_TARGET_LEGACY
-// 1.5.x layout: inherited from Actor (ExtraDataList without vtable, -8).
-static_assert(offsetof(PlayerCharacter, objectives) == 0x580);
-static_assert(offsetof(PlayerCharacter, pSkills) == 0x9B0);
-static_assert(offsetof(PlayerCharacter, locationForm) == 0xAC8);
-static_assert(offsetof(PlayerCharacter, baseTints) == 0xB10);
-static_assert(offsetof(PlayerCharacter, overlayTints) == 0xB28);
-static_assert(sizeof(PlayerCharacter) == 0xBE0);
-#else
 static_assert(offsetof(PlayerCharacter, objectives) == 0x588);
 static_assert(offsetof(PlayerCharacter, pSkills) == 0x9B8);
 static_assert(offsetof(PlayerCharacter, locationForm) == 0xAD0);
 static_assert(offsetof(PlayerCharacter, baseTints) == 0xB18);
 static_assert(offsetof(PlayerCharacter, overlayTints) == 0xB30);
 static_assert(sizeof(PlayerCharacter) == 0xBE8);
+#else
+static_assert(offsetof(PlayerCharacter, objectives) == 0x590);
+static_assert(offsetof(PlayerCharacter, pSkills) == 0x9C0);
+static_assert(offsetof(PlayerCharacter, locationForm) == 0xAD8);
+static_assert(offsetof(PlayerCharacter, baseTints) == 0xB20);
+static_assert(offsetof(PlayerCharacter, overlayTints) == 0xB38);
+static_assert(sizeof(PlayerCharacter) == 0xBF0);
 #endif

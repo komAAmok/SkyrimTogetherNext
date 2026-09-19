@@ -29,9 +29,16 @@ private:
     unsigned long long _base;
     bool _legacy{false};
 
+    // Reads are unchecked on purpose at the call sites, but a truncated or
+    // empty library file is a real deployment outcome (an interrupted
+    // install, a half-copied archive) and not a programming error. Without
+    // the check the value stays an uninitialised stack local, so a truncated
+    // header can parse as a valid format and the parse then runs off the end
+    // of the stream. Value-initialising here makes the failure deterministic
+    // instead of whatever the stack happened to hold.
     template <typename T> static T read(std::ifstream& file)
     {
-        T v;
+        T v{};
         file.read((char*)&v, sizeof(T));
         return v;
     }
@@ -261,6 +268,20 @@ public:
 
         int addrCount = read<int>(file);
 
+        // A truncated stream leaves both uninitialised in the original code,
+        // and ptrSize is a divisor further down: a zero would raise an
+        // integer divide by zero and take the process out inside Load(),
+        // instead of returning false to the caller that reports a missing or
+        // damaged address library.
+        if (file.eof())
+            return false;
+
+        if (ptrSize != 4 && ptrSize != 8)
+            return false;
+
+        if (addrCount < 0 || addrCount > 0x1000000)
+            return false;
+
         unsigned char type, low, high;
         unsigned char b1, b2;
         unsigned short w1, w2;
@@ -353,6 +374,15 @@ public:
             pvid = q1;
         }
 
+        // Every entry has been consumed; hitting the end early means the file
+        // is shorter than the header promised, so the map would be silently
+        // missing ids.
+        if (file.eof())
+        {
+            Clear();
+            return false;
+        }
+
         // The pre-AE id namespace differs from the AE ids used by
         // POINTER_SKYRIMSE; translate them through the mapping file.
         // Without it every lookup would resolve to a wrong address.
@@ -428,6 +458,13 @@ public:
         for (unsigned int id = 0; id < count; id++)
         {
             unsigned int offset = read<unsigned int>(aFile);
+
+            if (aFile.eof())
+            {
+                Clear();
+                return false;
+            }
+
             if (offset == 0)
                 continue;
 

@@ -374,12 +374,22 @@ void WriteCrashReport(const EXCEPTION_RECORD* apRecord, const CONTEXT* apContext
     // this only needs to happen once.
     {
         uint8_t dump[0x400];
-        const auto src = reinterpret_cast<uintptr_t>(apRecord->ExceptionAddress) - 0x200;
-        const size_t got = SafeReadBytes(dump, sizeof(dump), src);
+        // A jump into a null or near-null address - the most common way a
+        // rel32 call that was silently truncated lands - puts the exception
+        // address below the back-off window. Subtracting anyway wraps the
+        // uintptr_t around to an unmapped address, SafeReadBytes returns
+        // nothing, and the dump that was supposed to show the fault comes out
+        // empty. In that case there is simply nothing before the address to
+        // read, so start at it; the relative offsets below stay truthful.
+        const auto faultAddress = reinterpret_cast<uintptr_t>(apRecord->ExceptionAddress);
+        const uintptr_t start = faultAddress >= 0x200 ? faultAddress - 0x200 : faultAddress;
+        const int baseOff = static_cast<int>(faultAddress - start);
+
+        const size_t got = SafeReadBytes(dump, sizeof(dump), start);
         char lineBuf[64];
         for (size_t k = 0; k + 16 <= got; k += 16)
         {
-            const int relOff = static_cast<int>(k) - 0x200;
+            const int relOff = static_cast<int>(k) - baseOff;
             sprintf_s(lineBuf, "%c%05x: ", relOff < 0 ? '-' : '+', relOff < 0 ? -relOff : relOff);
             for (int i = 0; i < 16; i++)
                 sprintf_s(lineBuf + 8 + i * 3, sizeof(lineBuf) - (8 + i * 3), "%02x ", dump[k + i]);
@@ -430,7 +440,8 @@ LONG WINAPI VectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
 #endif
         if (bMiniDump)
         {
-            HANDLE hDumpFile = NULL;
+            HANDLE hDumpFile = INVALID_HANDLE_VALUE;
+            bool dumped = false;
             try
             {
                 MINIDUMP_EXCEPTION_INFORMATION M;
@@ -455,32 +466,53 @@ LONG WINAPI VectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
                 hDumpFile = CreateFileA(subPath.string().c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS,
                                         FILE_ATTRIBUTE_NORMAL, NULL);
 
-                // baseline settings from https://stackoverflow.com/a/63123214/5273909
-                auto dumpSettings = MiniDumpWithDataSegs | MiniDumpWithProcessThreadData | MiniDumpWithHandleData |
-                                    MiniDumpWithThreadInfo |
-                                    /*
-                                    //MiniDumpWithPrivateReadWriteMemory | // this one gens bad dump
-                                    MiniDumpWithUnloadedModules |
-                                    MiniDumpWithFullMemoryInfo |
-                                    MiniDumpWithTokenInformation |
-                                    MiniDumpWithPrivateWriteCopyMemory |
-                                    */
-                                    0;
+                // CreateFileA reports failure with INVALID_HANDLE_VALUE, not
+                // NULL, so a null test let a failed create fall through to the
+                // success branch below and the log claimed a dump that was
+                // never written - in exactly the situation (full disk, read
+                // only directory) the line exists to explain.
+                if (hDumpFile == INVALID_HANDLE_VALUE)
+                {
+                    spdlog::critical(__FUNCTION__ ": could not create the dump file at {} (error {})",
+                                     subPath.string(), GetLastError());
+                }
+                else
+                {
+                    // baseline settings from https://stackoverflow.com/a/63123214/5273909
+                    auto dumpSettings = MiniDumpWithDataSegs | MiniDumpWithProcessThreadData | MiniDumpWithHandleData |
+                                        MiniDumpWithThreadInfo |
+                                        /*
+                                        //MiniDumpWithPrivateReadWriteMemory | // this one gens bad dump
+                                        MiniDumpWithUnloadedModules |
+                                        MiniDumpWithFullMemoryInfo |
+                                        MiniDumpWithTokenInformation |
+                                        MiniDumpWithPrivateWriteCopyMemory |
+                                        */
+                                        0;
 
-                MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hDumpFile, (MINIDUMP_TYPE)dumpSettings,
-                                  (pExceptionInfo) ? &M : NULL, NULL, NULL);
+                    dumped = MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hDumpFile,
+                                               (MINIDUMP_TYPE)dumpSettings, (pExceptionInfo) ? &M : NULL, NULL,
+                                               NULL) != FALSE;
+
+                    if (!dumped)
+                    {
+                        spdlog::critical(__FUNCTION__ ": MiniDumpWriteDump failed (error {})", GetLastError());
+                    }
+                }
             }
             catch (...) // Mini-dump is best effort only.
             {
             }
 
-            if (!hDumpFile)
-                spdlog::critical(__FUNCTION__ ": coredump may have failed.");
-            else
+            if (hDumpFile != INVALID_HANDLE_VALUE)
             {
                 CloseHandle(hDumpFile);
-                spdlog::critical(__FUNCTION__ ": coredump created -> flush logs.");
             }
+
+            if (dumped)
+                spdlog::critical(__FUNCTION__ ": coredump created -> flush logs.");
+            else
+                spdlog::critical(__FUNCTION__ ": coredump may have failed.");
         }
 
         // Something in STR breaks top-level unhandled exception filters.

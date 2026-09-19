@@ -1,5 +1,12 @@
 # Skyrim Together Reborn for Modded Animations
 
+> **来源说明**:本文档来自上游 fork 链(`rfortier/TiltedEvolution-rwf`),
+> 描述「**行为/动画 mod 支持**」这一能力的原理与用法。本仓库继承了这套实现
+> (`Code/client/ModCompat/BehaviorVar.*`、随包的 `SkyrimTogetherRebornBehaviors/`)。
+> 文中的 "Skyrim Together Reborn" 是该能力的开发代号,不是仓库名;
+> 涉及 rfortier 个人 fork 的表述(例如"不再需要这个 fork 了")
+> 写于当时,今天的对应物就是本仓库。
+
 _The Tilted Phoques Development Team only supports strictly required mods, no others._ See their disclaimers before installing. If you can't reproduce an issue with nothing but the required mods installed, 
 don't bother the development team.
 

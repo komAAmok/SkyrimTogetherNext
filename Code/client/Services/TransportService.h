@@ -4,6 +4,7 @@
 #include "Events/DisconnectedEvent.h"
 
 #include <atomic>
+#include <chrono>
 #include <Client.hpp>
 
 struct ImguiService;
@@ -37,6 +38,16 @@ struct TransportService : Client
     void SetServerPassword(const std::string& acPassword) noexcept { m_serverPassword = acPassword; }
     const uint32_t& GetLocalPlayerId() const noexcept { return m_localPlayerId; }
 
+    /**
+     * @brief Starts the connection watchdog.
+     *
+     * A server that never answers, or one that accepts the transport connection
+     * but never sends a clock sync or an authentication response, used to leave
+     * the UI on "connecting" forever with no error and no way out. The watchdog
+     * is armed here and disarmed once the handshake completes or fails.
+     */
+    void ArmConnectionWatchdog(const std::string& acEndpoint) noexcept;
+
 protected:
     // Event handlers
     void HandleUpdate(const UpdateEvent& acEvent) noexcept;
@@ -53,6 +64,16 @@ private:
     bool m_connected;
     String m_serverPassword{};
     uint32_t m_localPlayerId;
+
+    // Connection watchdog. m_handshakeDeadline is only meaningful while
+    // m_handshakePending is set; both are cleared the moment the handshake
+    // resolves one way or the other. m_attemptOutcomeReported collapses the two
+    // kAborted reports a cancelled connect produces into the single event the
+    // UI expects, and is reset when the next attempt starts.
+    bool m_handshakePending{false};
+    bool m_attemptOutcomeReported{false};
+    std::chrono::steady_clock::time_point m_handshakeDeadline{};
+    String m_pendingEndpoint{};
 
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_sendServerMessageConnection;

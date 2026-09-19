@@ -44,11 +44,9 @@
     >
       {{ 'COMPONENT.CONNECT.CONNECT' | transloco }}
     </button>
-    <button
-      [disabled]="connecting"
-      (click)="cancel()"
-      data-style-ornament="simple"
-    >
+    <!-- Cancel stays enabled while connecting: disabling it is what left
+         players stuck on "connecting" with no way to abort the attempt. -->
+    <button (click)="cancel()" data-style-ornament="simple">
       {{ 'COMPONENT.CONNECT.CANCEL' | transloco }}
     </button>
   </app-action-buttons>

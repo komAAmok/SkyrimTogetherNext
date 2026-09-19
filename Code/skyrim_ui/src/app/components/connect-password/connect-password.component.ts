@@ -116,6 +116,13 @@ export class ConnectPasswordComponent implements AfterViewInit {
   }
 
   public cancel(): void {
+    // Same reasoning as the plain connect panel: backing out of an attempt in
+    // progress has to abort it, not just navigate away from it.
+    if (this.connecting) {
+      this.connecting = false;
+      this.client.disconnect();
+    }
+
     this.uiRepository.openView(View.SERVER_LIST);
   }
 

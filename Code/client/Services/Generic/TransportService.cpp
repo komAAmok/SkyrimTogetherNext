@@ -25,9 +25,18 @@
 #include <ScriptExtender.h>
 #include <Services/DiscordService.h>
 
+#include <chrono>
+
 // #include <imgui_internal.h>
 
 static constexpr wchar_t kMO2DllName[] = L"usvfs_x64.dll";
+
+// How long the client waits for the whole handshake (name resolution, transport
+// connect, clock sync, authentication response) before giving up and telling
+// the UI. A server on the local network answers in well under a second; ten
+// seconds is generous enough that a slow VPN does not trip it, and short enough
+// that a wrong address does not look like a freeze.
+static constexpr std::chrono::seconds kHandshakeTimeout{10};
 
 using TiltedPhoques::Packet;
 
@@ -41,6 +50,7 @@ TransportService::TransportService(World& aWorld, entt::dispatcher& aDispatcher)
     m_disconnectedConnection = m_dispatcher.sink<DisconnectedEvent>().connect<&TransportService::HandleDisconnected>(this);
 
     m_connected = false;
+    m_localPlayerId = NULL;
 
     auto handlerGenerator = [this](auto& x)
     {
@@ -109,6 +119,17 @@ void TransportService::OnConsume(const void* apData, uint32_t aSize)
     m_messageHandlers[pMessage->GetOpcode()](pMessage);
 }
 
+void TransportService::ArmConnectionWatchdog(const std::string& acEndpoint) noexcept
+{
+    m_handshakePending = true;
+    m_handshakeDeadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
+    m_pendingEndpoint = acEndpoint;
+    m_attemptOutcomeReported = false;
+
+    spdlog::info("connecting to {}, giving up after {}s if the handshake does not complete",
+                 acEndpoint, kHandshakeTimeout.count());
+}
+
 void TransportService::OnConnected()
 {
     AuthenticationRequest request{};
@@ -162,14 +183,43 @@ void TransportService::OnConnected()
     request.PlayerTime.Month = pGameTime->GameMonth->f;
     request.PlayerTime.Day = pGameTime->GameDay->f;
 
+    // The transport is up and the clock is synced; what remains is the server's
+    // answer to this request, so the watchdog now covers the auth round trip.
+    spdlog::info("transport connected, authentication request sent");
+
     Send(request);
 }
 
 void TransportService::OnDisconnected(EDisconnectReason aReason)
 {
     m_connected = false;
+    m_handshakePending = false;
 
-    spdlog::warn("Disconnected from server {}", aReason);
+    // One connect attempt can report its teardown twice: Close() reports
+    // kAborted synchronously for the transport, and uv_cancel wakes the name
+    // resolution callback, which reports kAborted again on the next pump. The
+    // UI reads every DisconnectedEvent as "the attempt is over".
+    //
+    // m_attemptOutcomeReported is set when the watchdog timeout or a rejected
+    // authentication already told the player what happened, and stays set until
+    // the next attempt begins (ArmConnectionWatchdog clears it). A disconnect
+    // after a connection that actually succeeded never has it set.
+    static constexpr const char* kReasonNames[] = {"timeout",               "local problem",
+                                                  "kicked",                "cannot resolve address",
+                                                  "aborted",               "normal"};
+    constexpr auto kReasonCount = static_cast<int>(std::size(kReasonNames));
+    const auto cReasonIndex = static_cast<int>(aReason);
+    const auto cReasonName =
+        cReasonIndex >= 0 && cReasonIndex < kReasonCount ? kReasonNames[cReasonIndex] : "unknown";
+
+    if (m_attemptOutcomeReported)
+    {
+        spdlog::info("disconnect already reported for this attempt, ignoring the duplicate ({}: {})",
+                     cReasonIndex, cReasonName);
+        return;
+    }
+
+    spdlog::warn("Disconnected from server ({}): {}", cReasonIndex, cReasonName);
 
     m_dispatcher.trigger(DisconnectedEvent());
 }
@@ -180,6 +230,29 @@ void TransportService::OnUpdate()
 
 void TransportService::HandleUpdate(const UpdateEvent& acEvent) noexcept
 {
+    // A handshake that never resolves must not leave the UI stuck on
+    // "connecting" with no error and no way out. The Steam status callback
+    // only fires for transport failures, so a server that accepts the
+    // connection and then says nothing is caught here instead.
+    if (m_handshakePending && std::chrono::steady_clock::now() >= m_handshakeDeadline)
+    {
+        m_handshakePending = false;
+
+        spdlog::error("Handshake with {} timed out after {}s, aborting", m_pendingEndpoint,
+                      kHandshakeTimeout.count());
+
+        // Report the timeout as the one event for this attempt before tearing
+        // the transport down, so the duplicate disconnect Close() produces is
+        // recognised as such instead of arriving as a second failure.
+        m_attemptOutcomeReported = true;
+
+        ConnectionErrorEvent errorEvent;
+        errorEvent.ErrorDetail = "{\"error\": \"no_reason\"}";
+        m_dispatcher.trigger(errorEvent);
+
+        Close();
+    }
+
     Update();
 }
 
@@ -195,10 +268,17 @@ void TransportService::HandleDisconnected(const DisconnectedEvent& acEvent) noex
 
 void TransportService::HandleAuthenticationResponse(const AuthenticationResponse& acMessage) noexcept
 {
+    // Whichever way the server answered, the handshake is over and the
+    // watchdog must not fire on top of the answer.
+    m_handshakePending = false;
+
     using AR = AuthenticationResponse::ResponseType;
     if (acMessage.Type == AR::kAccepted)
     {
         m_connected = true;
+        m_attemptOutcomeReported = false;
+
+        spdlog::info("authentication accepted, joined as player {}", acMessage.PlayerId);
 
         m_world.SetServerSettings(acMessage.Settings);
 
@@ -268,6 +348,11 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
         spdlog::error(ErrorInfo.c_str());
         errorEvent.ErrorDetail = std::move(ErrorInfo);
     }
+
+    // The server rejected us and is about to close the connection. This error
+    // is the report for the attempt, so the transport teardown that follows
+    // must not look like a second, separate failure.
+    m_attemptOutcomeReported = true;
 
     m_dispatcher.trigger(errorEvent);
 }

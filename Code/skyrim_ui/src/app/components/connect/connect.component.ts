@@ -90,7 +90,11 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
     this.protocolMismatchSubscription.unsubscribe();
   }
 
-  async connect(): Promise<void> {
+  public connect(): void {
+    void this.attemptConnect();
+  }
+
+  private async attemptConnect(): Promise<void> {
     const address = this.address.trim().match(/^(.+?)(?::([0-9]+))?$/);
 
     if (!address) {
@@ -122,6 +126,15 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
   }
 
   public cancel(): void {
+    // Cancelling while a connection is in flight has to abort it, otherwise
+    // the attempt keeps running behind a closed popup and the next one stacks
+    // on top of it. The client clears its state on the resulting disconnect
+    // event, which is what ends the "connecting" state.
+    if (this.connecting) {
+      this.connecting = false;
+      this.client.disconnect();
+    }
+
     this.sound.play(Sound.Cancel);
     this.done.next();
   }

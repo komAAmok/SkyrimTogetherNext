@@ -101,7 +101,16 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 
-    World::Get().GetRunner().Queue([endpoint] { World::Get().GetTransport().Connect(endpoint); });
+    World::Get().GetRunner().Queue(
+        [endpoint]
+        {
+            auto& transport = World::Get().GetTransport();
+            // A second connect while one is still in flight used to stack a
+            // new transport on top of the old one and leak its handle.
+            transport.Close();
+            transport.ArmConnectionWatchdog(endpoint);
+            transport.Connect(endpoint);
+        });
 }
 
 void OverlayClient::ProcessDisconnectMessage()

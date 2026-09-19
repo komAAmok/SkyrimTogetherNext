@@ -1,3 +1,5 @@
+[English](README_EN.md) | 中文
+
 # Skyrim Together Next
 
 [![Build windows](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml/badge.svg)](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml)
@@ -46,6 +48,18 @@
 > 虚表;`TESObjectCELL` 另有三个尾部成员缺失,差 32 字节)。SKSE 引导插件按游戏
 > 版本自动挑一个。布局由 `static_assert` 在**编译期**逐个校验,不是"按 1.6.x 编
 > 译再赌运行时对不对"。
+
+## ⚠️ 已知冲突的 Mod
+
+以下 Mod 与本框架存在冲突,安装后会引发闪退、界面异常或功能失效,**建议不要同时启用**:
+
+| Mod 名 | 链接 | 中文别名 |
+| --- | --- | --- |
+| Floating Subtitles | https://www.nexusmods.com/skyrimspecialedition/mods/154424 | 浮动字幕 |
+
+> **Floating Subtitles(po3_FloatingSubtitles)**:该 Mod 的 trampoline 桩跳转到未分配内存页,
+> 会在进入房间 / 准备联机时直接导致游戏崩溃。如遇进房闪退,请先禁用此 Mod 再试。
+> 若你确实需要字幕类功能,可改用其它实现,或等待上游修复。
 
 ## 🐛 反馈问题
 

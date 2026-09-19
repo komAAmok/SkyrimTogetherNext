@@ -6,6 +6,7 @@
 #include <Games/References.h>
 
 #include <Forms/TESObjectCELL.h>
+#include <Forms/TESForm.h>
 #include <Forms/TESWorldSpace.h>
 #include <Forms/TESNPC.h>
 
@@ -67,10 +68,18 @@ void DiscoveryService::VisitCell(bool aForceTrigger) noexcept
         VisitInteriorCell(aForceTrigger);
 
     // exactly how the game does it too
-    if (m_pLocation != pPlayer->locationForm)
+    // Only compare/forward a location that is actually a live form: right after
+    // a load the slot can still hold garbage, and the LocationChangeEvent
+    // subscribers dereference it.
+    TESForm* pLocation = pPlayer->locationForm;
+    if (!IsPlausibleFormPointer(pLocation))
+        pLocation = nullptr;
+
+    if (m_pLocation != pLocation)
     {
-        m_dispatcher.trigger(LocationChangeEvent());
-        m_pLocation = pPlayer->locationForm;
+        m_pLocation = pLocation;
+        if (pLocation)
+            m_dispatcher.trigger(LocationChangeEvent());
     }
 }
 

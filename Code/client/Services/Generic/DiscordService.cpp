@@ -5,6 +5,7 @@
 
 #include <TiltedCore/Filesystem.hpp>
 #include <PlayerCharacter.h>
+#include <Forms/TESForm.h>
 #include <Forms/TESWorldSpace.h>
 
 #include <base/threading/ThreadUtils.h>
@@ -60,7 +61,11 @@ void DiscordService::OnLocationChangeEvent() noexcept
         auto* pWorldspace = pPlayer->GetWorldSpace();
         bool updateTimestamp = false;
 
-        if (pLocation)
+        // The location slot can hold a stale/garbage pointer while the new game
+        // is still settling (it is only null-checked here, and GetName() is a
+        // virtual call, so a bad pointer faults on the vtable load instead of
+        // being caught). Screen the pointer before touching it.
+        if (IsPlausibleFormPointer(pLocation))
             strncpy_s(m_ActivityState.details, pLocation->GetName(), sizeof(DiscordActivity::details));
 
         if (pWorldspace)

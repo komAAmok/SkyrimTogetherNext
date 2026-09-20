@@ -103,26 +103,42 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 
-    World::Get().GetRunner().Queue(
-        [endpoint]
-        {
-            auto& transport = World::Get().GetTransport();
-            // A second connect while one is still in flight used to stack a
-            // new transport on top of the old one and leak its handle.
-            transport.Close();
-            transport.ArmConnectionWatchdog(endpoint);
-            transport.Connect(endpoint);
-        });
+    // Started here rather than through the runner queue on purpose.
+    //
+    // The queue is drained from World::Update(), which only runs on a vm tick
+    // that the game reports as active. When that tick stops arriving -- and it
+    // does stop, for tens of seconds at a time on 1.5.97 -- a queued connect is
+    // simply never executed: the overlay sits on "connecting" forever and not
+    // even the watchdog's first log line is ever reached, so nothing on the
+    // transport side can report the failure either. Measured on a live client:
+    // 70s with no game-thread tick at all, the connect landing in the middle of
+    // it.
+    //
+    // Nothing here needs the game thread. Close(), ArmConnectionWatchdog() and
+    // Connect() only touch the uv loop, the socket interface and plain scalar
+    // members, and this method already runs on the CEF message thread, which is
+    // where every other ui-event is handled. Running them inline makes the
+    // attempt independent of the frame loop, so it still goes out when the game
+    // is not ticking.
+    auto& transport = World::Get().GetTransport();
+    // A second connect while one is still in flight used to stack a new
+    // transport on top of the old one and leak its handle.
+    transport.Close();
+    transport.ArmConnectionWatchdog(endpoint);
+    transport.Connect(endpoint);
 }
 
 void OverlayClient::ProcessDisconnectMessage()
 {
-    World::Get().GetRunner().Queue([]() { World::Get().GetTransport().Close(); });
+    // Same reasoning as the connect above: cancelling must work even when the
+    // runner is not being drained, otherwise the button appears to do nothing
+    // and the attempt is left running with no way to stop it.
+    World::Get().GetTransport().Close();
 }
 
 void OverlayClient::ProcessAbandonAttemptMessage()
 {
-    World::Get().GetRunner().Queue([]() { World::Get().GetTransport().AbandonAttempt(); });
+    World::Get().GetTransport().AbandonAttempt();
 }
 
 void OverlayClient::ProcessRevealPlayersMessage()

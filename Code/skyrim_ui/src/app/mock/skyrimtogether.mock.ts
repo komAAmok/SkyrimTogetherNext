@@ -101,6 +101,11 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     }
   }
 
+  /** Silent teardown used between auto-reconnect attempts; deliberately emits nothing. */
+  abandonAttempt(): void {
+    this.connected = false;
+  }
+
   reconnect(): void {
     throw new Error('NOT YET IMPLEMENTED');
   }

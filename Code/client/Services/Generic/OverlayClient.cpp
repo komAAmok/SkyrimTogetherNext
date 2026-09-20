@@ -46,6 +46,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessConnectMessage(eventArgs);
         else if (eventName == "disconnect")
             ProcessDisconnectMessage();
+        else if (eventName == "abandonAttempt")
+            ProcessAbandonAttemptMessage();
         else if (eventName == "revealPlayers")
             ProcessRevealPlayersMessage();
         else if (eventName == "sendMessage")
@@ -116,6 +118,11 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 void OverlayClient::ProcessDisconnectMessage()
 {
     World::Get().GetRunner().Queue([]() { World::Get().GetTransport().Close(); });
+}
+
+void OverlayClient::ProcessAbandonAttemptMessage()
+{
+    World::Get().GetRunner().Queue([]() { World::Get().GetTransport().AbandonAttempt(); });
 }
 
 void OverlayClient::ProcessRevealPlayersMessage()

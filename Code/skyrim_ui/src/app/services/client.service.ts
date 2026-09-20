@@ -357,6 +357,11 @@ export class ClientService implements OnDestroy {
       this.isConnectionInProgressChange.next(false);
 
       if (isError && this._remainingReconnectionAttempt > 0) {
+        // The old transport has to go before the replacement starts, but its
+        // teardown must not surface as a disconnect: that would flip
+        // isConnectionInProgress back to false between the two attempts and
+        // drop the panel out of "connecting" while a retry is still running.
+        skyrimtogether.abandonAttempt();
         this._remainingReconnectionAttempt--;
         this.chatService.pushSystemMessage('SERVICE.CLIENT.CONNECTION_LOST');
         this.connect(this._host, this._port, this._password);

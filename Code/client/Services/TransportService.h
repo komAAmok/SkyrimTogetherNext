@@ -48,6 +48,16 @@ struct TransportService : Client
      */
     void ArmConnectionWatchdog(const std::string& acEndpoint) noexcept;
 
+    /**
+     * @brief Ends the attempt in flight without reporting anything to the UI.
+     *
+     * The reconnect path restarts an attempt the player never asked about, so
+     * the teardown that precedes it is a side effect rather than news. A plain
+     * teardown from anywhere else must call Close() directly so the attempt
+     * keeps reporting its outcome.
+     */
+    void AbandonAttempt() noexcept;
+
 protected:
     // Event handlers
     void HandleUpdate(const UpdateEvent& acEvent) noexcept;
@@ -65,11 +75,21 @@ private:
     String m_serverPassword{};
     uint32_t m_localPlayerId;
 
-    // Connection watchdog. m_handshakeDeadline is only meaningful while
-    // m_handshakePending is set; both are cleared the moment the handshake
-    // resolves one way or the other. m_attemptOutcomeReported collapses the two
-    // kAborted reports a cancelled connect produces into the single event the
-    // UI expects, and is reset when the next attempt starts.
+    // Connection watchdog.
+    //
+    // m_handshakePending is set while an attempt is on the wire, from the moment
+    // it is armed until its outcome is reported. It is the only flag that says
+    // "something is in flight", so OnDisconnected reads it to decide whether the
+    // teardown it is handling still owes the UI an event -- and for that reason
+    // it must be cleared *after* Close(), never before, or the event that ends
+    // the attempt gets swallowed. m_connected means the handshake finished and
+    // the session is live; it is never set before authentication is accepted.
+    //
+    // m_handshakeDeadline is only meaningful while m_handshakePending is set.
+    //
+    // m_attemptOutcomeReported collapses the several teardowns one attempt can
+    // produce into the single set of events the UI expects, and is reset when
+    // the next attempt starts.
     bool m_handshakePending{false};
     bool m_attemptOutcomeReported{false};
     std::chrono::steady_clock::time_point m_handshakeDeadline{};

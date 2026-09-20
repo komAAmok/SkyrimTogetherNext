@@ -364,6 +364,14 @@ interface SkyrimTogether {
   disconnect(): void;
 
   /**
+   * End the connection attempt in flight without reporting it to the UI.
+   *
+   * Used by the automatic reconnect path, which is about to start a
+   * replacement attempt and must not surface the teardown as a disconnect.
+   */
+  abandonAttempt(): void;
+
+  /**
    * Reveal other players in the immediate area.
    */
   revealPlayers(): void;

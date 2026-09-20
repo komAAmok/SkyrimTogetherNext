@@ -194,6 +194,13 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
 {
     // Read before touching: a teardown can re-enter here, and the second entry
     // has to see whether an attempt was still in flight when the first ran.
+    //
+    // m_handshakePending is also deliberately cleared *after* the Close() that
+    // may have brought us here (see the timeout branch in HandleUpdate and the
+    // rejection branch at the end of HandleAuthenticationResponse). Those paths
+    // raise an error event first and then tear the transport down, and this flag
+    // being still set is what makes that teardown report the attempt instead of
+    // being dismissed as the tail end of an attempt that already ended.
     const bool cWasAttempting = m_connected || m_handshakePending;
 
     m_connected = false;
@@ -206,10 +213,11 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
     //
     // The important detail is that this must not swallow the *only* report an
     // attempt produces. An attempt that never reached the server still has to
-    // tell the UI it is over, because "disconnect" is the only event the
-    // overlay turns into leaving the "connecting" state -- dropping it leaves
-    // the player stuck on "connecting" forever, which is the bug this whole
-    // mechanism exists to prevent. So an attempt in flight always reports.
+    // tell the UI it is over: "disconnect" is the signal the overlay turns into
+    // leaving the "connecting" state, and dropping it leaves the player stuck
+    // there forever, which is the bug this whole mechanism exists to prevent.
+    // So an attempt in flight always reports, even when an error event has
+    // already been raised for it.
     if (m_attemptOutcomeReported)
     {
         spdlog::info("disconnect already reported for this attempt, ignoring the duplicate ({})",
@@ -227,12 +235,13 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
 
     if (!cWasAttempting)
     {
-        // Close() calls into the transport even when there is nothing to
-        // close, so this path is reached on every teardown of an attempt that
-        // had already ended. Re-triggering DisconnectedEvent would have every
-        // service reset itself a second time for no reason.
-        spdlog::warn("Disconnected from server with no attempt in flight ({}): {}",
-                     cReasonIndex, cReasonName);
+        // Reached for a teardown that was not part of an attempt: Close() calls
+        // into the transport even when there is nothing to close, and the
+        // reconnect path tears down deliberately without intending to report.
+        // Re-triggering DisconnectedEvent here would have every service reset
+        // itself a second time for no reason.
+        spdlog::debug("Disconnected from server with no attempt in flight ({}): {}", cReasonIndex,
+                      cReasonName);
         return;
     }
 
@@ -245,6 +254,16 @@ void TransportService::OnUpdate()
 {
 }
 
+void TransportService::AbandonAttempt() noexcept
+{
+    // Clears the in-flight marker first so the teardown below is not reported.
+    // Only the reconnect path uses this: it is about to start a replacement
+    // attempt, and telling the UI the old one ended would be worse than noise --
+    // it would drop the player out of "connecting" between the two tries.
+    m_handshakePending = false;
+    Close();
+}
+
 void TransportService::HandleUpdate(const UpdateEvent& acEvent) noexcept
 {
     // A handshake that never resolves must not leave the UI stuck on
@@ -253,14 +272,14 @@ void TransportService::HandleUpdate(const UpdateEvent& acEvent) noexcept
     // connection and then says nothing is caught here instead.
     if (m_handshakePending && std::chrono::steady_clock::now() >= m_handshakeDeadline)
     {
-        m_handshakePending = false;
-
         spdlog::error("Handshake with {} timed out after {}s, aborting", m_pendingEndpoint,
                       kHandshakeTimeout.count());
 
-        // Report the timeout as the one event for this attempt before tearing
-        // the transport down, so the duplicate disconnect Close() produces is
-        // recognised as such instead of arriving as a second failure.
+        // This attempt is over, so state the outcome once and cancel the
+        // pending deadline. m_handshakePending and m_connected are deliberately
+        // left alone: Close() below reports through OnDisconnected, and the
+        // flag still being set is what makes that report count as this
+        // attempt's outcome rather than as the tail of one that already ended.
         m_attemptOutcomeReported = true;
 
         ConnectionErrorEvent errorEvent;
@@ -366,12 +385,18 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
         errorEvent.ErrorDetail = std::move(ErrorInfo);
     }
 
-    // The server rejected us and is about to close the connection. This error
-    // is the report for the attempt, so the transport teardown that follows
-    // must not look like a second, separate failure.
+    // The server rejected us, so this attempt is over and it reports its
+    // outcome once: the error carries the reason. The transport teardown that
+    // follows still reports the disconnect, and that is on purpose -- the UI
+    // leaves "connecting" on either signal, so raising both keeps one of them
+    // from becoming a single point of failure.
     m_attemptOutcomeReported = true;
 
     m_dispatcher.trigger(errorEvent);
+
+    // Also tear the transport down here rather than waiting for the server's
+    // close packet, which is not guaranteed to arrive at all.
+    Close();
 }
 
 void TransportService::HandleNotifySettingsChange(const NotifySettingsChange& acMessage) noexcept

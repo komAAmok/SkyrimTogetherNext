@@ -61,6 +61,21 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
       },
     );
 
+    // connectionStateChange only goes false when the transport reports a
+    // disconnect. An attempt that fails before it ever reaches the server --
+    // an unresolvable address, or the client-side handshake deadline -- raises
+    // an error instead and never touches that stream, which used to leave this
+    // panel showing "connecting" forever. isConnectionInProgressChange is the
+    // stream that ends for every outcome, so it is what actually clears the
+    // local flag.
+    this.inProgressSubscription = this.client.isConnectionInProgressChange.subscribe(
+      inProgress => {
+        if (!inProgress && this.connecting) {
+          this.connecting = false;
+        }
+      },
+    );
+
     this.protocolMismatchSubscription =
       this.client.protocolMismatchChange.subscribe(async state => {
         if (state) {
@@ -88,6 +103,7 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
   public ngOnDestroy(): void {
     this.connectionSubscription.unsubscribe();
     this.protocolMismatchSubscription.unsubscribe();
+    this.inProgressSubscription.unsubscribe();
   }
 
   public connect(): void {
@@ -149,6 +165,8 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
   private connectionSubscription: Subscription;
 
   private protocolMismatchSubscription: Subscription;
+
+  private inProgressSubscription: Subscription;
 
   @HostListener('window:keydown.escape', ['$event'])
   // @ts-ignore

@@ -551,7 +551,25 @@ export class ClientService implements OnDestroy {
 
   private onTriggerError(rawError: string) {
     this.zone.run(() => {
-      const error = JSON.parse(rawError) as ErrorEvents;
+      // An error always ends the attempt that raised it, so the flag is cleared
+      // before anything that can throw. The overlay only leaves "connecting"
+      // when connectionInProgress is false, and until now only onConnect and
+      // onDisconnect did that -- so a client-side failure such as the handshake
+      // deadline expiring left the UI on "connecting" forever, which is exactly
+      // what the deadline was added to prevent. onDisconnect still runs in the
+      // cases where the transport also tore down; setting the same value twice
+      // is harmless.
+      this.isConnectionInProgressChange.next(false);
+
+      let error: ErrorEvents;
+      try {
+        error = JSON.parse(rawError) as ErrorEvents;
+      } catch {
+        // A malformed payload must not cost the player the only exit from
+        // "connecting". Report it as a generic failure and move on.
+        error = { error: 'no_reason' };
+      }
+
       this.triggerError.next(error);
       void this.errorService.setError(error);
     });

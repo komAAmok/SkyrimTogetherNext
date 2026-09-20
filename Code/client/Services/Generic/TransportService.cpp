@@ -192,20 +192,24 @@ void TransportService::OnConnected()
 
 void TransportService::OnDisconnected(EDisconnectReason aReason)
 {
-    // Read both flags before touching them: the callbacks below can re-enter
-    // here, and the second entry has to see whether the first one was a
-    // completed connection or a handshake that never got that far.
-    const bool cWasConnected = m_connected;
-    const bool cWasHandshaking = m_handshakePending && !cWasConnected;
+    // Read before touching: a teardown can re-enter here, and the second entry
+    // has to see whether an attempt was still in flight when the first ran.
+    const bool cWasAttempting = m_connected || m_handshakePending;
 
     m_connected = false;
     m_handshakePending = false;
 
-    // One connect attempt can report its teardown twice: Close() reports
+    // One attempt can report its teardown more than once: Close() reports
     // kAborted synchronously for the transport, and uv_cancel wakes the name
-    // resolution callback, which reports kAborted again on the next pump. The
-    // second report has nothing new to say -- the services were already reset
-    // and the UI was already told -- so it is dropped here.
+    // resolution callback, which reports kAborted again on the next pump. Only
+    // the first report of a given attempt may raise DisconnectedEvent.
+    //
+    // The important detail is that this must not swallow the *only* report an
+    // attempt produces. An attempt that never reached the server still has to
+    // tell the UI it is over, because "disconnect" is the only event the
+    // overlay turns into leaving the "connecting" state -- dropping it leaves
+    // the player stuck on "connecting" forever, which is the bug this whole
+    // mechanism exists to prevent. So an attempt in flight always reports.
     if (m_attemptOutcomeReported)
     {
         spdlog::info("disconnect already reported for this attempt, ignoring the duplicate ({})",
@@ -214,15 +218,14 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
     }
     m_attemptOutcomeReported = true;
 
-    static constexpr const char* kReasonNames[] = {"timeout",               "local problem",
-                                                  "kicked",                "cannot resolve address",
-                                                  "aborted",               "normal"};
+    static constexpr const char* kReasonNames[] = {"timeout",    "local problem", "kicked",
+                                                   "cannot resolve address", "aborted", "normal"};
     constexpr auto kReasonCount = static_cast<int>(std::size(kReasonNames));
     const auto cReasonIndex = static_cast<int>(aReason);
     const auto cReasonName =
         cReasonIndex >= 0 && cReasonIndex < kReasonCount ? kReasonNames[cReasonIndex] : "unknown";
 
-    if (!cWasConnected && !cWasHandshaking)
+    if (!cWasAttempting)
     {
         // Close() calls into the transport even when there is nothing to
         // close, so this path is reached on every teardown of an attempt that
@@ -235,11 +238,6 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
 
     spdlog::warn("Disconnected from server ({}): {}", cReasonIndex, cReasonName);
 
-    // A DisconnectedEvent is the only signal the overlay turns into the UI's
-    // "disconnect" event, and the services need it to drop synced state. A
-    // handshake that is cancelled while it is still in flight therefore has to
-    // raise one too, even though it never reached the server: without it the
-    // player cancels the attempt and stays on "connecting" forever.
     m_dispatcher.trigger(DisconnectedEvent());
 }
 

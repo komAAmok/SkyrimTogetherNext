@@ -105,21 +105,20 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 
     // Started here rather than through the runner queue on purpose.
     //
-    // The queue is drained from World::Update(), which only runs on a vm tick
-    // that the game reports as active. When that tick stops arriving -- and it
-    // does stop, for tens of seconds at a time on 1.5.97 -- a queued connect is
-    // simply never executed: the overlay sits on "connecting" forever and not
-    // even the watchdog's first log line is ever reached, so nothing on the
-    // transport side can report the failure either. Measured on a live client:
-    // 70s with no game-thread tick at all, the connect landing in the middle of
-    // it.
+    // The queue is only drained from World::Update(), so a queued connect runs
+    // at the mercy of the vm tick. On a live 1.5.97 client it never ran at all:
+    // the overlay sat on "connecting" and ArmConnectionWatchdog's first log line
+    // never appeared, which rules out the whole transport side and leaves the
+    // connect sitting in the queue. The four ui_event lines that
+    // OnProcessMessageReceived prints before dispatching did appear, so the
+    // event had demonstrably reached this method.
     //
-    // Nothing here needs the game thread. Close(), ArmConnectionWatchdog() and
-    // Connect() only touch the uv loop, the socket interface and plain scalar
+    // Nothing on this path needs the game thread. Close(), ArmConnectionWatchdog()
+    // and Connect() only touch the uv loop, the socket interface and plain scalar
     // members, and this method already runs on the CEF message thread, which is
-    // where every other ui-event is handled. Running them inline makes the
-    // attempt independent of the frame loop, so it still goes out when the game
-    // is not ticking.
+    // where every other ui-event is handled. Running them inline takes the
+    // attempt off the frame loop, so opening the connection panel -- which is
+    // what precedes those stalls -- can no longer swallow it.
     auto& transport = World::Get().GetTransport();
     // A second connect while one is still in flight used to stack a new
     // transport on top of the old one and leak its handle.

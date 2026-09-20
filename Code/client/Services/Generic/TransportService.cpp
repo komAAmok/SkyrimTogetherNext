@@ -46,6 +46,12 @@ static constexpr auto kPumpHeartbeat = std::chrono::seconds(5);
 // would notice.
 static constexpr uint64_t kGameThreadStallMs = 1000;
 
+// How long the handshake pump waits for the game thread to come and take a
+// parsed message before it gives up waiting and dispatches it itself. One frame
+// would be plenty on a healthy client; this leaves room for a loading hiccup
+// without letting an attempt stall on a queue nobody drains.
+static constexpr auto kHandoffTimeout = std::chrono::milliseconds(500);
+
 static uint64_t NowMs() noexcept
 {
     return static_cast<uint64_t>(
@@ -92,6 +98,13 @@ TransportService::TransportService(World& aWorld, entt::dispatcher& aDispatcher)
 
     m_connected = false;
     m_localPlayerId = NULL;
+
+    // Whoever builds the client is the thread the game runs on: World is
+    // constructed there, and it is the one every service in this dispatcher was
+    // written against. It is also the only thread that has ever dispatched a
+    // message up to now, so letting it keep doing so changes nothing for a
+    // client whose tick is healthy.
+    m_gameThreadId = std::this_thread::get_id();
 
     auto handlerGenerator = [this](auto& x)
     {
@@ -176,7 +189,65 @@ void TransportService::OnConsume(const void* apData, uint32_t aSize)
         return;
     }
 
-    m_messageHandlers[pMessage->GetOpcode()](pMessage);
+    // Parsing happened here and is done; what remains belongs to the game
+    // thread. Everything downstream of a dispatch - the authentication
+    // response most of all, which turns into a ConnectedEvent and has the
+    // services walk the world - reads and writes game state that this thread
+    // has no business touching while the game is running.
+    if (std::this_thread::get_id() == m_gameThreadId)
+    {
+        DispatchMessage(pMessage);
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+    m_pendingMessages.push_back(std::move(pMessage));
+}
+
+void TransportService::DispatchMessage(UniquePtr<ServerMessage>& apMessage) noexcept
+{
+    const auto cOpcode = apMessage->GetOpcode();
+    if (cOpcode >= kServerOpcodeMax)
+    {
+        spdlog::error("Server message opcode {} is outside the handler table", static_cast<int>(cOpcode));
+        return;
+    }
+
+    auto& handler = m_messageHandlers[cOpcode];
+    if (!handler)
+    {
+        spdlog::error("No handler for server message opcode {}", static_cast<int>(cOpcode));
+        return;
+    }
+
+    handler(apMessage);
+}
+
+bool TransportService::FlushPendingMessages() noexcept
+{
+    std::vector<UniquePtr<ServerMessage>> batch;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        if (m_pendingMessages.empty())
+            return false;
+
+        batch.swap(m_pendingMessages);
+    }
+
+    for (auto& message : batch)
+    {
+        if (message)
+            DispatchMessage(message);
+    }
+
+    return true;
+}
+
+bool TransportService::HasPendingMessages() const noexcept
+{
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+
+    return !m_pendingMessages.empty();
 }
 
 void TransportService::ArmConnectionWatchdog(const std::string& acEndpoint) noexcept
@@ -465,10 +536,50 @@ void TransportService::HandshakeThreadMain(const std::string acEndpoint) noexcep
             }
         }
 
+        // Anything the pump just parsed is handed to the game thread here. It is
+        // the only correct place for it: the authentication response in
+        // particular becomes a ConnectedEvent, and every service that answers
+        // that walks the world.
+        //
+        // The wait is bounded on purpose. A frame loop that never arrives would
+        // otherwise leave the attempt hanging on a queue nobody drains, which is
+        // the failure this pump was built to escape - so past the deadline the
+        // pump dispatches itself and says so in the log. That is the one case
+        // where game state is touched off the game thread, and it is reserved
+        // for clients whose tick genuinely never came.
+        if (HasPendingMessages())
+        {
+            m_world.GetRunner().Queue([this]() { FlushPendingMessages(); });
+
+            const auto cHandoffDeadline = std::chrono::steady_clock::now() + kHandoffTimeout;
+            while (HasPendingMessages() && std::chrono::steady_clock::now() < cHandoffDeadline)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+
+            if (HasPendingMessages())
+            {
+                spdlog::warn("handshake pump: the frame loop did not take the queued messages within {}ms, so the "
+                             "pump is dispatching them itself; game state is being touched off the game thread",
+                             kHandoffTimeout.count());
+
+                FlushPendingMessages();
+            }
+        }
+
         if (!m_handshakePending.load() || m_handshakeThreadStop.load())
             break;
 
         std::this_thread::sleep_for(kHandshakePumpInterval);
+    }
+
+    // Whatever arrived after the loop last looked still belongs to the game
+    // thread. Left queued rather than dispatched here: nothing about it is
+    // urgent any more, and a session that is going to live is one whose frame
+    // loop is running.
+    if (HasPendingMessages())
+    {
+        m_world.GetRunner().Queue([this]() { FlushPendingMessages(); });
     }
 
     // Ownership goes back to the frame loop here, which is why this thread ends

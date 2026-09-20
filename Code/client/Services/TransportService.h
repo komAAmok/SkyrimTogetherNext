@@ -7,6 +7,7 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include <Client.hpp>
 
 struct ImguiService;
@@ -113,6 +114,22 @@ protected:
     // Returns true while the attempt it belongs to is still in flight.
     bool PumpConnectionLocked() noexcept;
 
+    // Parsing and dispatching are deliberately split. Parsing a packet is pure
+    // memory work and may happen on any thread; dispatching it runs every
+    // service subscribed to that message, and those reach into the world. So a
+    // pump that is not the game thread parses, queues and hands over, and only
+    // dispatches itself when the game thread demonstrably never came for it.
+    // See FlushPendingMessages.
+    void DispatchMessage(UniquePtr<ServerMessage>& apMessage) noexcept;
+
+    // Dispatches whatever a pump left queued, on whichever thread calls it.
+    // Returns false when there was nothing to do, which is what turns a queued
+    // lambda into a no-op if the pump had to fall back to dispatching itself
+    // while the frame loop was away.
+    bool FlushPendingMessages() noexcept;
+
+    [[nodiscard]] bool HasPendingMessages() const noexcept;
+
     // Body of the handshake pump. See BeginConnect.
     void HandshakeThreadMain(const std::string acEndpoint) noexcept;
 
@@ -194,6 +211,17 @@ private:
     // handshake pump reads it to know whether the frame loop is doing its job,
     // and there is no point reading that off anything the pump itself wrote.
     std::atomic<uint64_t> m_lastGameThreadTickMs{0};
+
+    // The thread the client was built on, which is the only one entitled to
+    // dispatch a message without asking. Everything else queues here instead.
+    std::thread::id m_gameThreadId{};
+
+    // Parsed but not yet dispatched, waiting for that thread. Kept under its
+    // own mutex rather than the transport one: the pump queues these from
+    // inside Update(), i.e. while holding m_clientMutex, and the game thread
+    // has to be able to take them without waiting for the pump to let go.
+    mutable std::mutex m_pendingMutex;
+    std::vector<UniquePtr<ServerMessage>> m_pendingMessages;
 
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_sendServerMessageConnection;

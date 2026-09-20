@@ -87,11 +87,28 @@ private:
     //
     // m_handshakeDeadline is only meaningful while m_handshakePending is set.
     //
-    // m_attemptOutcomeReported collapses the several teardowns one attempt can
-    // produce into the single set of events the UI expects, and is reset when
-    // the next attempt starts.
+    // The two flags below track two *different* things, which is why they are
+    // separate. An attempt reports through two independent channels:
+    // ConnectionErrorEvent, which carries the reason a failure happened, and
+    // DisconnectedEvent, which is what makes every service drop its session
+    // state and the overlay leave "connecting". A failure raises the error
+    // first and only then tears the transport down, so a single flag covering
+    // both would mark the teardown that follows as a duplicate and silently
+    // skip the second channel -- leaving the disconnect handling to depend on
+    // the error handler alone.
+    //
+    // m_attemptErrorReported      : the reason for this attempt's failure has
+    //                               been sent. Also guards the watchdog so one
+    //                               attempt cannot raise two errors.
+    // m_attemptDisconnectReported : DisconnectedEvent has been raised for this
+    //                               attempt. Suppresses the extra teardowns
+    //                               Close() can produce (synchronous kAborted
+    //                               plus the async one uv_cancel wakes).
+    //
+    // Both are reset together when the next attempt is armed.
     bool m_handshakePending{false};
-    bool m_attemptOutcomeReported{false};
+    bool m_attemptErrorReported{false};
+    bool m_attemptDisconnectReported{false};
     std::chrono::steady_clock::time_point m_handshakeDeadline{};
     String m_pendingEndpoint{};
 

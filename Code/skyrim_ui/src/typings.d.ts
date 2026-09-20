@@ -34,7 +34,13 @@ declare namespace SkyrimTogetherTypes {
   /** Connection callback */
   type ConnectCallback = () => void;
 
-  /** Disconnection callback */
+  /**
+   * Disconnection callback.
+   *
+   * @param isError True when the attempt failed (the server rejected it, or the
+   *   handshake timed out) rather than a running session ending normally. The
+   *   overlay uses it to decide whether to offer a reconnect.
+   */
   type DisconnectCallback = (isError: boolean) => void;
 
   /** Name change callback */

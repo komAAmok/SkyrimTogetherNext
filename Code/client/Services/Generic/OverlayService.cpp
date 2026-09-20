@@ -343,9 +343,12 @@ void OverlayService::OnConnectedEvent(const ConnectedEvent& acEvent) noexcept
     m_pOverlay->ExecuteAsync("setLocalPlayerId", pArguments);
 }
 
-void OverlayService::OnDisconnectedEvent(const DisconnectedEvent&) noexcept
+void OverlayService::OnDisconnectedEvent(const DisconnectedEvent& acEvent) noexcept
 {
-    m_pOverlay->ExecuteAsync("disconnect");
+    auto pArgs = CefListValue::Create();
+    pArgs->SetBool(0, acEvent.IsError);
+
+    m_pOverlay->ExecuteAsync("disconnect", pArgs);
 }
 
 void OverlayService::OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept

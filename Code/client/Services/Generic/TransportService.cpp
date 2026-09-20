@@ -124,7 +124,8 @@ void TransportService::ArmConnectionWatchdog(const std::string& acEndpoint) noex
     m_handshakePending = true;
     m_handshakeDeadline = std::chrono::steady_clock::now() + kHandshakeTimeout;
     m_pendingEndpoint = acEndpoint;
-    m_attemptOutcomeReported = false;
+    m_attemptErrorReported = false;
+    m_attemptDisconnectReported = false;
 
     spdlog::info("connecting to {}, giving up after {}s if the handshake does not complete",
                  acEndpoint, kHandshakeTimeout.count());
@@ -199,8 +200,8 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
     // may have brought us here (see the timeout branch in HandleUpdate and the
     // rejection branch at the end of HandleAuthenticationResponse). Those paths
     // raise an error event first and then tear the transport down, and this flag
-    // being still set is what makes that teardown report the attempt instead of
-    // being dismissed as the tail end of an attempt that already ended.
+    // being still set is what makes that teardown count as part of this attempt
+    // rather than as the tail end of one that already ended.
     const bool cWasAttempting = m_connected || m_handshakePending;
 
     m_connected = false;
@@ -209,22 +210,21 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
     // One attempt can report its teardown more than once: Close() reports
     // kAborted synchronously for the transport, and uv_cancel wakes the name
     // resolution callback, which reports kAborted again on the next pump. Only
-    // the first report of a given attempt may raise DisconnectedEvent.
+    // the first of those may raise DisconnectedEvent.
     //
-    // The important detail is that this must not swallow the *only* report an
-    // attempt produces. An attempt that never reached the server still has to
-    // tell the UI it is over: "disconnect" is the signal the overlay turns into
-    // leaving the "connecting" state, and dropping it leaves the player stuck
-    // there forever, which is the bug this whole mechanism exists to prevent.
-    // So an attempt in flight always reports, even when an error event has
-    // already been raised for it.
-    if (m_attemptOutcomeReported)
+    // Note what is *not* covered by this dedup: a failure raises
+    // ConnectionErrorEvent and only then tears the transport down, so its
+    // teardown still arrives here with m_attemptDisconnectReported unset and
+    // does report the disconnect. That is deliberate. The disconnect is the
+    // signal every service uses to drop its session state, so it has to happen
+    // on failure paths too rather than being left to the error handler.
+    if (m_attemptDisconnectReported)
     {
         spdlog::info("disconnect already reported for this attempt, ignoring the duplicate ({})",
                      static_cast<int>(aReason));
         return;
     }
-    m_attemptOutcomeReported = true;
+    m_attemptDisconnectReported = true;
 
     static constexpr const char* kReasonNames[] = {"timeout",    "local problem", "kicked",
                                                    "cannot resolve address", "aborted", "normal"};
@@ -247,7 +247,10 @@ void TransportService::OnDisconnected(EDisconnectReason aReason)
 
     spdlog::warn("Disconnected from server ({}): {}", cReasonIndex, cReasonName);
 
-    m_dispatcher.trigger(DisconnectedEvent());
+    // Carry the failure through: the overlay needs it to tell a failed attempt
+    // apart from a session that had been running and simply ended, which is what
+    // decides whether it offers to reconnect.
+    m_dispatcher.trigger(DisconnectedEvent(m_attemptErrorReported));
 }
 
 void TransportService::OnUpdate()
@@ -256,11 +259,14 @@ void TransportService::OnUpdate()
 
 void TransportService::AbandonAttempt() noexcept
 {
-    // Clears the in-flight marker first so the teardown below is not reported.
-    // Only the reconnect path uses this: it is about to start a replacement
-    // attempt, and telling the UI the old one ended would be worse than noise --
-    // it would drop the player out of "connecting" between the two tries.
+    // Clears the in-flight marker first so the teardown below has nothing to
+    // report, and marks the disconnect reported as well so the teardown cannot
+    // slip through the other channel either. Only the reconnect path uses this:
+    // it is about to start a replacement attempt, and telling the UI the old
+    // one ended would be worse than noise -- it would drop the player out of
+    // "connecting" between the two tries.
     m_handshakePending = false;
+    m_attemptDisconnectReported = true;
     Close();
 }
 
@@ -270,17 +276,27 @@ void TransportService::HandleUpdate(const UpdateEvent& acEvent) noexcept
     // "connecting" with no error and no way out. The Steam status callback
     // only fires for transport failures, so a server that accepts the
     // connection and then says nothing is caught here instead.
-    if (m_handshakePending && std::chrono::steady_clock::now() >= m_handshakeDeadline)
+    //
+    // Guarded on the error flag so a second deadline tick cannot stack a second
+    // error on the same attempt: Close() below clears m_handshakePending, but
+    // it does so through OnDisconnected, which only runs once the transport
+    // actually tears down.
+    if (m_handshakePending && !m_attemptErrorReported &&
+        std::chrono::steady_clock::now() >= m_handshakeDeadline)
     {
         spdlog::error("Handshake with {} timed out after {}s, aborting", m_pendingEndpoint,
                       kHandshakeTimeout.count());
 
-        // This attempt is over, so state the outcome once and cancel the
+        // This attempt is over, so state the failure once and cancel the
         // pending deadline. m_handshakePending and m_connected are deliberately
         // left alone: Close() below reports through OnDisconnected, and the
-        // flag still being set is what makes that report count as this
-        // attempt's outcome rather than as the tail of one that already ended.
-        m_attemptOutcomeReported = true;
+        // flag still being set is what makes that report count as part of this
+        // attempt rather than as the tail of one that already ended.
+        //
+        // Only the *error* is marked reported here. The disconnect that Close()
+        // produces is a separate channel and still has to fire, because that is
+        // what makes the services drop their session state.
+        m_attemptErrorReported = true;
 
         ConnectionErrorEvent errorEvent;
         errorEvent.ErrorDetail = "{\"error\": \"no_reason\"}";
@@ -312,7 +328,8 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
     if (acMessage.Type == AR::kAccepted)
     {
         m_connected = true;
-        m_attemptOutcomeReported = false;
+        m_attemptErrorReported = false;
+        m_attemptDisconnectReported = false;
 
         spdlog::info("authentication accepted, joined as player {}", acMessage.PlayerId);
 
@@ -386,11 +403,11 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
     }
 
     // The server rejected us, so this attempt is over and it reports its
-    // outcome once: the error carries the reason. The transport teardown that
-    // follows still reports the disconnect, and that is on purpose -- the UI
-    // leaves "connecting" on either signal, so raising both keeps one of them
-    // from becoming a single point of failure.
-    m_attemptOutcomeReported = true;
+    // failure once: the error carries the reason. Only the error is marked
+    // reported -- the disconnect Close() raises below is a separate channel and
+    // still fires, so the services tear their session state down even though
+    // this attempt never got past authentication.
+    m_attemptErrorReported = true;
 
     m_dispatcher.trigger(errorEvent);
 

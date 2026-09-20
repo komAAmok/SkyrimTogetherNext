@@ -103,28 +103,23 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 
-    // Started here rather than through the runner queue on purpose.
+    // Close(), ArmConnectionWatchdog() and BeginConnect() only touch the uv
+    // loop, the socket interface and plain scalar members, and this method
+    // already runs on the CEF message thread, which is where every other
+    // ui-event is handled. Running them inline takes the start of the attempt
+    // off the frame loop, so opening the connection panel -- which is what
+    // precedes those stalls -- can no longer swallow it.
     //
-    // The queue is only drained from World::Update(), so a queued connect runs
-    // at the mercy of the vm tick. On a live 1.5.97 client it never ran at all:
-    // the overlay sat on "connecting" and ArmConnectionWatchdog's first log line
-    // never appeared, which rules out the whole transport side and leaves the
-    // connect sitting in the queue. The four ui_event lines that
-    // OnProcessMessageReceived prints before dispatching did appear, so the
-    // event had demonstrably reached this method.
-    //
-    // Nothing on this path needs the game thread. Close(), ArmConnectionWatchdog()
-    // and Connect() only touch the uv loop, the socket interface and plain scalar
-    // members, and this method already runs on the CEF message thread, which is
-    // where every other ui-event is handled. Running them inline takes the
-    // attempt off the frame loop, so opening the connection panel -- which is
-    // what precedes those stalls -- can no longer swallow it.
+    // BeginConnect goes further: it hands the attempt a pump of its own, so the
+    // handshake no longer depends on the vm tick arriving at all. A tick-driven
+    // attempt cannot even report that the tick is missing, which is how a
+    // stalled connection has been able to sit there printing nothing.
     auto& transport = World::Get().GetTransport();
     // A second connect while one is still in flight used to stack a new
     // transport on top of the old one and leak its handle.
     transport.Close();
     transport.ArmConnectionWatchdog(endpoint);
-    transport.Connect(endpoint);
+    transport.BeginConnect(endpoint);
 }
 
 void OverlayClient::ProcessDisconnectMessage()

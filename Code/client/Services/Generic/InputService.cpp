@@ -16,6 +16,8 @@
 #include "Games/Skyrim/Interface/MenuControls.h"
 
 #include <imm.h>
+#include <atomic>
+#include <thread>
 
 #pragma comment(lib, "imm32.lib")
 
@@ -27,6 +29,20 @@ static UINT s_currentACP = CP_ACP;
 // latin keystrokes that spell a pinyin syllable do not leak into the text field
 // as individual letters next to the composed result.
 static bool s_imeComposing = false;
+
+// The frame loop cannot be left to the game's own hooks: on 1.5.97 neither
+// SkyrimVM::Update nor MainLoop is ever reached through them (both heartbeat
+// counters stay at zero across a whole session), so World::Update() would never
+// run and nothing would synchronise once connected. A timer on the game's own
+// window is the one cadence we can force without knowing any game address, and
+// the message pump that drives it is guaranteed alive because the window
+// responds at all. On runtimes where the hooks do fire this is simply an extra
+// update per interval; World::Update() is idempotent and measures its own delta.
+static constexpr UINT_PTR kWorldUpdateTimerId = 0x5A17;
+static constexpr UINT kWorldUpdateTimerIntervalMs = 16;
+
+static std::atomic<uint64_t> s_timerTicks{0};
+static std::chrono::steady_clock::time_point s_lastTimerUpdate{};
 
 void ForceKillAllInput()
 {
@@ -492,6 +508,36 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         return true;
     }();
     (void)s_rawInputRegistered;
+
+    // Arm the frame-loop fallback on the first message this window sees, which
+    // is also the first moment hwnd is known for certain.
+    static bool s_worldUpdateTimerArmed = false;
+    if (!s_worldUpdateTimerArmed)
+    {
+        s_worldUpdateTimerArmed = true;
+        ::SetTimer(hwnd, kWorldUpdateTimerId, kWorldUpdateTimerIntervalMs, nullptr);
+    }
+
+    if (uMsg == WM_TIMER && wParam == kWorldUpdateTimerId)
+    {
+        const auto cNow = std::chrono::steady_clock::now();
+        if (s_lastTimerUpdate.time_since_epoch().count() == 0 ||
+            cNow - s_lastTimerUpdate >= std::chrono::milliseconds(kWorldUpdateTimerIntervalMs))
+        {
+            s_lastTimerUpdate = cNow;
+
+            const uint64_t cTick = s_timerTicks.fetch_add(1) + 1;
+            if (cTick == 1 || cTick % 300 == 0)
+            {
+                spdlog::info("timer-driven update heartbeat: tick {}, thread id {}", cTick, ::GetCurrentThreadId());
+            }
+
+            World::Get().Update();
+        }
+
+        // This timer is ours; the game has no reason to see it.
+        return 1;
+    }
 
     const auto pApp = s_pOverlay->GetOverlayApp();
     if (!pApp)

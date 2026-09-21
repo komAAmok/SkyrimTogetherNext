@@ -101,6 +101,12 @@ void HookAudit::Report() noexcept
         char where[MAX_PATH + 48];
         FormatModuleOffset(target, where);
 
+        // Print every target, not just the failing ones. A hook that is
+        // installed but never reached - which is what both frame-loop hooks
+        // showed on 1.5.97 - looks identical in the summary to one that works;
+        // only the address list tells the two apart.
+        spdlog::info("hook target {}", where);
+
         uint8_t now[8]{};
         SafeReadCode(now, recorded.pTarget, sizeof(now));
 

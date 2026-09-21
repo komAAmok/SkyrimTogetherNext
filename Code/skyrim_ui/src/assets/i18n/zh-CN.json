@@ -1,6 +1,5 @@
 {
   "INFO": "DO NOT MODIFY THIS FILE! USE THE overwrite.json FILE TO TRANSLATE THE UI!",
-
   "COMPONENT": {
     "CHAT": {
       "SEND": "发送",
@@ -22,6 +21,10 @@
         "CONNECTION": "无法连接至指定的服务器。请确认输入了正确的地址，且没有网络问题。",
         "VERSION_MISMATCH": "无法连接至服务器。服务器的Skyrim Together版本与您的不同。",
         "INVALID_ADDRESS": "地址格式无效。"
+      },
+      "SUCCESS": {
+        "TITLE": "连接成功",
+        "MESSAGE": "已连接到 {{address}}。随时按 F2 打开此菜单查看状态并聊天。"
       }
     },
     "DISCONNECT": {
@@ -83,7 +86,12 @@
       "RECONNECT": "重新连接",
       "PLAYER_MANAGER": "玩家管理",
       "SETTINGS": "设置",
-      "CONNECTION_IN_PROGRESS": "连接中"
+      "CONNECTION_IN_PROGRESS": "连接中",
+      "STATUS": {
+        "OFFLINE": "未连接",
+        "CONNECTING": "正在连接…",
+        "ONLINE": "已连接到 {{address}}"
+      }
     },
     "SERVER_LIST": {
       "SEARCH": "搜索...",

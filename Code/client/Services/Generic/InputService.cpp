@@ -15,8 +15,18 @@
 
 #include "Games/Skyrim/Interface/MenuControls.h"
 
+#include <imm.h>
+
+#pragma comment(lib, "imm32.lib")
+
 static OverlayService* s_pOverlay = nullptr;
 static UINT s_currentACP = CP_ACP;
+
+// True while the active input method is in the middle of composing a character.
+// While that is the case the raw-key -> character path below is disabled, so the
+// latin keystrokes that spell a pinyin syllable do not leak into the text field
+// as individual letters next to the composed result.
+static bool s_imeComposing = false;
 
 void ForceKillAllInput()
 {
@@ -304,6 +314,22 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
     }
 }
 
+// The composed text an input method committed. Windows delivers it through
+// WM_IME_COMPOSITION rather than through the WM_INPUT keyboard path, and it is
+// already the final characters - no layout translation applies here. Each
+// UTF-16 code unit goes out as its own character event, exactly the way a plain
+// key would, so the renderer's focused text field receives what the IME made.
+static void ProcessImeResult(const std::wstring& acText) noexcept
+{
+    for (const wchar_t cCharacter : acText)
+    {
+        if (cCharacter == L'\r' || cCharacter == L'\n')
+            continue;
+
+        ProcessKeyboard(0, 0, KEYEVENT_CHAR, false, false, static_cast<uint16_t>(cCharacter));
+    }
+}
+
 // The overlay never sees WM_CHAR. The game owns the keyboard through
 // DirectInput, its message loop does no TranslateMessage dispatch for us, and
 // our window procedure is a subclass that only observes what the game's loop
@@ -523,7 +549,12 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
             // the text can be produced. Skip anything with Ctrl or Alt held,
             // which is a shortcut rather than text, and skip the toggle keys
             // so opening the overlay cannot type into it.
-            if (active && !isKeyUp && !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
+            //
+            // While an input method is composing, the same keystrokes belong
+            // to it, not to the field: the composed result is delivered through
+            // WM_IME_COMPOSITION instead, and translating the raw keys here on
+            // top would type the pinyin letters next to the finished character.
+            if (active && !isKeyUp && !s_imeComposing && !(GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000))
             {
                 if (!IsToggleKey(keyboard.VKey) && !IsDisableKey(keyboard.VKey))
                 {
@@ -587,6 +618,39 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         InputService::SetCaptureEnabled(true);
         s_pOverlay->SetActive(true);
         pRenderer->SetCursorVisible(true);
+    }
+    else if (uMsg == WM_IME_STARTCOMPOSITION)
+    {
+        s_imeComposing = true;
+    }
+    else if (uMsg == WM_IME_ENDCOMPOSITION)
+    {
+        s_imeComposing = false;
+    }
+    else if (uMsg == WM_IME_COMPOSITION)
+    {
+        // The finished result of a composition is the only part this subclass
+        // forwards as text. The intermediate composition string is left to the
+        // renderer's own IME handling; trying to mirror it here would fight
+        // whatever Chromium already drew and duplicate the final commit.
+        if (lParam & GCS_RESULTSTR)
+        {
+            const HIMC hInputContext = ::ImmGetContext(hwnd);
+            if (hInputContext)
+            {
+                const LONG cBytes = ::ImmGetCompositionStringW(hInputContext, GCS_RESULTSTR, nullptr, 0);
+                if (cBytes > 0)
+                {
+                    std::wstring text(static_cast<size_t>(cBytes) / sizeof(wchar_t), L'\0');
+                    const LONG cRead = ::ImmGetCompositionStringW(hInputContext, GCS_RESULTSTR, text.data(), cBytes);
+                    text.resize(static_cast<size_t>(cRead) / sizeof(wchar_t));
+
+                    ProcessImeResult(text);
+                }
+
+                ::ImmReleaseContext(hwnd, hInputContext);
+            }
+        }
     }
     else if (uMsg == WM_INPUTLANGCHANGE)
     {

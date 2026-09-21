@@ -95,6 +95,13 @@ export class ClientService implements OnDestroy {
   /** Used for when a party leader changed. */
   public partyLeaderChange = new Subject<number>();
 
+  /**
+   * The address the last attempt targeted, empty before any. The menu shows
+   * which server a session belongs to; "connected" on its own does not say,
+   * once there is more than one to pick from.
+   */
+  public serverAddressChange = new BehaviorSubject('');
+
   public localPlayerId = undefined;
 
   private _host: string;
@@ -199,6 +206,7 @@ export class ClientService implements OnDestroy {
     this._host = host;
     this._port = port;
     this._password = password;
+    this.serverAddressChange.next(host ? `${host}:${port}` : '');
   }
 
   /**

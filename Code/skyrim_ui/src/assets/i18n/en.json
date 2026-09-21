@@ -23,6 +23,10 @@
         "CONNECTION": "Could not connect to the specified server. Please make sure you've entered the correct address and that you're not experiencing network issues",
         "VERSION_MISMATCH": "You cannot connect to the server because it does not have the same version of Skyrim Together as you.",
         "INVALID_ADDRESS": "The address is of invalid format."
+      },
+      "SUCCESS": {
+        "TITLE": "Connected",
+        "MESSAGE": "You are now connected to {{address}}. Press F2 any time to open this menu and chat."
       }
     },
     "DISCONNECT": {
@@ -85,7 +89,12 @@
       "RECONNECT": "Reconnect",
       "PLAYER_MANAGER": "Player Manager",
       "SETTINGS": "Settings",
-      "CONNECTION_IN_PROGRESS": "Connection in progress..."
+      "CONNECTION_IN_PROGRESS": "Connection in progress...",
+      "STATUS": {
+        "OFFLINE": "Not connected",
+        "CONNECTING": "Connecting...",
+        "ONLINE": "Connected to {{address}}"
+      }
     },
     "SERVER_LIST": {
       "SEARCH": "Search...",

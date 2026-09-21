@@ -11,6 +11,7 @@ import {
 import { TranslocoService } from '@ngneat/transloco';
 import { firstValueFrom, Subscription } from 'rxjs';
 import { View } from '../../models/view.enum';
+import { AlertService } from '../../services/alert.service';
 import { ClientService } from '../../services/client.service';
 import { ErrorService } from '../../services/error.service';
 import { Sound, SoundService } from '../../services/sound.service';
@@ -35,6 +36,7 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
   public constructor(
     private readonly client: ClientService,
     private readonly sound: SoundService,
+    private readonly alert: AlertService,
     private readonly errorService: ErrorService,
     private readonly storeService: StoreService,
     private readonly translocoService: TranslocoService,
@@ -46,7 +48,24 @@ export class ConnectComponent implements OnDestroy, AfterViewInit {
           this.connecting = false;
 
           if (state) {
-            this.sound.play(Sound.Success);
+            // The panel used to just close here, with a sound as the only sign
+            // anything had happened. Closing is the right thing once the player
+            // has acknowledged the result, not before, so the attempt now ends
+            // on an explicit "connected" dialog and the panel closes behind it.
+            this.alert.show({
+              kind: 'success',
+              title: await firstValueFrom(
+                this.translocoService.selectTranslate<string>(
+                  'COMPONENT.CONNECT.SUCCESS.TITLE',
+                ),
+              ),
+              message: await firstValueFrom(
+                this.translocoService.selectTranslate<string>(
+                  'COMPONENT.CONNECT.SUCCESS.MESSAGE',
+                  { address: this.address.trim() },
+                ),
+              ),
+            });
             this.done.next();
           } else if (this.errorService.getError() === '') {
             // show connection error when there is no more specific error

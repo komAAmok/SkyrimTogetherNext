@@ -34,6 +34,7 @@ static constexpr uint64_t kTickHeartbeatEvery = 600; // roughly ten seconds at 6
 static std::atomic<uint64_t> s_ticks{0};
 static std::atomic<uint64_t> s_updates{0};
 static std::atomic<uint64_t> s_skipped{0};
+static std::atomic<uint64_t> s_mainLoopTicks{0};
 
 struct RawOffset
 {
@@ -140,7 +141,17 @@ int TP_MAKE_THISCALL(HookVMUpdate, GameVM, float a2)
 
 short TP_MAKE_THISCALL(HookMainLoop, Main)
 {
-    TP_EMPTY_HOOK_PLACEHOLDER
+    // Instrumented for the same reason HookVMUpdate is. On 1.5.97 the vm tick
+    // has not reached us once in any session logged so far, so if the frame loop
+    // is being driven at all it is from somewhere else - and this is the other
+    // entry point the client already hooks. Counting both says which one the
+    // game actually calls, without either of them changing what it does yet.
+    const uint64_t cTick = s_mainLoopTicks.fetch_add(1) + 1;
+    if (cTick == 1 || cTick % kTickHeartbeatEvery == 0)
+    {
+        spdlog::info("main loop heartbeat: tick {}, vm ticks {} so far, client update ran {} times", cTick,
+                     s_ticks.load(), s_updates.load());
+    }
 
     return TiltedPhoques::ThisCall(MainLoop, apThis);
 }

@@ -1,11 +1,10 @@
 @import 'env';
 @import 'functions/mod';
-@import 'functions/rem';
 
 .alert-content {
   display: flex;
   flex-direction: column;
-  gap: rem(0.5);
+  gap: 0.5rem;
 }
 
 .alert-title {

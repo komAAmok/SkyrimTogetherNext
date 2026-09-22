@@ -247,8 +247,11 @@ void DiscoveryService::VisitForms() noexcept
         }
     }
 
-    // Not in actor holder
-    visitor(PlayerCharacter::Get());
+    // Not in actor holder. The visitor dereferences the reference immediately
+    // (its formID), and the player does not exist at the main menu or before a
+    // save is loaded, so this call must be guarded like VisitCell() above.
+    if (auto* pPlayer = PlayerCharacter::Get())
+        visitor(pPlayer);
 
     // We dispatch removal events first to prevent needless reallocations
     for (uint32_t formId : s_previousForms)

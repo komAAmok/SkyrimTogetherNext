@@ -532,7 +532,19 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
                 spdlog::info("timer-driven update heartbeat: tick {}, thread id {}", cTick, ::GetCurrentThreadId());
             }
 
-            World::Get().Update();
+            // The game's own frame hooks only run the update while the VM is
+            // active - never at the main menu or across a load screen. On 1.5.97
+            // those hooks never fire at all, which is the whole reason this timer
+            // exists, but arming it on the first window message means it ticks
+            // long before a world or the player exist. Driving the update there
+            // made the very first tick dereference the not-yet-created player
+            // (read of [0x0 + 0x14], the player's formID) and crash on boot.
+            // Gate on the signal the overlay already maintains: it only flips
+            // true once the player has a 3D node, i.e. we are actually in game.
+            if (s_pOverlay && s_pOverlay->GetInGame())
+            {
+                World::Get().Update();
+            }
         }
 
         // This timer is ours; the game has no reason to see it.

@@ -66,6 +66,13 @@ locationForm `0xAC8` / baseTints `0xB10` / overlayTints `0xB28` / sizeof `0xBE0`
 AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legacy 锚点跟着改**。
 
 `SkyrimVM::inactive`（`GameVM.h`）：legacy **0x680** / AE **0x690**（差 0x10）。
+`SkyrimVM::virtualMachine`（同文件）：legacy **0x200** / AE **0x210**（同样差 0x10）。
+
+> 这个坑到目前为止咬了**三次**：① `PlayerCharacter::pad1`（`c0abe640`）；
+> ② `SkyrimVM::inactive`（`b0082844`）；③ `SkyrimVM::virtualMachine`（§12.3）。
+> 三次都是"合并时把上游值当成绝对值吹进 legacy 分支"。
+> 上游的"修正"是**对 AE 而言**的修正——合并时先问一句
+> “这是绝对值还是相对增量”。
 
 查证手段（照抄，别重算）：
 1. 逐字节哈希：`[ "$(git rev-parse v1.0.18:$f)" = "$(git rev-parse HEAD:$f)" ]`。
@@ -242,6 +249,8 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `7b592f2d` | v1.0.31 | UI 构建失败：`rem()` 少传参数 |
 | `a9ad774f` | v1.0.32 | 帧循环改 WM_TIMER 驱动（1.5.97 两个帧钩子从不执行） |
 | `83bb37be` | **未打 tag** | **启动闪退**：定时器无门控，启动期提前跑 `Update()`；补 `GetInGame()` 门控 + 判空 |
+| `45577fa4` | v1.0.34 | **4 条 1.5.x id 映射错误**（§11）：`400475` 指到 TimeData、`37525`/`19708` 撞同一地址（就是那条 `already claimed`）；生成器 join 键改 `(class, symbol)` + 拒绝写重复表 |
+| `待提交` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -250,10 +259,10 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   不要再"修"这两个 id。
 - **【P1，已结案，见 §11】**`hook target ... already claimed` 的真身是**映射表把两个 id 指到同一
   地址**（`37525`/`19708` 都落 `0x28e680`），不是 `RipAllocateN` 桩冲突。已修表 + 增强日志。
-- **【P1，诊断性接受的风险】传输泵兜底分发**：tick 彻底不来的会话里，handshake pump 超 500ms
+- **【P1，已观测未触发，见 §12.5】传输泵兜底分发**：tick 彻底不来的会话里，handshake pump 超 500ms
   会自己分发（`frame loop did not take the queued messages within 500ms` warn），**会碰游戏内存**。
-  下一步若"能连上但一进世界就崩"，第一嫌疑就是它。彻底修法 = 给会话开一条"只收包不碰游戏"
-  的线程 + 世界状态操作 post 回游戏线程。
+  v1.0.34 两场实机会话里**一次未触发**：WM_TIMER 让帧循环始终活着，pump 一发现
+  帧循环在就交还。保留现状，**但别删**——它是 tick 真死时唯一能连上的路径。
 - **【P2】F3 调试菜单在 1.5.97 走不通**：`DebugService::OnUpdate` 依赖 `UpdateEvent`，而 1.5.97
   上 UpdateEvent 曾经从不触发（现已由 WM_TIMER 驱动，待复测）；且 release 下 F6/F7/F8 被 `IS_MASTER` 裁掉。
 - **【P2】i18n 缺键**：es/fr/nl/pl/zh-CN 部分词条缺失。
@@ -261,9 +270,10 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   上游 `dev` 至今仍是 `ExecuteAsync("disconnect")` 无参、`DisconnectedEvent.h` 空结构体，同步时勿丢 fork 修复。
 - **【P3】版本握手强制同 commit**：`TransportService.cpp:115` 发 `Version=BUILD_COMMIT`，
   `GameServer.cpp:856` 要求 `== BUILD_COMMIT` 否则 `kWrongVersion` 踢出。联机双方必须同版本构建。
-- **【观察项，已定性，见 §11】`SkyrimVM::Get()`（id 400475）启动期读到 null**：不是错位，是**映射表
-  本身给错了地址**（给成了 `TimeData::s_instance` 的 `0x1ec0a80`）。已修。启动期读到 null 是因为
-  此时 VM 单例尚未建立，属正常。
+- **【已修，见 §11 + §12.3】`SkyrimVM::Get()`（id 400475）启动期读到 null**：两个独立缺陷叠加。
+  ① 映射表把 `400475` 指到了 `TimeData::s_instance` 的 `0x1ec0a80`（§11，已修）；
+  ② `SkyrimVM::virtualMachine` 在 1.5.97 上是 `0x200` 而不是上游的 `0x210`（§12.3，已修）。
+  启动期读到 null 本身是正常的（VM 单例尚未建立）。
 - **【观察项】客户端日志 0 字节**：曾出现从非 SKSE bootstrap 路径启动（launcher）导致
   `st_boot.log` 为空的情况，排查前先问清"这次是怎么启动的"（MO2 / 直接 SKSE / launcher）。
 
@@ -423,4 +433,100 @@ print({hex(v):i for v,i in r.items() if len(i)>1})"
 
 # 4. 谁调用某函数（.text 里扫 call rel32）
 #    见 §11.1 的调用链；同理可对任意 RVA 求调用者
+```
+
+---
+
+## 12. v1.0.34 实机联机日志分析（2026-09-23，1.5.97 + MO2 + 整合包）
+
+日志：`tp_client.log` 4485 行，两次会话（00:01–00:04 与 00:13–00:20），
+均 `authentication accepted`，第二次跑满 7 分钟无崩溃。
+
+### 12.1 §11 的修复被实机证实
+
+| 验证项 | 结果 |
+|---|---|
+| `already claimed` 重复钩子 | **0 次**（v1.0.33 前每次会话必现） |
+| `id 37525` 落点 | `SkyrimSE.exe+0x5e6f20` ✅ 正是 §11.3 修的值 |
+| `id 19708` 落点 | `SkyrimSE.exe+0x28e680` ✅ 未受影响 |
+| 钩子汇总 | `63 recorded, 0 did not land` ✅ |
+| 同步功能 | 本地角色指派 257、远程角色 257、物体 322、所有权转移 217 |
+
+### 12.2 §11.1 的结论被实机证实
+
+**`vm tick heartbeat` 与 `main loop heartbeat` 在整个 4485 行日志里一次都没有出现**，
+而 `timer-driven update heartbeat` 有 111 次采样（tick 到 22500）。这正面证实了 §11.1：
+
+> 那两个地址是**对的**，函数只是不在实际执行的路径上。WM_TIMER 驱动是必需的，不是权宜之计。
+
+### 12.3 新发现：`virtualMachine` 在 1.5.97 上不是 `0x210`，是 `0x200`
+
+日志每次会话都报一次：
+
+```
+the SkyrimVM singleton at 0x7ff7377a7e80 holds the papyrus vm at +0x200,
+not the +0x210 this build assumes; every other offset into this struct is
+suspect for the same reason
+```
+
+**根因**：与 §2 的锚点式 pad 同一类错误。`v1.0.18`（fork 定版基线）用的是 `0x200`，
+合并 `d374a1a5` 时按"adopt upstream value"规则改成了上游的 `0x210` ——
+但 `0x10` 正是这个结构体在 AE/SE 之间的差值（`inactive` 同样是 `0x680` vs `0x690`），
+**两个目标必须各定各值**。
+
+**独立证据**（不依赖日志，来自真实 1.5.97 二进制）：
+
+1. `SkyrimVM::Update`（`0x921F10`）自身 **5 处**读 `[rsi+0x200]`，其中一处带 null 检查；
+2. 紧随其后被调用的 `0x922A90` 读 `[rcx+0x200]` 再 `jmp [rax+0x28]` ——
+   正是对该指针的虚表调用；
+3. `v1.0.18` 基线即 `0x200`。
+
+**为什么一直没炸**：`SetVirtualMachine()` 会用游戏递给 papyrus 钩子的指针覆盖静态量，
+单例字段只是"钩子还没跑时"的 fallback；读错偏移得到的是非空但不像 vm 的指针，
+被 `LooksLikeVirtualMachine()` 拦掉 —— 于是 papyrus 路径**静默降级**，
+而不是崩溃。修法：按 `SKYRIM_TARGET_LEGACY` 分叉，legacy `0x200` / AE `0x210`，
+并各自 `static_assert`。
+
+> **教训（再次）**：上游的"修正"是**对 AE 而言**的修正。fork 同时供两个目标时，
+> 任何被上游动过的偏移都要先问一句"这是绝对值还是相对增量"，再决定跟不跟。
+> 本次与 §2 的 `PlayerCharacter::pad1`、§5.6 的 `SkyrimVM::inactive` 是**同一个坑的第三次**。
+
+### 12.4 日志里其余噪声的分诊（都不是 fork 的 bug）
+
+| 现象 | 判定 |
+|---|---|
+| `Failed to create Discord instance (4)` ×2 | Discord 未运行。非致命，已有处理 |
+| `multiple behavior replacers have the same signature` ×27 | **用户整合包装了两个动画 mod**（Cow/Deer/Goat/Horker/Horse/SabreCat/Skeever/Wolf 各被声明 2 次）。代码已优雅降级（`choosing the first one`），非 fork bug |
+| `patch 'window style' skipped` / `patch 'skip startup movie' skipped` | 设计如此：无 1.5.x 验证偏移就不打（§4） |
+| `id 36548 is not mapped` | 已知未映射项，见 `Tools/missing_1_5_97_ids.txt` |
+| `hook target SkyrimSE.exe+0xc02260 already held a branch (ff 25 ...)` ×1 | **别的 mod 也在钩同一函数**（id 68115），`HookAudit` 正确识别并报告。属预期，非 bug |
+| `BehaviorVar::LoadReplacerFromDir` 数百行 | 正常加载日志，info 级 |
+
+### 12.5 P1 遗留项：传输泵兜底分发**从未触发**
+
+§10 记的"handshake pump 超 500ms 会自己分发、会碰游戏内存"，本次两场会话
+`did not take the queued messages` **出现 0 次**。原因是 WM_TIMER 让帧循环始终活着，
+pump 一发现帧循环活着就立刻交还（日志里可见
+`handshake pump: frame loop is live, handing ... back to it`）。
+
+> 结论：该风险只在"帧循环彻底不来"时成立，而当前构建已不存在这种会话。
+> 保留现状，但**别删**这条兜底 —— 它是 tick 真死时唯一能连上的路径。
+
+### 12.6 复核用的命令（照抄）
+
+```powershell
+# 有没有重复钩子（应为 0）
+Select-String -Path tp_client.log -Pattern "already claimed"
+
+# 两个帧钩子是否真的从不执行（应为空）
+Select-String -Path tp_client.log -Pattern "vm tick heartbeat|main loop heartbeat"
+
+# 定时器驱动是否活着（应有大量采样）
+Select-String -Path tp_client.log -Pattern "timer-driven update heartbeat" | Measure-Object
+
+# 兜底分发是否触发过（应为 0）
+(Select-String -Path tp_client.log -Pattern "did not take the queued messages").Count
+
+# virtualMachine 偏移告警（修好后应为空）
+Select-String -Path tp_client.log -Pattern "holds the papyrus vm"
 ```

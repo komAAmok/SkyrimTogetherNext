@@ -245,12 +245,11 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
-- **【P1，待真实地址库审计】0x921F10（SkyrimVM::Update）与 0x5B2FF0（MainLoop）两个映射地址
-  疑似从历史符号 join 时就贴错**：1.5.97 上两个钩子一次都没被调用。目前用 WM_TIMER 绕过，
-  但正确做法是用真实 1.5.97 地址库审计这两个 id 到底该落在哪。
-- **【P1，待 HookAudit 增强】`hook target 0x7ff739ace680 already claimed by another hook in this mod`**
-  反推 RVA `0x12CE680` 不在 1.5.97 映射表，疑似 `RipAllocateN` 桩地址冲突。建议给
-  `HookAudit::Record` 这条 error 补 `FormatModuleOffset`（打印模块+偏移）以定位。
+- **【P1，已结案，见 §11】**0x921F10 / 0x5B2FF0 **没有贴错**，是真实 1.5.97 地址；两个钩子不执行
+  是因为 SKSE 路径下游戏主循环由 PE 入口直接进入，而该入口不经过被钩的那条调用链。结论已定，
+  不要再"修"这两个 id。
+- **【P1，已结案，见 §11】**`hook target ... already claimed` 的真身是**映射表把两个 id 指到同一
+  地址**（`37525`/`19708` 都落 `0x28e680`），不是 `RipAllocateN` 桩冲突。已修表 + 增强日志。
 - **【P1，诊断性接受的风险】传输泵兜底分发**：tick 彻底不来的会话里，handshake pump 超 500ms
   会自己分发（`frame loop did not take the queued messages within 500ms` warn），**会碰游戏内存**。
   下一步若"能连上但一进世界就崩"，第一嫌疑就是它。彻底修法 = 给会话开一条"只收包不碰游戏"
@@ -262,7 +261,166 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   上游 `dev` 至今仍是 `ExecuteAsync("disconnect")` 无参、`DisconnectedEvent.h` 空结构体，同步时勿丢 fork 修复。
 - **【P3】版本握手强制同 commit**：`TransportService.cpp:115` 发 `Version=BUILD_COMMIT`，
   `GameServer.cpp:856` 要求 `== BUILD_COMMIT` 否则 `kWrongVersion` 踢出。联机双方必须同版本构建。
-- **【观察项】`SkyrimVM::Get()`（id 400475）在启动期读到 null**，只导致"布局无法校验"的 warn，
-  是否真错位待仪器化确认。
+- **【观察项，已定性，见 §11】`SkyrimVM::Get()`（id 400475）启动期读到 null**：不是错位，是**映射表
+  本身给错了地址**（给成了 `TimeData::s_instance` 的 `0x1ec0a80`）。已修。启动期读到 null 是因为
+  此时 VM 单例尚未建立，属正常。
 - **【观察项】客户端日志 0 字节**：曾出现从非 SKSE bootstrap 路径启动（launcher）导致
   `st_boot.log` 为空的情况，排查前先问清"这次是怎么启动的"（MO2 / 直接 SKSE / launcher）。
+
+---
+
+## 11. 1.5.97 地址库审计（2026-09-22，对着真实 `SkyrimSE.exe` 1.5.97.0 做的）
+
+**方法**：不用猜测、不用工具链。三份独立证据交叉：
+① 真实 1.5.97 `SkyrimSE.exe`（34,769,792 字节，`FileVersion 1.5.97.0`）的 PE 反汇编；
+② 仓库自带的 `version-1-5-97-0.bin`（778,674 条 SE id）与 `versionlib-1-6-1170-0.bin`（428,461 条 AE id）；
+③ `git tree @ 8eaca858^`（AE 迁移前一版，**硬编码 1.5.97 绝对地址**）这是本仓库自己的真值。
+
+`8eaca858` 的 diff 是可直接对账的：`- 0x141EC3B78` → `+ 0x141F5E378`，符号名不变。
+把两侧按 **文件名 + 符号名** join（不是只按符号名），就是一张 1.5.97 真值表。
+
+### 11.1 结论一：`0x921F10` / `0x5B2FF0` **没有贴错**
+
+两个地址在真实二进制里就是它们声称的函数，且互为上下游：
+
+```
+WinMain 0x5ACBD0
+  └─ call 0x5AF3D0        帧循环：PeekMessageA/TranslateMessage/DispatchMessageA + Sleep(0x32)
+       └─ call 0x5B2FF0   （循环体内，每帧一次）
+            └─ call 0x921F10   rcx = [0x141EC3B78]（SkyrimVM 单例）
+```
+
+- `0x921F10` 入口 `mov rax,rsp / mov [rcx+0x750],1`，体内 `movzx r15d,[rsi+0x680]` 
+  与 1.6.1170 的 `SkyrimVM::Update`（`ae id 53926`）同形，`+0x680` 正是 1.5.97 的 `inactive`
+  （与 §2 的 `GameVM.h` 断言一致）。**这个地址是对的。**
+- `0x5B2FF0` 在 1.5.97 里是 `0x5AF3D0` 帧循环体内的每帧调用，`0x921F10` 的唯一调用者。
+  与 1.6.1170 的 `ae id 36564` 相对位置一致（两边都是"帧循环里的每帧钩子"）。**这个地址也是对的。**
+
+**那为什么心跳整场为 0？** 因为 `0x5ACBD0` 这条链**只从 PE 入口 `0x134B228` 走**
+（`entry → 0x134B05C → 0x5ACBD0`）。而 **launcher 路径是 `loader.GetEntryPoint()` 直接跳游戏入口，
+SKSE 路径则由 SKSE 自己驱动游戏主循环**两条实际路径都不经 `TiltedOnlineApp::GetMainAddress()`
+（它用的是另一个 id `36544 → 0x5ACBD0`，**全仓无人调用**）。
+
+> 教训：**"钩子 0 did not land" ≠ 地址错**。地址正确、字节也写进去了，函数只是不在实际执行的
+> 路径上。判定"贴错"之前必须先证明该函数在真实调用链里；否则会把对的地址改成错的。
+> 这也是 WM_TIMER 方案（§5.6）能站住脚的原因：它绕开的是"谁驱动帧循环"，不是"地址对不对"。
+
+### 11.2 结论二：`already claimed` 的真身 = 映射表把两个 id 指到同一地址
+
+`hook target 0x7ff739ace680 already claimed` 反推的 RVA 是 `0x128e680`（基址 `0x7ff738840000`，
+由同日志另一条带模块名的行得到）。**该 RVA 不在 1.5.97 库里**，所以当时怀疑 `RipAllocateN` 桩冲突。
+
+真实原因是**映射表自己的重复**：`versionlib-ae-to-se-1-5-97-0.map` 里两个 id 指向同一偏移，
+两个钩子于是落在同一函数上，`HookAudit::Record` 报"已被占用"。
+
+1.5.97 地址库本身**零重复**（778,674 条 id ↔ 778,674 个互异偏移），所以映射表里任何重复都是**错**的：
+
+| 偏移 | 被哪两个 id 认领 | 后果 |
+|---|---|---|
+| `0x28e680` | `19708`（TESObjectREFR::AddInventoryItem）、`37525`（Actor::AddInventoryItem） | **就是那条 `already claimed`**；Actor 侧钩子落到了 REFR 的函数上 |
+| `0x54cb70` | `34140`（ActorMagicCaster::InterruptCast）、`34408`（MagicCaster::InterruptCast） | 同上，钩错函数 |
+| `0x1ec0a80` | `400447`（TimeData::s_instance）、`400475`（SkyrimVM::Get 单例） | **`SkyrimVM::Get()` 读到 TimeData**，直接踩坏 §5.5 的整条更新链 |
+| `0x2f27188` | `403350`、`403560` | 两者代码库都未引用。但地址库是单射的，重复即错，已删 `403350`（见 §11.5） |
+
+两个库都是**单射**（`1.5.97` 778674 条 id ↔ 778674 个互异偏移；
+`1.6.1170` 428461 ↔ 428461），所以正确的 id 映射也必须单射——
+**重复就是 bug，不是风格问题**。
+
+### 11.3 结论三：另外两处也错了（真值表比对发现）
+
+按 **(文件, 符号)** join 对账 114 个同名点，除上述外还有 2 处不符真值：
+
+| ae_id | 符号 | 错值 | 真值 | 真值依据 |
+|---|---|---|---|---|
+| `14953` | `TESTexture::Construct` 的 ctor | `0x938b40` | `0x1a0bc0` | 快照 `0x1401A0BC0`；`8eaca858` diff 同符号 `0x1401A0BC0` → `0x1401AC180` |
+| `400475` | `SkyrimVM::s_instance` | `0x1ec0a80` | `0x1ec3b78` | 快照 `0x141EC3B78`；且 4 个连续 8 字节槽在两边一一对应 |
+
+`400475` 的判定尤其干净——1.6.1170 与 1.5.97 的这段是**等距**的：
+
+```
+ae 400473 0x20fba60 ──0x18──> ae 400476 0x20fba78      (1.6.1170)
+se 514313 0x1ec3b68 ──0x18──> se 514316 0x1ec3b80      (1.5.97)
+                        
+            400475 必须落 0x1ec3b70 槽；表里却写 0x1ec0a80（se_id 514287）
+```
+
+### 11.4 根因：生成器的 join 键是**裸符号名**，而符号名会重名
+
+`Tools/Scripts/gen_se_map_from_history.py` 把两侧都塞进 `{符号名: 值}` 字典，**后写覆盖先写**。
+而 `s_instance`、`s_constructor`、`s_addInventoryItem`、`s_interruptCast`、`ctor`、`s_start`、
+`s_equipFunc`、`s_unequipFunc`、`s_singleton` 这些名字在树里**各属于多个类**：
+
+- `s_instance` 在 1.5.97 快照里有 **7 个互异地址**（UI / SkyrimVM / TimeData / WeatherManager /
+  Renderer / FormManager / QuestCallbackManager）；
+- `s_addInventoryItem` 有 2 个（Actor `0x5e6f20`、TESObjectREFR `0x28e680`）；
+- `s_interruptCast` 有 3 个。
+
+join 时只能留下一个，其余全错。**这是"贴错"的真正来源**，而不是历史符号 join 本身不可信。
+
+> **硬性规则（后续同步/重生成地图时必守）**：
+> 1. join 键必须是 **(文件, 符号)**，不是裸符号名；
+> 2. 生成后必须过两道断言：**映射表内偏移不得重复**（1.5.97 库零重复）、
+>    **相邻 AE id 的映射结果不得严重逆序**；
+> 3. 改完 `PlayerCharacter.h` 那类锚点偏移后，同一批 id 要重跑这两道断言。
+
+### 11.5 不只是 1.5.97：10 张表全中
+
+生成器用 `--se-bins-dir` 把 1.5.97 的结果**链式**推到其余 1.5.x
+（`ae id → 1.5.97 rva → se id → 该版本 rva`），所以这 4 个错误
+**10 张表全有**，只是偏移各不相同：
+
+| 版本 | `37525` 错值 | `34140` 错值 | `400475` 错值 | `14953` 错值 |
+|---|---|---|---|---|
+| 1.5.3 | `0x28e750` | `0x54b610` | `0x1eda000` | `0x9372b0` |
+| 1.5.16 | `0x28e7d0` | `0x54cab0` | `0x1ee6a00` | `0x938760` |
+| 1.5.23 | `0x28e800` | `0x54cae0` | `0x1ee6a00` | `0x938790` |
+| 1.5.39 | `0x28e8e0` | `0x54d020` | `0x1ee7a80` | `0x938ff0` |
+| 1.5.50 / 53 / 62 | `0x28e870` | `0x54cd60` | `0x1ee7a80` | `0x938d30` |
+| 1.5.73 / 80 | `0x28e680` | `0x54cb70` | `0x1ec0a80` | `0x938b40` |
+| 1.5.97 | `0x28e680` | `0x54cb70` | `0x1ec0a80` | `0x938b40` |
+
+另外删掉一条**无法定值**的：`403350` 与 `403560` 同报 `0x2f27188`。
+`403560` 是对的——它与 `403559`/`403566`/`403567`/`403568` 在两个库里都是紧凑 8 字节串，
+且 `403560→403566` 在两边都是 `0x30`（`0x3187780→0x31877b0` 与 `0x2f27188→0x2f271b8`）。
+`403350` 则无法定值：它在 1.6.1170 的 `0x3186d98` 周围全是未映射的，
+括号两端（`403340→0x2f26740`、`403447→0x2f26b7c`）之间有 78 个候选槽位。
+
+故**删除而不猜**：未映射会退化到共享零返回 stub 并在日志里**喊出来**，
+而错误映射是**静默指向邻居函数**——正是本次审计要消灭的那类失败。
+
+修法：先把 1.5.97 修对，再用**同一条链**重算其余 9 张
+（正确的 se id 在 1.5.x 内是稳定的，这正是生成器本来就依赖的性质）。
+修完 40/40 条新值均能在**对应版本自己的** `version-1-5-*.bin` 里找到。
+
+### 11.6 本次改动
+
+| 文件 | 改动 |
+|---|---|
+| `GameFiles/.../versionlib-ae-to-se-1-5-*.map`（**10 张**） | 各修 4 行（共 40 行） |
+| `Tools/Scripts/gen_se_map_from_history.py` | join 键改为 **(class, symbol)**；新增两道断言：**偏移不得重复**、相邻 id 不得大量逆序；不通过则**拒绝写文件** |
+| `Tools/ida/st_overrides_all.tsv` | 修正同样 4 条，并在表头记下原因（它是重生成时的输入，不改会复发） |
+| `Code/client/HookAudit.cpp` | 碰撞 error 补 `FormatModuleOffset`（模块+偏移），并在两处打印 **ae id** |
+| `docs/PITFALLS.md` | §10 两条 P1 结案；本 §11 |
+
+`HookAudit` 现在会把 `hook target SkyrimSE.exe+0x28e680 (0x..., id 19708) is already claimed`
+一次说清“哪个函数、哪个 id”，不必再靠反推基址。
+
+### 11.7 复核用的命令（照抄）
+
+```powershell
+# 1. 真值表：AE 迁移前的硬编码 1.5.97 地址
+git show "8eaca858^:Code/client/SkyrimVM64.cpp" | Select-String POINTER_SKYRIMSE
+
+# 2. 映射表里有没有重复偏移（1.5.97 库零重复 ⇒ 重复即错）
+python -c "import collections;m={};
+[m.__setitem__(int(l.split()[0]),int(l.split()[1],0)) for l in open('GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-1-5-97-0.map') if l.strip() and not l.startswith('#')];
+r=collections.defaultdict(list);[r[v].append(k) for k,v in m.items()];
+print({hex(v):i for v,i in r.items() if len(i)>1})"
+
+# 3. 反汇编某个 RVA（VA = 0x140000000 + RVA）
+& D:\clangllvm\bin\llvm-objdump.exe -d --start-address=0x140921f10 --stop-address=0x140921f80 `
+    --x86-asm-syntax=intel "<游戏目录>\SkyrimSE.exe"
+
+# 4. 谁调用某函数（.text 里扫 call rel32）
+#    见 §11.1 的调用链；同理可对任意 RVA 求调用者
+```

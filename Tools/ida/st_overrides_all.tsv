@@ -1,4 +1,16 @@
 # full shipped baseline + 63 newly verified 1.5.97 RVAs
+#
+# NOTE: four entries here used to be wrong and were corrected (see
+# docs/PITFALLS.md section 11). They came from joining the pre-AE
+# snapshot to the current tree by bare symbol name, which is ambiguous:
+#   s_instance names seven different globals, s_addInventoryItem two,
+#   s_interruptCast three, s_constructor two. Only one site could win.
+#   14953 0x938b40 -> 0x1a0bc0   (TESTexture ctor)
+#   34140 0x54cb70 -> 0x541d90   (ActorMagicCaster::InterruptCast)
+#   37525 0x28e680 -> 0x5e6f20   (Actor::AddInventoryItem)
+#   400475 0x1ec0a80 -> 0x1ec3b78 (SkyrimVM singleton)
+# Do not feed the old values back in: regenerate with a (class, symbol)
+# key, which Tools/Scripts/gen_se_map_from_history.py now does.
 11044 0xf9e90
 11141 0xfcfe0
 11290 0x1007f0
@@ -243,7 +255,7 @@
 34053 0x53df40
 34057 0x53e120
 34061 0x53e380
-34140 0x54cb70
+34140 0x541d90
 34144 0x542470
 34185 0x544490
 34202 0x544ea0
@@ -333,7 +345,7 @@
 37491 0x5e33b0
 37511 0x5e5dd0
 37521 0x5e6580
-37525 0x28e680
+37525 0x5e6f20
 37532 0x5e7500
 37537 0x5e7e40
 37542 0x5e8700
@@ -3583,7 +3595,7 @@
 400450 0x1ec0a98
 400452 0x1ec0aa8
 400473 0x1ec3b68
-400475 0x1ec0a80
+400475 0x1ec3b78
 400476 0x1ec3b80
 400503 0x1ec3cb3
 400507 0x1ec3cb8
@@ -3616,7 +3628,6 @@
 403330 0x2f266f8
 403337 0x2f26730
 403340 0x2f26740
-403350 0x2f27188
 403447 0x2f26b7c
 403449 0x2f26bf8
 403450 0x2f26b20
@@ -3674,7 +3685,7 @@
 52847 0x8d5530
 11619 0x10e420
 11620 0x114550
-14953 0x938b40
+14953 0x1a0bc0
 19784 0x2964a0
 33285 0x3236e0
 38533 0x623ba0

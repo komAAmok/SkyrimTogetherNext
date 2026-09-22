@@ -38,6 +38,24 @@ static size_t SafeReadCode(void* apDst, const void* acpSrc, size_t aLen) noexcep
     return read;
 }
 
+// The address-library id a target was resolved from, or a note that the loaded
+// library does not answer for it.
+//
+// A collision between two hooks is only diagnosable once the ids are on the
+// line. Two sites that deliberately share a target and two ids the map wrongly
+// resolved to the same address produce exactly the same address, and only the
+// ids tell those two cases apart - and on a legacy runtime the second case is
+// the one that happens. Written into a caller buffer rather than returned as a
+// string because this runs from Record(), which is noexcept.
+static void FormatId(void* apTarget, char (&aBuf)[32]) noexcept
+{
+    unsigned long long id = 0;
+    if (VersionDb::Get().FindIdByAddress(apTarget, id))
+        sprintf_s(aBuf, "id %llu", id);
+    else
+        strcpy_s(aBuf, "no id in the loaded library");
+}
+
 // Where the 5 byte relative jump at aFrom points, 0 when there is no such jump.
 static uintptr_t RelativeJumpTarget(const uint8_t* acpCode, const uintptr_t aFrom) noexcept
 {
@@ -77,9 +95,24 @@ void HookAudit::Record(void** appTargetSlot) noexcept
     {
         if (previous.pTarget == recorded.pTarget)
         {
-            spdlog::error("hook target {:#x} is already claimed by another hook in this mod; one of the two will be "
-                          "installed and one silently dropped",
-                          reinterpret_cast<uintptr_t>(recorded.pTarget));
+            // Both forms, because they answer different questions. The raw
+            // address is what a grep of the address library answers to; the
+            // module+offset is what says *which function* the two hooks landed
+            // on, and that is the whole diagnosis. Two sites that deliberately
+            // share a target look identical to two ids that the map wrongly
+            // resolved to the same address, and on a legacy runtime the second
+            // case is the one that happens: a wrong entry in the id map shows
+            // up here first, as a collision, long before it shows up as a hook
+            // that never runs or as a crash.
+            char where[MAX_PATH + 48];
+            FormatModuleOffset(reinterpret_cast<uintptr_t>(recorded.pTarget), where);
+
+            char idText[32];
+            FormatId(recorded.pTarget, idText);
+
+            spdlog::error("hook target {} ({:#x}, {}) is already claimed by another hook in this mod; one of the two "
+                          "will be installed and one silently dropped",
+                          where, reinterpret_cast<uintptr_t>(recorded.pTarget), idText);
             break;
         }
     }
@@ -104,8 +137,12 @@ void HookAudit::Report() noexcept
         // Print every target, not just the failing ones. A hook that is
         // installed but never reached - which is what both frame-loop hooks
         // showed on 1.5.97 - looks identical in the summary to one that works;
-        // only the address list tells the two apart.
-        spdlog::info("hook target {}", where);
+        // only the address list tells the two apart. The id is on the line
+        // because the address alone cannot be checked against the map: it is
+        // the id that says which entry to look up.
+        char idText[32];
+        FormatId(recorded.pTarget, idText);
+        spdlog::info("hook target {} ({})", where, idText);
 
         uint8_t now[8]{};
         SafeReadCode(now, recorded.pTarget, sizeof(now));

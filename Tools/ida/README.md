@@ -29,6 +29,35 @@ Run (from the repo root):
         --out-overrides Tools/ida/st_overrides.txt \
         --out-report    Tools/ida/st_capstone_report.json
 
+### Regenerating the shipped maps
+
+The ten `versionlib-ae-to-se-1-5-*.map` files are produced from three override
+files, and all three are needed - `st_overrides_graph.txt` alone carries the
+ten data statics and ten functions recovered by `recover_1597.py`, so leaving
+it out silently drops twenty ids:
+
+    python3 Tools/Scripts/gen_se_map_from_history.py \
+        --se-bin       GameFiles/Skyrim/SKSE/Plugins/version-1-5-97-0.bin \
+        --overrides    Tools/ida/st_overrides.txt \
+        --overrides    Tools/ida/st_overrides_graph.txt \
+        --overrides    Tools/ida/st_overrides_all.tsv \
+        --se-bins-dir  GameFiles/Skyrim/SKSE/Plugins \
+        --out          GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-1-5-97-0.map
+
+That reproduces the shipped 1.5.97 map exactly except for one id:
+
+    14774   BSRandom::GetGenerator. st_overrides_graph.txt carries it with a
+            comment saying it is "not yet folded into the map", and that is
+            still true - it is not in any shipped map. Do not "fix" this by
+            dropping the id from the override file; the file is the evidence
+            log, the map is what ships.
+
+The generator now refuses to write a map that assigns one offset to two ids, or
+whose entries are badly out of address order. Both are real defects: the two
+address libraries are injective (778674 ids -> 778674 distinct offsets, and
+428461 -> 428461), so a correct id map must be injective too. See
+docs/PITFALLS.md section 11 for what a duplicate cost when it shipped.
+
 Feed the result into the map generator:
 
     python3 Tools/Scripts/gen_se_map_from_history.py \

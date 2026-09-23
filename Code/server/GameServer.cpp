@@ -828,11 +828,6 @@ static String PrettyPrintModList(const Vector<Mods::Entry>& acMods)
     return text;
 }
 
-bool GameServer::ValidateAuthParams(ConnectionId_t aConnectionId, const UniquePtr<AuthenticationRequest>& acRequest)
-{
-    return false;
-}
-
 void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId, const UniquePtr<AuthenticationRequest>& acRequest)
 {
     const auto info = GetConnectionInfo(aConnectionId);

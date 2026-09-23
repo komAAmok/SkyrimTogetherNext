@@ -97,7 +97,6 @@ struct GameServer final : Server
     Player const* GetAdminByUsername(const String& acUsername) noexcept;
 
 protected:
-    bool ValidateAuthParams(ConnectionId_t aConnectionId, const UniquePtr<AuthenticationRequest>& acRequest);
     void HandleAuthenticationRequest(ConnectionId_t aConnectionId, const UniquePtr<AuthenticationRequest>& acRequest);
 
     // Implement TiltedPhoques::Server

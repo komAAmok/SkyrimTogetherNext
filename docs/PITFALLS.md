@@ -255,6 +255,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `3197edde` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
 | `f11dbc26` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
 | `a9ea65cf` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
+| `待提交` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -717,4 +718,88 @@ Select-String -Path Code\skyrim_ui\src\app\services\client.service.ts -Pattern '
 
 > **给维护者的建议（未实施）**：如果以后要降低门槛，正确做法是**给协议加显式版本号并只做前向兼容的追加**，
 > 而不是放松 `BUILD_COMMIT` 比较。在那之前，这条 P3 **保持原样**。
+
+---
+
+## 15. v1.0.38 全项目审计与 revive
+
+审计口径：**只删能证明"没有任何引用"的东西**。本机不能编译（§0），所以每一处删除都靠
+全仓 grep 到 0 引用 + 确认不是间接包含/虚函数实现/模板实例化，而不是靠"看着像没用"。
+
+### 15.1 删掉的死代码（附证据）
+
+| 删掉的东西 | 证据 |
+|---|---|
+| `Code/client/Games/Renderer.cpp`（63 行） | `BGSRenderer::Get()`/`GetDevice()` 全仓调用点**只有这个文件自己**；`HookPresent`/`HookCreateViewport` 从没被挂过（文件里自己写着 `// unused, never hooked`），而它们调用的 `RealRenderPresent`/`RealCreateViewport` 恒为 `nullptr`——真挂上去就是空指针调用。文件末尾的 `Initializer` 是个**空 lambda**。 |
+| `Code/client/Games/Skyrim/Renderer.h`（58 行） | 只被上面那个文件 `#include`，别处 0 次。它定义的 `BGSRenderer`/`ViewportConfig`/`WindowConfig` 也随之无人使用。 |
+| `GameServer::ValidateAuthParams` | 声明+定义都在，**调用点 0 处**，函数体是 `return false;`。 |
+| `Code/client/xmake.lua` 的 vivox 分支 | `Services/Vivox/` 目录**不存在**，`Vivox` target 也不存在；`TP_VIVOX` 宏全仓 0 次引用。留着只会让 `has_config("vivox")` 一开就构建失败。 |
+| `error.service.ts` 的 `'set_time_public_server'` | 在 `ErrorEvent` 联合里，但**没有任何生产者**（C++ 侧 `ErrorInfo` 只发 8 种错误码，没有它），`en.json` 里也没有对应词条——一条永远不可能触发的类型。 |
+
+**替代关系已确认**：`Games/Skyrim/BSGraphics/BSGraphicsRenderer.h` 才是活的渲染路径
+（它注释里就写着 "former ViewportConfig / former WindowConfig"），删掉的那对是 AE 迁移前的遗留。
+删后全仓复查：`Games/Renderer.h` 0 引用、`BGSRenderer::` 0 引用。
+
+### 15.2 修掉的真 bug：`/settime` 被拒时客户端**没有任何反馈**
+
+服务端 `CommandService::OnSetTimeCommand` **每条路径都会回** `NotifySetTimeResult`
+（`kSuccess` 或 `kNoPermission`），消息也注册进了 `ServerMessageFactory`——
+但**客户端从来没有订阅过它**（全仓 0 处 `sink<NotifySetTimeResult>`）。
+
+后果：非管理员用 `/settime` 时，服务端日志有记录、玩家屏幕**什么都没有**、时间也不动。
+玩家无法区分"我没权限"和"这命令不存在"。
+
+修法（`Code/client/Services/CommandService.{h,cpp}`）：按本项目既有写法接上 sink，
+`kNoPermission` 时用 `OverlayService::SendSystemMessage` 明确告诉玩家原因（与
+`TeleportCommandResponse` 失败时的处理方式一致）。`kSuccess` 不额外提示——时间已经跳了，
+那本身就是反馈。
+
+### 15.3 查过但**故意没动**的（避免误删）
+
+- **`Code/tests/`（5 个 TEST_CASE）**：CI 只 `xmake -y` 构建，**从不执行测试**。
+  这是"验证资产没接上"，不是死代码；删掉只会让以后更难验证。**保留，并在 §16 记为待接。**
+- **`AdminService`（`Code/server/Services/`）**：头文件自己写着 `currently not in use`，
+  但它在 `World.cpp` 里**被实例化并挂进了 spdlog sink**，删掉会改日志行为。保留。
+- **`Differential.h`**：文件名没被 `#include` 过，但 `Differential<T>` 在
+  `tests/encoding.cpp` 的 "Differential structures" 用例里被使用（模板，靠 `RTTI.h` 间接引入）。**不是死代码。**
+- **`ahkpWorld.h` / `TESShout.h` 等"没人 include"的头**：类型经 `RTTI.h` 的
+  `extern template struct RttiLocator<T>` 与 `RTTI.cpp` 的显式实例化使用。
+  **按文件名 grep 会误判成孤儿**——这类头必须按符号再查一遍，别用文件名判断。
+- **`ActorSpawnedEvent`**：有前向声明、无 sink。属于"定义了没接线"的未实现项，
+  但删掉会丢失设计意图且风险不明，**保留并记入 §16**。
+- **`PlaceActorInWorld`**：唯一调用点被注释掉了（`//PlaceActorInWorld();`）。
+  是 F8 的调试功能，属于"未实现"而非"冗余"。保留。
+- **`#if 0` 块（22 处）**：多数是上游留下的调试开关（如 Discord 日志钩子），
+  删除收益极低而 diff 噪声极大。**不动。**
+
+> **教训**：这个项目里"看起来没人用"和"真的没人用"差别很大，因为大量类型是
+> 通过 `RTTI.h` 的显式模板实例化和 `entt` 反射间接使用的。
+> 删之前必须**按符号**而不是**按文件名**查引用。
+
+### 15.4 审计用的命令（可复现）
+
+```powershell
+# 1. 文件级：某符号在全仓还有没有引用（把 SYMBOL 换掉）
+Get-ChildItem -Recurse -Path Code -Include *.cpp,*.h,*.hpp | Select-String -Pattern 'SYMBOL'
+
+# 2. 头文件是不是孤儿：先按文件名，再按符号复核（第 2 步才是决定性的）
+Get-ChildItem -Recurse -Path Code -Include *.cpp,*.h,*.hpp | Select-String -Pattern '#include.*NAME\.h'
+
+# 3. 空函数体（真 stub）
+Get-ChildItem -Recurse -Path Code\client,Code\server -Include *.cpp |
+  Select-String -Pattern '::\w+\([^;]*\)\s*(noexcept)?\s*$' -Context 0,1
+```
+
+### 15.5 本次审计**未做**的（留给下一轮，别当成已修）
+
+1. **`Code/tests/` 从不执行**：CI 只构建不跑测试（`.github/workflows/windows.yml` 里没有
+   `xmake run`）。要接上得先确认 catch2 目标能在 CI 跑通，属于独立改动。
+2. **`ActorSpawnedEvent` 定义了但没接线**：需要先确定它该被谁 dispatch、谁消费。
+3. **`PlaceActorInWorld`（F8）**：调用点被注释，恢复需要实机验证会不会崩。
+4. **其余语言的缺键**：`cs/de/ja/ko/no/ru/tr` 仍缺 5~11 条（本次只点名了五个语言），
+   缺的是同一批键，补法照 §14.2 抄。
+5. **22 处 `#if 0`**：未逐个判断哪些是上游残留、哪些是有意保留的调试开关。
+
+> 记在这里的原因：审计结论如果不写清"哪些查过、哪些没查"，
+> 下一轮会把"查过且故意保留"重新当成"没查"再查一遍。
 

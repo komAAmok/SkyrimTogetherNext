@@ -69,6 +69,53 @@ private:
     RenderSystemD3D11* m_pRenderSystem;
 };
 
+// CEF refuses to run inside an elevated process: Chromium re-launches itself
+// without elevation and then ends this process with
+// CEF_RESULT_CODE_NORMAL_EXIT_AUTO_DE_ELEVATED (38). The re-launch target is
+// this same executable, and a second process could not share the game's D3D11
+// device or window anyway, so the overlay never gets a page - which is the
+// "F2 only shows the cursor" report. do-not-de-elevate is checked before that
+// re-launch is even attempted, and it has to be appended while the command
+// line is still being processed, which is what this subclass is for.
+struct SkyrimTogetherOverlayApp final : OverlayApp
+{
+    // Written out rather than inherited so the two arguments this build
+    // passes stay visible here; the base also defaults the subprocess name.
+    SkyrimTogetherOverlayApp(OverlayApp::RenderProvider* apRenderProvider, TiltedPhoques::OverlayClient* apCustomClient)
+        : OverlayApp(apRenderProvider, apCustomClient)
+    {
+    }
+
+    void OnBeforeCommandLineProcessing(const CefString& aProcessType, CefRefPtr<CefCommandLine> aCommandLine) override
+    {
+        OverlayApp::OnBeforeCommandLineProcessing(aProcessType, aCommandLine);
+
+        if (aCommandLine)
+            aCommandLine->AppendSwitch("do-not-de-elevate");
+    }
+};
+
+// The bare number sends the reader to cef_types.h. Name the codes this build
+// can actually hit; 38 is the one behind an overlay that never comes up.
+static const char* DescribeCefExitCode(int32_t aCode) noexcept
+{
+    switch (aCode)
+    {
+    case 6: return "unknown process type";
+    case 7: return "a critical CEF data file is missing";
+    case 13: return "unsupported command line parameter";
+    case 21: return "the profile is in use on another host";
+    case 24: return "the command line was handed to another running browser";
+    case 31: return "the browser process was sandboxed";
+    case 34: return "the GPU process lost its context";
+    case 36: return "an early startup command must exit the browser";
+    case 37: return "system resources are exhausted";
+    case 38: return "Chromium re-launched itself to drop administrator rights";
+    case 39: return "another process terminated this one on commit failure";
+    default: return "see cef_types.h for the description";
+    }
+}
+
 String GetCellName(const GameId& aWorldSpaceId, const GameId& aCellId) noexcept
 {
     auto& modSystem = World::Get().GetModSystem();
@@ -138,14 +185,14 @@ OverlayService::~OverlayService() noexcept
 void OverlayService::Create(RenderSystemD3D11* apRenderSystem) noexcept
 {
     m_pProvider = TiltedPhoques::MakeUnique<D3D11RenderProvider>(apRenderSystem);
-    m_pOverlay = new OverlayApp(m_pProvider.get(), new ::OverlayClient(m_transport, m_pProvider->Create()));
+    m_pOverlay = new SkyrimTogetherOverlayApp(m_pProvider.get(), new ::OverlayClient(m_transport, m_pProvider->Create()));
 
     if (!m_pOverlay->Initialize())
     {
         spdlog::error("Overlay could not be initialized");
         if (int32_t exitCode = CefGetExitCode())
         {
-            spdlog::critical("CEF failed to initialize, exit code {}. See 'cef_types.h' for description", exitCode);
+            spdlog::critical("CEF failed to initialize, exit code {} ({})", exitCode, DescribeCefExitCode(exitCode));
         }
     }
 

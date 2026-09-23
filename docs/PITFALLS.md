@@ -187,9 +187,11 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 ## 7. 日志分诊速查
 
 - **`cef_debug.log` 不能默认是本站的**（CEF 示例/Adobe CEP/MS Dynamics 都用这名字）。
-  排除判据（命中任一即非本站）：`Chrome.ProcessSingleton.*`、`Signin.NumberOfActiveAccounts.*`、
-  `Windows.AutoDeElevateResult`、`RunDeElevated`（全 Chromium 唯一调用点是 chrome_main_delegate，
-  本站不编 `//chrome`）。本站 CEF = 官方 `cef 141.0.11`（`Libraries/TiltedUI/xmake.lua:9`）。
+  **判据不是文件名里的模块名**：CEF 编了 `//chrome` 那一层（`chrome/browser/chrome_browser_main_win.cc`
+  等），所以 `chrome\browser\*`、`RunDeElevated`、`Windows.AutoDeElevateResult` 出现在**本站自己的**
+  `cef_debug.log` 里完全正常（§13 就是靠这些行抓到的；旧版判据把这几条判成"非本站"，是错的）。
+  可靠判据：**文件位置**（游戏根目录 `logs/`，或 `st_boot.log` 记的游戏根）+ **时间戳与
+  `tp_client.log` 对得上**。本站 CEF = 官方 `cef 141.0.11`（`Libraries/TiltedUI/xmake.lua:9`）。
 - **从日志地址反查符号**：同份日志里找一条已带"模块名+偏移"的行拿模块基址
   （如 `SkyrimSE.exe+0xc02260 (0x7ff73a442260)` ⇒ 基址 `0x7ff738840000`），**不要用崩溃地址反推**。
   再 grep `versionlib-ae-to-se-<ver>.map`（`<AE id> <SE RVA>`）反查。
@@ -250,7 +252,8 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `a9ad774f` | v1.0.32 | 帧循环改 WM_TIMER 驱动（1.5.97 两个帧钩子从不执行） |
 | `83bb37be` | **未打 tag** | **启动闪退**：定时器无门控，启动期提前跑 `Update()`；补 `GetInGame()` 门控 + 判空 |
 | `45577fa4` | v1.0.34 | **4 条 1.5.x id 映射错误**（§11）：`400475` 指到 TimeData、`37525`/`19708` 撞同一地址（就是那条 `already claimed`）；生成器 join 键改 `(class, symbol)` + 拒绝写重复表 |
-| `待提交` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
+| `3197edde` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
+| `待提交` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -530,3 +533,80 @@ Select-String -Path tp_client.log -Pattern "timer-driven update heartbeat" | Mea
 # virtualMachine 偏移告警（修好后应为空）
 Select-String -Path tp_client.log -Pattern "holds the papyrus vm"
 ```
+
+---
+
+## 13. v1.0.36 日志分析：CEF 自动去提权（F2 只见光标，菜单永不出现）
+
+**现象**：`D:\sktest\new`（2026-09-14 ~ 09-20 共 10 场会话）每场都是 `renderer init` 之后立刻：
+
+```
+Overlay could not be initialized
+CEF failed to initialize, exit code 38. See 'cef_types.h' for description
+```
+
+之后 `overlay render pump is live`、`overlay in-game state: true` 照常打印，按 F2 也**只有软件光标**
+（光标是 D3D11 sprite batch 每帧画的，与页面死活无关，所以它"有反应"恰恰说明不了问题）。
+菜单永远出不来。
+
+**根因**：`38` = `CEF_RESULT_CODE_NORMAL_EXIT_AUTO_DE_ELEVATED`（`cef_types.h`）。
+Chromium 在**浏览器进程**里检测到"进程已提权、且 UAC 开着"就重新拉起一个未提权的自己，
+然后**让当前进程退出**：`chrome_browser_main_win.cc::MaybeAutoDeElevate`，
+判据是 `base::win::UserAccountIsUnnecessarilyElevated()`（= `TokenElevationTypeFull`）。
+
+游戏这次是**以管理员身份**启动的，于是 CEF 把 `SkyrimSE.exe` 又拉了一份、自己退出：
+
+- 新进程拿不到游戏的 D3D11 设备/swapchain/窗口，overlay 页面永远建不起来；
+- 老进程里 `CefInitialize()` 返回 false，`m_pOverlay` 没有页面，只剩渲染泵和光标在跑。
+
+**为什么拖了一周才找到**：`cef_debug.log` 里其实写着 `RunDeElevated: Started process, PID: 5848`，
+但 §7 旧的"排除判据"把 `RunDeElevated`/`Windows.AutoDeElevateResult` 判成"非本站日志"
+（理由：本站不编 `//chrome`）——**这个理由本身就是错的**，CEF 编了 chrome 那一层，这些行就是本站的。
+判据已改（见 §7）。
+
+**修法**（`Code/client/Services/Generic/OverlayService.cpp`）：把 `OverlayApp` 派生一层
+`SkyrimTogetherOverlayApp`，在 `OnBeforeCommandLineProcessing` 里追加 `do-not-de-elevate`。
+它是 Chromium 的 `kNoRestartSwitches` 之一，**在"要不要重拉"判断之前**就被检查，
+所以 CEF 留在原进程里跑，页面才建得起来。顺带把退出码翻译成人话，`38` 直接点名"去提权"。
+
+> **为什么不顺着 CEF 让它去提权**：重拉的目标是 `SkyrimSE.exe` 自己，而 D3D11 设备、swapchain、
+> 窗口句柄都不跨进程；新进程不可能接管游戏画面，只会多一个空转的 SkyrimSE。
+
+> **教训**：日志排除判据必须能拿**证据**站住，不能靠"我们没编那个模块"的推测。
+> 一条错的判据会把最该看的文件判成噪声，代价是 10 场会话。
+
+### 13.1 复核用的命令（照抄）
+
+```powershell
+# 是不是被去提权（有这两条就是）——注意它出现在本站自己的 cef_debug.log 里
+Select-String -Path cef_debug.log -Pattern 'RunDeElevated|AutoDeElevateResult'
+
+# 客户端侧的证据：初始化失败 + 退出码
+Select-String -Path tp_client.log -Pattern 'CEF failed to initialize'
+
+# 确认游戏进程真的提权了（以管理员跑 PowerShell 才会是 True）
+([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+```
+
+### 13.2 同一个 bug 的另一张脸：多出来的那个 `SkyrimSE.exe`
+
+用 MO2 的 `SkyrimTogether.exe` 入口启动时，任务管理器里会**同时出现两个进程**，
+关掉 `SkyrimSE.exe` 那个之后游戏照常跑。这不是两个游戏，是同一个 bug 的另一半：
+
+1. 入口是 MO2 的 6 号项 `mods/Skyrim Together Next/launcher/SkyrimTogether.exe`（immersive launcher）。
+   它**不启动** `SkyrimSE.exe`，而是把游戏映像映射进自己的进程（`ExeLoader`），
+   所以任务管理器里那个进程叫 `SkyrimTogether.exe`，但它**就是**游戏本体。
+2. 为了骗过游戏和 mod，launcher 把 `GetModuleFileNameW(NULL)` / `LdrGetDllFullName` 挂钩，
+   让它们返回**游戏真实路径**（`Code/immersive_launcher/stubs/FileMapping.cpp`）。
+3. Chromium 的 `MaybeAutoDeElevate` 用 `base::PathService::Get(base::FILE_EXE)` 取"自己"的路径 ——
+   它落到 `GetModuleFileName(NULL)`，**正好踩中这个挂钩**，拿到 `D:/game/SkyrimSE/SkyrimSE.exe`。
+4. 于是 `CreateProcessWithTokenW` 拉起的不是 launcher，而是**一个干净的、没挂钩的原版 `SkyrimSE.exe`**。
+
+所以那个多出来的进程是"原版游戏自己"：没有 launcher、没有 usvfs、没有联机。关掉它当然不影响主进程。
+`AllowSetForegroundWindow failed: Access is denied (0x5)` 就是这一步的残响（§13 的日志第 4 行）。
+
+> **一个根因，两个症状**：`do-not-de-elevate` 一旦生效，重拉这一步根本不发生，
+> **两个现象一起消失**。所以"多一个 SkyrimSE"和"F2 只有光标"不要去分别修。
+
+> **副产品**：这个 bug 还顺手解释了为什么"以管理员运行"会看起来时好时坏 ——
+> 提权 + UAC 开启才触发；不满足条件时 Chromium 直接放行，一切正常。

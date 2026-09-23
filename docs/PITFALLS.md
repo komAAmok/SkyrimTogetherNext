@@ -255,7 +255,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `3197edde` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
 | `f11dbc26` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
 | `a9ea65cf` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
-| `待提交` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
+| `2015a2b2` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 

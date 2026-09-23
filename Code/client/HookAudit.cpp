@@ -56,16 +56,48 @@ static void FormatId(void* apTarget, char (&aBuf)[32]) noexcept
         strcpy_s(aBuf, "no id in the loaded library");
 }
 
-// Where the 5 byte relative jump at aFrom points, 0 when there is no such jump.
-static uintptr_t RelativeJumpTarget(const uint8_t* acpCode, const uintptr_t aFrom) noexcept
+// Where the branch at aFrom leads, 0 when it cannot be followed.
+//
+// Two forms actually turn up at an entry point another mod already owns:
+//
+//   e9 <rel32>     a relative jump. This is also what MinHook writes, which
+//                  is how a landed hook is recognised.
+//   ff 25 <rel32>  jmp qword ptr [rip+rel32]. A six byte thunk whose target
+//                  address is stored in the eight bytes right after it.
+//
+// The second form is why a conflict used to report "no relative jump to
+// follow": the destination is not an offset to add but a pointer to read,
+// so the name of the module that took the function over was one dereference
+// away and simply never fetched. EngineFixes leaves exactly this thunk on
+// GameHeap::Allocate when its MemoryManager patch is on, and its own check
+// in Games/Memory.cpp already keys off the same 0x25FF signature.
+static uintptr_t BranchTarget(const uint8_t* acpCode, const uintptr_t aFrom) noexcept
 {
-    if (acpCode[0] != 0xE9)
-        return 0;
+    if (acpCode[0] == 0xE9)
+    {
+        int32_t displacement = 0;
+        memcpy(&displacement, acpCode + 1, sizeof(displacement));
 
-    int32_t displacement = 0;
-    memcpy(&displacement, acpCode + 1, sizeof(displacement));
+        return aFrom + 5 + displacement;
+    }
 
-    return aFrom + 5 + displacement;
+    if (acpCode[0] == 0xFF && acpCode[1] == 0x25)
+    {
+        int32_t displacement = 0;
+        memcpy(&displacement, acpCode + 2, sizeof(displacement));
+
+        // The instruction is six bytes, so rip already points past it and the
+        // stored destination sits at rip plus the displacement.
+        const auto slot = aFrom + 6 + displacement;
+
+        uintptr_t destination = 0;
+        if (SafeReadCode(&destination, reinterpret_cast<const void*>(slot), sizeof(destination)) != sizeof(destination))
+            return 0;
+
+        return destination;
+    }
+
+    return 0;
 }
 
 void HookAudit::Record(void** appTargetSlot) noexcept
@@ -166,13 +198,18 @@ void HookAudit::Report() noexcept
 
         shared++;
 
+        // Following the branch is the whole diagnosis: it names the module
+        // that already owns this function, so a conflict caused by a known
+        // compatibility shim reads as one instead of as an unnamed mod.
         char earlier[MAX_PATH + 48];
-        strcpy_s(earlier, "no relative jump to follow");
-        if (const auto previous = RelativeJumpTarget(recorded.before, target))
+        strcpy_s(earlier, "not followable");
+        if (const auto previous = BranchTarget(recorded.before, target))
             FormatModuleOffset(previous, earlier);
 
         spdlog::warn("hook target {} ({:#x}) already held a branch ({:02x} {:02x} {:02x} {:02x} {:02x}, leading to "
-                     "{}): another mod hooks this function too and ours went on top of it",
+                     "{}): another mod hooks this function too and ours went on top of it. A target inside "
+                     "EngineFixes.dll is its MemoryManager patch, which Games/Memory.cpp already replaces after "
+                     "initterm; any other module is a real conflict",
                      where, target, recorded.before[0], recorded.before[1], recorded.before[2], recorded.before[3],
                      recorded.before[4], earlier);
     }
@@ -200,8 +237,8 @@ void HookAudit::Verify(const char* acpWhen) noexcept
         FormatModuleOffset(target, where);
 
         char leadsTo[MAX_PATH + 48];
-        strcpy_s(leadsTo, "no relative jump to follow");
-        if (const auto destination = RelativeJumpTarget(now, target))
+        strcpy_s(leadsTo, "not followable");
+        if (const auto destination = BranchTarget(now, target))
             FormatModuleOffset(destination, leadsTo);
 
         spdlog::error("hook on {} ({:#x}) is gone: the bytes there are now {:02x} {:02x} {:02x} {:02x} {:02x} "

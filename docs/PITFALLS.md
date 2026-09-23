@@ -257,6 +257,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `a9ea65cf` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
 | `2015a2b2` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
 | `3bf0294a` | v1.0.39 | **每帧开销导致加载慢/人物卡顿**（§16）：`WndProc` 每条消息注入鼠标位置（含自制 16ms `WM_TIMER`）、`BehaviorVar::Patch` 每角色刷全部动画变量（载入期 **501 行/秒**）；另删无生产者的 `ActorSpawnedEvent`；**F6/F7/F8 全配置裁掉，只留 F2/F3** |
+| `HEAD` | v1.0.40 | **hook 冲突真身是 EngineFixes**（§17）：全日志只有 1 处冲突（原文误作 2 处），`0xc02260`=id 68115=`GameHeap::Allocate`；`HookAudit` 只认 `e9`，跟不下 `ff 25` thunk 才报"无人可跟"——扩成 `BranchTarget` 并点名模块。另记 SKSE 路径缺 `_initterm_e` 哨兵（§17.4，待办） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -265,6 +266,14 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   不要再"修"这两个 id。
 - **【P1，已结案，见 §11】**`hook target ... already claimed` 的真身是**映射表把两个 id 指到同一
   地址**（`37525`/`19708` 都落 `0x28e680`），不是 `RipAllocateN` 桩冲突。已修表 + 增强日志。
+- **【已结案，见 §17】`hook target ... already held a branch` 的真身是 EngineFixes**，不是无名 mod。
+  全日志只有 **1 处**（§16.5 曾凭印象写成"两处"）。`HookAudit` 只认 `e9`、跟不下 `ff 25` thunk，
+  才报"no relative jump to follow"；现已扩为 `BranchTarget` 并在告警里点名模块。
+  **下次实机日志该行会显示 `EngineFixes.dll+0x...`**——看到它属预期，不是新问题。
+- **【P3，待办，见 §17.4】EF 互操作的 `_initterm_e` 哨兵只在 launcher 路径装**：
+  `HookFormAllocateSentinelInit()` 仅由 `immersive_launcher/loader/ExeLoader.cpp:334` 调用，
+  **SKSE 插件路径没有等价调用点**，所以 `Hook_initterm_e` 里的 EF 修复在那条路径上不执行。
+  本轮不动：改它就要改 hook 安装时序，而日志显示现有顺序 `0 did not land`，无实机验证手段时风险大于收益。
 - **【P1，已观测未触发，见 §12.5】传输泵兜底分发**：tick 彻底不来的会话里，handshake pump 超 500ms
   会自己分发（`frame loop did not take the queued messages within 500ms` warn），**会碰游戏内存**。
   v1.0.34 两场实机会话里**一次未触发**：WM_TIMER 让帧循环始终活着，pump 一发现
@@ -866,9 +875,80 @@ F7 建/退队，F8 函数体是空的。
 2. **`VisitCell`/`VisitForms` 每 `PreUpdateEvent` 都跑**，`VisitForms` 里还留着上游的
    `TODO: GetById performance in loop?`。按 tick 降频（例如每 N 帧一次）是明显的下一步，
    但会改变 actor 发现延迟，必须实机验证。
-3. **两处 hook 冲突**（`hook target ... already held a branch`）：`0xc02260` 等被别的 mod 先占了，
-   我们的钩子叠在上面。本次未追，可能是别的 mod 的问题，也可能是加载变慢的第三个原因。
+3. ~~两处 hook 冲突~~ → **已在 v1.0.40 追查完毕，见 §17**。原文说"两处"是**错的**：
+   全日志只有 **1 处**（`already held a branch` ×1，`already claimed` ×0），
+   而且它不是"别的 mod"，是 **EngineFixes 的 MemoryManager**，代码里本来就有专门的互操作。
 
 > **方法教训**："看起来有 `if (active)` 守卫"不等于"没开销"——
 > 要看守卫**罩住了哪一段**。本次两处都是"守卫在里面，开销在外面"。
+
+---
+
+## 17. v1.0.40 hook 冲突追查：不是别的 mod，是 EngineFixes（2026-09-23 场次）
+
+### 17.1 先把数量数对：是 1 处，不是 2 处
+
+§16.5 当时凭印象写了"两处"。逐条数过日志后：
+
+```
+already held a branch : 1
+already claimed       : 0      <- v1.0.34 修掉的那个，这份日志里已经没有了
+hook did not land     : 0
+is gone               : 0
+hooks: 63 recorded, 0 did not land, 1 shared with another mod
+```
+
+**一条日志里的同一种串只要见过一次，就不该按印象写成"两处"**——数量本身就是结论的一部分。
+
+### 17.2 冲突的真身：`ff 25` thunk，指向 EngineFixes
+
+唯一那条告警：
+
+```
+hook target SkyrimSE.exe+0xc02260 (0x7ff7bf7f2260) already held a branch
+  (ff 25 00 00 00, leading to no relative jump to follow)
+```
+
+三个事实一对上，真身就出来了：
+
+1. **`0xc02260` 是 id 68115 = `GameHeap::Allocate`**（`Tools/ida/st_overrides_all.tsv:581`、`Games/Memory.cpp:72`）。
+2. `ff 25` 是 `jmp qword ptr [rip+rel32]`，**一个六字节 thunk**，真正的目标地址存在紧接其后的 8 字节里。
+   老代码的 `RelativeJumpTarget()` **只认 `e9`**，所以跟不下去，只能写"no relative jump to follow"。
+3. `Games/Memory.cpp:78` 的 EF 互操作**认的就是这个签名**：
+   `if (*opcodeBytes == 0x25FF) // 'jmp' opcode 'FF 25' ... shift = 6;`
+   ——注释明写 EF 用 `ff 25` 换掉分配器。`EngineFixes.dll` 也确实装着
+   （`D:\game\SkyrimSE\Data\SKSE\Plugins\EngineFixes.dll`，5.6.0.0，`MemoryManager = true`）。
+
+所以这不是"无名 mod 抢了我们的函数"，**是已知且已被专门兼容的 EngineFixes**。
+
+### 17.3 改动：`RelativeJumpTarget` → `BranchTarget`
+
+`HookAudit.cpp` 里那个只认 `e9` 的 helper 扩成两形态：
+
+| 形态 | 含义 | 处理 |
+|---|---|---|
+| `e9 <rel32>` | 相对跳转（也是 MinHook 自己写的） | `aFrom + 5 + rel32` |
+| `ff 25 <rel32>` | `jmp qword ptr [rip+rel32]` | 目标在 `aFrom + 6 + rel32` 处**再解一次引用** |
+
+读那一格用 `SafeReadCode()`——**未映射地址不能让日志自己崩掉**，这是本文件从第一天起的规矩。
+告警文案也改了：落在 `EngineFixes.dll` 就是它，其余模块才是真冲突。
+
+**效果**：下一次实机日志里这一行会从
+`leading to no relative jump to follow` 变成 `leading to EngineFixes.dll+0x...`——
+同一个现象，从"未知第三方"变成"已知且已兼容"，一眼可判。
+
+### 17.4 顺带发现：EF 互操作在 SKSE 路径上没有装哨兵
+
+`Memory.cpp` 的 EF 修复由 `Hook_initterm_e` 在 `_initterm_e` 之后执行，
+而 `HookFormAllocateSentinelInit()`（装 `_initterm_e` 的 IAT 钩）**只被
+`immersive_launcher/loader/ExeLoader.cpp:334` 调用**——那是 **launcher** 路径。
+本次日志走的是 **SKSE 插件**路径（`st_boot.log`：`[bootstrap] loaded from ...SkyrimTogetherSKSE.dll`），
+该路径下没有等价调用点。
+
+**本次不改**：加这个哨兵会改变 hook 安装时序，而本轮的日志恰好显示 `0 did not land`——
+现有顺序是好的，**在没有实机验证手段的前提下动它风险大于收益**。记为待办（§10）。
+
+> **方法教训**："别的 mod 有名有姓"和"不知道是谁"是两种完全不同的结论，
+> 而区分它们往往只差**多解一次引用**。把 `ff 25` 当成"跟不下去"，等于把已经写进代码的
+> 兼容性知识又还回去了。
 

@@ -2,7 +2,17 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://qconsulting.ca/fo3/ModConfig5.0.xsd">
     <!-- Author, version and project URL live in fomod/info.xml: MO2 shows them
          in their own fields at the top of the wizard, so packing them into the
-         module name only duplicated them. -->
+         module name only duplicated them.
+
+         Bilingual wizard. FOMOD 5.0 has no translation mechanism of its own, so
+         step 1 only sets a "lang" condition flag and the two option steps are
+         gated on it with <visible>/<flagDependency> - that is the whole switch.
+         Only our own option texts are translated; MO2 draws its buttons, step
+         titles and group headers from its own translation files.
+
+         Everything the multiplayer install needs sits in requiredInstallFiles,
+         so the option steps are purely additive: skipping the wizard, or
+         extracting the zip by hand, still yields a complete install. -->
     <moduleName>Skyrim Together Next</moduleName>
 
     <requiredInstallFiles>
@@ -16,15 +26,50 @@
     </requiredInstallFiles>
 
     <installSteps order="Explicit">
-        <installStep name="可选组件">
-            <optionalFileGroups order="Explicit">
-                <group name="按需勾选(联机所需的文件已自动安装)" type="SelectAny">
 
+        <!-- Step 1: language only, it installs nothing. SelectExactlyOne keeps
+             "lang" single valued, so exactly one of the two steps below shows.
+             Chinese carries the Recommended descriptor (the schema's label for
+             "recommended for stability"), English stays one click away. -->
+        <installStep name="Language / 语言">
+            <optionalFileGroups order="Explicit">
+                <group name="Wizard language / 引导语言" type="SelectExactlyOne">
                     <plugins order="Explicit">
-                        <plugin name="启动校验脚本(仅 1.6.x 勾选)">
+                        <plugin name="中文">
+                            <description>安装选项显示为中文。</description>
+                            <conditionFlags>
+                                <flag name="lang">zh</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Recommended" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="English">
+                            <description>Install options are shown in English.</description>
+                            <conditionFlags>
+                                <flag name="lang">en</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                    </plugins>
+                </group>
+            </optionalFileGroups>
+        </installStep>
+
+        <!-- Step 2: Chinese options, shown when step 1 set lang=zh. -->
+        <installStep name="可选组件">
+            <visible>
+                <flagDependency flag="lang" value="zh" />
+            </visible>
+            <optionalFileGroups order="Explicit">
+                <group name="按需勾选 · 联机文件已自动安装" type="SelectAny">
+                    <plugins order="Explicit">
+                        <plugin name="启动校验脚本(仅 1.6.x)">
                             <description>进游戏时检测是否通过 Skyrim Together 启动,未通过则弹窗提醒。
 
-该检测依赖的接口在 1.5.x 上无法工作,会一直误报“Skyrim Together is not running”,所以默认不安装。玩 1.6.x 且希望有这个提醒的,再勾选。</description>
+1.5.x 上这个检测依赖的接口无法工作,会一直误报"Skyrim Together is not running",所以默认不勾选。</description>
                             <files>
                                 <folder source="VerifyScript" destination="scripts" />
                             </files>
@@ -32,13 +77,10 @@
                                 <type name="Optional" />
                             </typeDescriptor>
                         </plugin>
+                        <plugin name="独立启动器(不用 MO2 时才需要)">
+                            <description>把 SkyrimTogether.exe 装到 Data\SkyrimTogetherLauncher\,复制到游戏根目录后运行。
 
-                        <plugin name="独立启动器(不用 MO2 启动 SKSE 时才需要)">
-                            <description>把 SkyrimTogether.exe 独立启动器装到 Data\SkyrimTogetherLauncher\。
-
-用法:安装后把该文件夹里的文件复制到游戏根目录,再运行 SkyrimTogether.exe。
-
-通过 MO2 启动 skse64_loader.exe 的玩家不需要这一项——SKSE 插件会在首次启动时自动部署运行时。</description>
+通过 MO2 启动 skse64_loader.exe 的玩家不需要这一项——SKSE 插件首次启动会自动部署运行时。</description>
                             <files>
                                 <folder source="launcher" destination="SkyrimTogetherLauncher" />
                             </files>
@@ -47,9 +89,44 @@
                             </typeDescriptor>
                         </plugin>
                     </plugins>
-
                 </group>
             </optionalFileGroups>
         </installStep>
+
+        <!-- Step 3: the same two choices in English, shown when lang=en. -->
+        <installStep name="Optional components">
+            <visible>
+                <flagDependency flag="lang" value="en" />
+            </visible>
+            <optionalFileGroups order="Explicit">
+                <group name="Pick what you need · multiplayer files install automatically" type="SelectAny">
+                    <plugins order="Explicit">
+                        <plugin name="Launch check script (1.6.x only)">
+                            <description>Warns you when the game was not started through Skyrim Together.
+
+The interface it relies on does not work on 1.5.x, where it would always report "Skyrim Together is not running", so it is off by default.</description>
+                            <files>
+                                <folder source="VerifyScript" destination="scripts" />
+                            </files>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="Standalone launcher (only without MO2)">
+                            <description>Installs SkyrimTogether.exe to Data\SkyrimTogetherLauncher\; copy it into the game root and run it.
+
+Not needed if you launch skse64_loader.exe through MO2 - the SKSE plugin deploys the runtime on first start.</description>
+                            <files>
+                                <folder source="launcher" destination="SkyrimTogetherLauncher" />
+                            </files>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                    </plugins>
+                </group>
+            </optionalFileGroups>
+        </installStep>
+
     </installSteps>
 </config>

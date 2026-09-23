@@ -49,8 +49,17 @@ jobs:
           # the version from the tag so it can never drift from the zip, and
           # drop the leading "v" because the field shows a version, not a tag.
           $infoVer = "${{ needs.build-windows.outputs.str-version }}" -replace '^v', ''
-          (Get-Content mod-pack/fomod/info.xml) -replace '<Version>[^<]*</Version>', "<Version>$infoVer</Version>" |
-            Set-Content mod-pack/fomod/info.xml
+          # Read and write as UTF-8 explicitly. info.xml carries Chinese
+          # text, and Windows PowerShell 5.1 would otherwise round-trip it
+          # through the ANSI code page, turning the wizard description into
+          # mojibake inside the released zip.
+          # Resolve to an absolute path: the .NET file APIs resolve
+          # relative paths against the process directory, not PowerShell's.
+          $infoPath = Join-Path $PWD 'mod-pack/fomod/info.xml'
+          $infoUtf8 = New-Object System.Text.UTF8Encoding($false)
+          $infoXml = [System.IO.File]::ReadAllText($infoPath, $infoUtf8)
+          $infoXml = $infoXml -replace '<Version>[^<]*</Version>', "<Version>$infoVer</Version>"
+          [System.IO.File]::WriteAllText($infoPath, $infoXml, $infoUtf8)
           if (!(Select-String -Path mod-pack/fomod/info.xml -Pattern "<Version>$infoVer</Version>" -Quiet)) {
             throw "fomod/info.xml was not stamped with version $infoVer"
           }

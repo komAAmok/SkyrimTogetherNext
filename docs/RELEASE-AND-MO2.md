@@ -28,8 +28,17 @@ git push origin v1.0.20
 
 ## 二、MO2 安装(推荐,零手动操作)
 
-1. MO2 里"**从文件安装**" `SkyrimTogetherNextMod-<版本>.zip`,按向导走完;
-2. 通过 MO2 正常启动 `skse64_loader.exe`——完成,**没有第三步**。
+1. MO2 里"**从文件安装**" `SkyrimTogetherNextMod-<版本>.zip`;
+2. 向导第一步选**中文 / English**,后面两步的选项文案跟着切换(选完只显示对应语言的那一步);
+3. 通过 MO2 正常启动 `skse64_loader.exe`——完成,没有更多步骤。
+
+> 向导只有**三步**:选语言 → 勾可选组件(中文)或 Optional components(英文)。
+> 联机必需的文件全在 `requiredInstallFiles` 里**自动安装**,可选步骤只是附加项——
+> 跳过向导、或直接解压 zip 手动安装,结果同样是完整的。
+> 向导里显示的版本号来自发布 tag,`release.yml` 盖章时**显式指定 UTF-8**读写:
+> 本文件含中文,GitHub 的 Windows runner 默认用 `pwsh` 7(默认即 UTF-8)所以本来也没事,
+> 但换成 `powershell` 5.1 执行同一段脚本就会按 ANSI 往返、把中文描述写成乱码。
+> 显式编码让这一步与 shell 版本无关。
 
 客户端自带 SKSE 引导插件 `SkyrimTogetherSKSE.dll`(`Data/SKSE/Plugins/`)和
 **自部署运行时** `Data/SkyrimTogetherRuntime/`。首次启动时引导插件会把运行时

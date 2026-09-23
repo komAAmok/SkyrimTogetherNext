@@ -30,6 +30,9 @@
 - [ ] **若改了 `xmake.lua` 的 `set_xmakever()`** → 与 `windows.yml` 的 `xmake-version:` 同步。
 - [ ] **若新增 `GameFiles/` 内容** → `GameFiles/Skyrim/fomod/ModuleConfig.xml` 的
   `requiredInstallFiles` 跟进，否则漏装且 `IsDefaultModlist` 误报"非原版安装"。
+- [ ] **若改 FOMOD 文案** → 中英**两条分支都要改**（`可选组件` 与 `Optional components` 是两份
+  独立 XML，改一份忘一份就会让另一种语言显示旧文案）；XML 必须 UTF-8 **无 BOM**，
+  且任何"读-改-写"脚本都要**显式指定编码**（§18.3）。
 - [ ] **若改了 TS/SCSS** → 独立 tsc 验证（比对改动前后错误数）；本项目 `rem()` 是两参数
   `rem($base,$pixels)`，别当 CSS 的单参数 `rem()` 用（§6）。
 - [ ] **版本握手**：客户端/服务端必须**同一 commit** 构建（握手比对 `BUILD_COMMIT`），新旧不能混用。
@@ -257,6 +260,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `a9ea65cf` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
 | `2015a2b2` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
 | `3bf0294a` | v1.0.39 | **每帧开销导致加载慢/人物卡顿**（§16）：`WndProc` 每条消息注入鼠标位置（含自制 16ms `WM_TIMER`）、`BehaviorVar::Patch` 每角色刷全部动画变量（载入期 **501 行/秒**）；另删无生产者的 `ActorSpawnedEvent`；**F6/F7/F8 全配置裁掉，只留 F2/F3** |
+| `HEAD` | v1.0.41 | **FOMOD 引导中英双语 + 精简**（§18）：FOMOD 没有 i18n，改用条件旗标 `lang` + `<visible>/<flagDependency>` 门控两条语言分支；顺带修掉**发布包里的中文会变乱码**——`release.yml` 盖章版本号时 `Set-Content` 未指定编码，PS 5.1 按 ANSI 往返 |
 | `280c0518` | v1.0.40 | **hook 冲突真身是 EngineFixes**（§17）：全日志只有 1 处冲突（原文误作 2 处），`0xc02260`=id 68115=`GameHeap::Allocate`；`HookAudit` 只认 `e9`，跟不下 `ff 25` thunk 才报"无人可跟"——扩成 `BranchTarget` 并点名模块。另记 SKSE 路径缺 `_initterm_e` 哨兵（§17.4，待办） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
@@ -952,3 +956,102 @@ hook target SkyrimSE.exe+0xc02260 (0x7ff7bf7f2260) already held a branch
 > 而区分它们往往只差**多解一次引用**。把 `ff 25` 当成"跟不下去"，等于把已经写进代码的
 > 兼容性知识又还回去了。
 
+---
+
+## 18. v1.0.41 FOMOD 引导中英双语与精简（2026-09-23 场次）
+
+### 18.1 FOMOD 没有 i18n，只能用条件旗标自己做
+
+FOMOD 5.0 **没有任何翻译机制**：`ModuleConfig.xml` 里的 `name`/`description` 就是字面量。
+MO2 自己的按钮、步骤标题、组头都来自它的 `.qm` 翻译文件（`translations/installer_fomod_*.qm`），
+**不是我们能翻的**——所以"引导界面加 i18n"能动的只有**我们自己的选项文案**。
+
+做法是把"选语言"变成 FOMOD 原生的**条件旗标**，再用步骤可见性分支：
+
+```xml
+<installStep name="Language / 语言">          <!-- 第一步：只设旗标，不装任何文件 -->
+  <group name="Wizard language / 引导语言" type="SelectExactlyOne">
+    <plugin name="中文">   <conditionFlags><flag name="lang">zh</flag></conditionFlags> ...
+    <plugin name="English"><conditionFlags><flag name="lang">en</flag></conditionFlags> ...
+```
+
+```xml
+<installStep name="可选组件">
+  <visible><flagDependency flag="lang" value="zh" /></visible>   <!-- 只在 lang=zh 时出现 -->
+```
+
+**`SelectExactlyOne` 是关键**：它保证 `lang` 单值，于是**两条语言分支永远只显示一条**。
+换成 `SelectAny` 会同时显示中英两步，等于没做。
+
+### 18.2 精简：描述去水，联机说明挪到常显字段
+
+**先说清旧的到底是什么样**，免得又按印象写：旧版就 **1 步**、**2 个插件**，
+两个插件都**确实装文件**（`VerifyScript` / `launcher`）——它们不是空勾选框。
+真正的问题是**描述太长**：逐字量过（`<description>` 的字符数）：
+
+| | 旧 | 新（中文） |
+|---|---|---|
+| 步骤数 | 1 步 | 3 步（语言 + 中/英各一步，**任一时刻只走 2 步**） |
+| 启动校验脚本 | 3 段 / 131 字 | 3 段 / **108 字** |
+| 独立启动器 | **5 段 / 170 字** | 3 段 / **126 字** |
+| 插件名 | `启动校验脚本(仅 1.6.x 勾选)`、`独立启动器(不用 MO2 启动 SKSE 时才需要)` | 去掉冗余括注：`启动校验脚本(仅 1.6.x)`、`独立启动器(不用 MO2 时才需要)` |
+
+删掉的是**重复劝退**（"所以默认不安装。玩 1.6.x 且希望有这个提醒的,再勾选。"——前一句已经说了），
+以及把"用法:安装后把该文件夹里的文件复制到游戏根目录"这种**装完才用得上**的步骤
+压成一行。**没有删任何事实**：1.5.x 会误报的原因、MO2 用户不需要它，都还在。
+
+联机方式（房主开服、其他人游戏内按 F2 填 `IP:10578`）挪到 `info.xml` 的
+`<Description>`——那是 MO2 向导**左上角常显**的字段（`descriptionText`），
+比塞在某个步骤里更容易被看到，而且**不占步骤数**。
+
+### 18.3 顺带修的：盖章脚本没指定编码
+
+`release.yml` 给 `info.xml` 盖版本号时原来是：
+
+```powershell
+(Get-Content $path) -replace '<Version>[^<]*</Version>', "<Version>$ver</Version>" | Set-Content $path
+```
+
+`info.xml` **含中文**（本文件刚又加了一段联机说明），而 `Get-Content`/`Set-Content`
+在**不带 `-Encoding` 时按 shell 的默认编码**走：
+
+- GitHub 的 Windows runner 用 **`pwsh` 7**，默认 UTF-8 → 现状没事；
+- 同一段脚本若由 **Windows PowerShell 5.1** 执行，默认是 **ANSI（CP936）** →
+  中文被写成乱码，且**文件不再是合法 UTF-8**（实测：`E6 9C` 在 index 692 处无法解码）。
+
+已改成 `.NET` 显式 UTF-8（无 BOM）读写，并**用 `Join-Path $PWD` 取绝对路径**：
+`.NET` 的 `File.ReadAllText` 按**进程工作目录**解析相对路径，**不认 PowerShell 的
+`Push-Location`**——模拟时这一步直接抛 `DirectoryNotFoundException`，不是理论风险。
+
+### 18.4 美化：`/fomod/screenshot.png`
+
+MO2 的 C++ 安装器里**硬编码**了三个路径（`installer_fomod.dll` 的字符串表）：
+
+```
+/fomod/info.xml   /fomod/ModuleConfig.xml   /fomod/screenshot.png
+```
+
+第三个是向导里的**预览图**（`screenshotLabel` + `screenshotExpand`，点开有全屏查看器
+`FomodScreenshotDialog`）。我们此前**没有这个文件**，所以向导左栏一直空着。
+现在放进仓库自带的 `branding/steam_library_card_st.png`（600×900，项目自己的素材）。
+
+**没选 `logo.png`**：它 76% 像素透明、且是**浅色金属**（平均亮度 56），
+在 MO2 的亮色主题（`Paper Light` 底色 `#F6F6F6`）上等于看不见；
+`steam_library_card_st.png` 是不透明深色底（平均亮度 15），深浅主题都成立。
+
+### 18.5 验证方式（没有实机 MO2 向导，靠三份独立证据）
+
+1. **官方 XSD 校验**：`http://qconsulting.ca/gemm/ModConfig5.0.xsd`（`ModConfig5.0.xsd`
+   的 `xs:redefine` 基架）逐元素校验，**0 错误**。这同时钉住了
+   `installStep` 的子元素**顺序必须是 `visible` 在前、`optionalFileGroups` 在后**。
+2. **MO2 二进制的字符串表**：`installer_fomod.dll` 里同时存在
+   `visible`/`flagDependency`/`conditionFlags`/`SelectExactlyOne`/
+   `FomodInstallerDialog::testCondition`/`readCompositeDependency` —— 说明这些**都被实现**。
+3. **安装器选择**：同目录还有 `installer_fomod_csharp.dll`（`org.holt59`），
+   但它要 **`script.cs`**（`InstallerFomodCSharp.findScriptFile`），我们包里没有 `.cs`，
+   所以 MO2 走的是 **C++ 那个**（其 `isArchiveSupported` 只认 `fomod/ModuleConfig.xml`）。
+   `ModOrganizer.ini` 里两者 `prefer=true`，靠脚本文件区分。
+
+> **方法教训**：`Set-Content` 不带 `-Encoding` 时，"能跑通"和"编码正确"是两件事——
+> 前者取决于**谁在跑**（`pwsh` 7 还是 5.1），后者才取决于**代码写了什么**。
+> 对含非 ASCII 的文件做读-改-写，编码必须写死在脚本里。

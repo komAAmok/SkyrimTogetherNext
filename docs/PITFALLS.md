@@ -256,6 +256,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `f11dbc26` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
 | `a9ea65cf` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
 | `2015a2b2` | v1.0.38 | **全项目审计与 revive**（§15）：删死代码（`Games/Renderer.cpp` + `Skyrim/Renderer.h` 整对、`ValidateAuthParams`、vivox 构建分支、幽灵错误码）；修 `/settime` 被拒时**客户端静默无反馈**（`NotifySetTimeResult` 从未被订阅） |
+| `3bf0294a` | v1.0.39 | **每帧开销导致加载慢/人物卡顿**（§16）：`WndProc` 每条消息注入鼠标位置（含自制 16ms `WM_TIMER`）、`BehaviorVar::Patch` 每角色刷全部动画变量（载入期 **501 行/秒**）；另删无生产者的 `ActorSpawnedEvent`；**F6/F7/F8 全配置裁掉，只留 F2/F3** |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -802,4 +803,72 @@ Get-ChildItem -Recurse -Path Code\client,Code\server -Include *.cpp |
 
 > 记在这里的原因：审计结论如果不写清"哪些查过、哪些没查"，
 > 下一轮会把"查过且故意保留"重新当成"没查"再查一遍。
+
+---
+
+## 16. v1.0.39 卡顿与加载变慢（2026-09-23 场次实测）
+
+### 16.1 先量，再改：tick 速率就是卡顿本身
+
+日志自带两个独立计数器（§14.1 引入），可以直接算出真实帧循环速率：
+
+```
+12:50:30.503  timer-driven update heartbeat: tick 1
+13:01:48.720  timer-driven update heartbeat: tick 17100
+=> 678.2 秒 / 17100 tick = 25.2 tick/s
+```
+
+而定时器是 **16ms**（`InputService.cpp:42`），理论上限是 **62.5 tick/s**。
+实测只有 40%。这条消息循环跑在**游戏主线程**上（`Hook_WndProc` 是渲染器的 WndProc），
+所以"tick 慢"和"人物一卡一卡"是同一件事：主线程被占，游戏自己的帧也被拖。
+
+### 16.2 找到的两处每帧固定开销
+
+| 位置 | 问题 | 为什么之前没发现 |
+|---|---|---|
+| `InputService::WndProc`（`InputService.cpp:576`） | **每条**窗口消息都 `GetCursorPos` + `ScreenToClient` + `InjectMouseMove`。`WM_TIMER` 也是窗口消息，所以覆盖层关着的时候，每帧仍往 CEF 的 IPC 队列塞一次鼠标位置——一次同步的跨进程跳转，纯浪费。 | 代码本身"看起来"没错：`ProcessMouseMove` 内部确实有 `if (active)` 检查。但**取坐标和跨进程注入的开销在检查之外**，检查只挡住了后半段。 |
+| `BehaviorVar::Patch`（`BehaviorVar.cpp:367`） | 对**每个** modded 生物把**全部**动画变量按 `info` 级别逐条打印。 | 注释写的是"每个 modded 生物**类型**"，实际是每个**生物**。载入一个满是 modded 生物的 cell 时，单个线程在一秒内写了 **501 行**。 |
+
+第二处的实测分布（`12:52:07` 这一秒）：
+
+```
+tid 27428 x437   <- 全部是 BehaviorVar 的变量清单
+tid 11000 x63
+tid 6232  x1
+```
+
+这 437 行发生在 `Finished loading, triggering visit cell`（`12:52:07.902`）之后，
+也就是**读盘/过场动画期间**——正好对上"启动和过场动画都变慢了"。
+
+**改法**：变量清单降到 `debug` 级（一行汇总保留在 `debug`，计数用循环累加而不是 `SortedMap::size()`，
+因为后者在本项目里没有任何使用先例，不能拿构建去赌）；鼠标位置只在覆盖层真的开着时才取。
+
+### 16.3 F2/F3 定为唯一在线按键（按需求"定死"）
+
+`F6`/`F7`/`F8` 原本包在 `#if (!IS_MASTER)` 里。`IS_MASTER` 由 **git 分支名**推导
+（`xmake.lua:86`），所以**任何非 main 分支构建都会带上它们**：F6 直连 `127.0.0.1:10578`，
+F7 建/退队，F8 函数体是空的。
+
+现在改成 `#if 0`：**所有配置一律裁掉**，代码保留成一个块（下次要用把 `0` 改 `1`，别删）。
+`F2`（菜单）和 `F3`（调试菜单栏）是仅有的两个在线按键——F3 在 `IS_MASTER` **之外**，本来就是通的。
+
+### 16.4 顺手删掉的无生产者事件
+
+`Code/client/Events/ActorSpawnedEvent.h`：全仓 0 生产者、0 消费者，
+只在 `DiscoveryService.h` 留了个前向声明。已删（连同前向声明）。
+注意它和 `ActorAddedEvent`/`ActorRemovedEvent` **不是一回事**，后两者是活的（`CharacterService` 在用）。
+
+### 16.5 下一轮继续查的方向（本次未做）
+
+1. **tick 速率仍未达标**：本轮只摘掉两处无条件开销，25.2/s 里剩下多少来自
+   `VisitForms` 每帧遍历全部 high-process 句柄 + `RunRemoteUpdates` 每帧遍历四个 view，
+   **需要一份改后的实机日志再算一次 tick/s** 才能确认。
+2. **`VisitCell`/`VisitForms` 每 `PreUpdateEvent` 都跑**，`VisitForms` 里还留着上游的
+   `TODO: GetById performance in loop?`。按 tick 降频（例如每 N 帧一次）是明显的下一步，
+   但会改变 actor 发现延迟，必须实机验证。
+3. **两处 hook 冲突**（`hook target ... already held a branch`）：`0xc02260` 等被别的 mod 先占了，
+   我们的钩子叠在上面。本次未追，可能是别的 mod 的问题，也可能是加载变慢的第三个原因。
+
+> **方法教训**："看起来有 `if (active)` 守卫"不等于"没开销"——
+> 要看守卫**罩住了哪一段**。本次两处都是"守卫在里面，开销在外面"。
 

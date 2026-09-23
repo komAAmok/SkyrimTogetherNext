@@ -163,9 +163,6 @@ void DebugService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
         moveData.pActor = nullptr;
     }
 
-    static std::atomic<bool> s_f8Pressed = false;
-    static std::atomic<bool> s_f7Pressed = false;
-    static std::atomic<bool> s_f6Pressed = false;
 
     // F3 is deliberately outside the IS_MASTER guard below: the debug menu
     // bar still has the Helpers/Debuggers/Misc entries in a release build,
@@ -183,7 +180,18 @@ void DebugService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
         spdlog::info("debug menu toggled: {}", m_showDebugStuff);
     }
 
-#if (!IS_MASTER)
+// F6/F7/F8 are development shortcuts: F6 dials 127.0.0.1:10578 directly, F7
+// creates or leaves a party, F8's body is commented out and does nothing.
+// Online play is defined by F2 (menu) and F3 (debug bar) only, so these stay
+// compiled out in every configuration rather than only in a release build -
+// IS_MASTER comes from the branch name, which meant any non-main build turned
+// a stray keypress into a connect attempt. The bodies are kept for whoever
+// needs them again; flip this to 1 rather than deleting the block.
+#if 0
+    static std::atomic<bool> s_f8Pressed = false;
+    static std::atomic<bool> s_f7Pressed = false;
+    static std::atomic<bool> s_f6Pressed = false;
+
     if (GetAsyncKeyState(VK_F6))
     {
         if (!s_f6Pressed)

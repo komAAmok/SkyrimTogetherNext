@@ -573,12 +573,22 @@ LRESULT CALLBACK InputService::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         imgui.WndProcHandler(hwnd, uMsg, wParam, lParam);
     }
 
-    POINT position;
+    // Only pay for the cursor position when the overlay is actually up. This
+    // WndProc also sees our own 16ms WM_TIMER, and InjectMouseMove crosses
+    // into CEF's IPC queue, so doing it unconditionally put a synchronous
+    // cross-process hop on the game thread once per frame for as long as the
+    // game ran - with the overlay closed it had nowhere to go and was pure
+    // cost. The position is still resolved below for the messages that need
+    // it, all of which are already inside "active" checks.
+    POINT position{};
 
-    GetCursorPos(&position);
-    ScreenToClient(GetActiveWindow(), &position);
+    if (active)
+    {
+        GetCursorPos(&position);
+        ScreenToClient(GetActiveWindow(), &position);
 
-    ProcessMouseMove(static_cast<uint16_t>(position.x), static_cast<uint16_t>(position.y));
+        ProcessMouseMove(static_cast<uint16_t>(position.x), static_cast<uint16_t>(position.y));
+    }
 
     if (uMsg == WM_INPUT)
     {

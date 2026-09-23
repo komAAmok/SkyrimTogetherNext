@@ -145,7 +145,7 @@
   },
   "SERVICE": {
     "CLIENT": {
-      "CONNECTION_LOST": "Соединение потеряно, попытка переподключения. Осталось попыток - {{RemainingReconnectionAttempt}.",
+      "CONNECTION_LOST": "Соединение потеряно, попытка переподключения. Осталось попыток - {{remainingReconnectionAttempt}}.",
       "CONNECTED": "Успешное подключение к серверу.",
       "DISCONNECTED": "Отключен от сервера."
     },

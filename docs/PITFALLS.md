@@ -254,6 +254,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `45577fa4` | v1.0.34 | **4 条 1.5.x id 映射错误**（§11）：`400475` 指到 TimeData、`37525`/`19708` 撞同一地址（就是那条 `already claimed`）；生成器 join 键改 `(class, symbol)` + 拒绝写重复表 |
 | `3197edde` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
 | `f11dbc26` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
+| `待提交` | v1.0.37 | **遗留项结案**（§14）：F3 阻塞点已由 WM_TIMER 消除（§14.1，证据=`update events` 计数在涨）+ 补 toggle/draw 日志；i18n 五语言补到 0 缺键 + 修 4 处坏占位符（§14.2）；重连/握手维持 fork 现状（§14.3/§14.4） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -266,13 +267,16 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   会自己分发（`frame loop did not take the queued messages within 500ms` warn），**会碰游戏内存**。
   v1.0.34 两场实机会话里**一次未触发**：WM_TIMER 让帧循环始终活着，pump 一发现
   帧循环在就交还。保留现状，**但别删**——它是 tick 真死时唯一能连上的路径。
-- **【P2】F3 调试菜单在 1.5.97 走不通**：`DebugService::OnUpdate` 依赖 `UpdateEvent`，而 1.5.97
-  上 UpdateEvent 曾经从不触发（现已由 WM_TIMER 驱动，待复测）；且 release 下 F6/F7/F8 被 `IS_MASTER` 裁掉。
-- **【P2】i18n 缺键**：es/fr/nl/pl/zh-CN 部分词条缺失。
-- **【P2，上游继承缺陷，fork 已修但上游未修】自动重连死代码 + `DisconnectedEvent` 空结构体**：
-  上游 `dev` 至今仍是 `ExecuteAsync("disconnect")` 无参、`DisconnectedEvent.h` 空结构体，同步时勿丢 fork 修复。
-- **【P3】版本握手强制同 commit**：`TransportService.cpp:115` 发 `Version=BUILD_COMMIT`，
-  `GameServer.cpp:856` 要求 `== BUILD_COMMIT` 否则 `kWrongVersion` 踢出。联机双方必须同版本构建。
+- **【已结案，见 §14.1】F3 调试菜单在 1.5.97 走不通**：阻塞点（`UpdateEvent` 不触发）已由 WM_TIMER
+  驱动消除，**证据见 §14.1**（不是"应该好了"）。F3 本来就**不在** `IS_MASTER` 里；F6/F7/F8 保持裁掉。
+  加了 toggle/draw 两行日志，下次实机一看就知道卡在哪一段。
+- **【已结案，见 §14.2】i18n 缺键**：es/fr/nl/pl/zh-CN 五个语言补到 0 缺键；顺带修了 4 处
+  **坏占位符**（`{{x }`、`{{x}`、大小写不符），它们会让聊天窗直接显示花括号原文。
+- **【保持修复，勿丢】自动重连 + `DisconnectedEvent`**：fork 版是有参的（`IsError`），
+  上游 `dev` 仍是无参 + 空结构体。同步时按 §3 的"新增语句行存活率"扫描，别被合回去。
+- **【保持现状】版本握手强制同 commit**：`TransportService.cpp:268` 发 `Version=BUILD_COMMIT`，
+  `GameServer.cpp:856` 要求相等否则 `kWrongVersion` 踢出。**这是有意设计，不是缺陷**：
+  协议按 commit 演进，放开等于让不兼容的双方进同一个世界。详见 §14.4。
 - **【已修，见 §11 + §12.3】`SkyrimVM::Get()`（id 400475）启动期读到 null**：两个独立缺陷叠加。
   ① 映射表把 `400475` 指到了 `TimeData::s_instance` 的 `0x1ec0a80`（§11，已修）；
   ② `SkyrimVM::virtualMachine` 在 1.5.97 上是 `0x200` 而不是上游的 `0x210`（§12.3，已修）。
@@ -610,3 +614,107 @@ Select-String -Path tp_client.log -Pattern 'CEF failed to initialize'
 
 > **副产品**：这个 bug 还顺手解释了为什么"以管理员运行"会看起来时好时坏 ——
 > 提权 + UAC 开启才触发；不满足条件时 Chromium 直接放行，一切正常。
+---
+
+## 14. v1.0.36 遗留项结案（F3 / i18n / 重连 / 握手）
+
+### 14.1 F3 调试菜单：**已通**，证据在这里
+
+旧结论是"`DebugService::OnUpdate` 依赖 `UpdateEvent`，而 1.5.97 上它从不触发"。
+那个阻塞点**已经不存在**了，而且是可证的，不用靠"应该好了"：
+
+`TransportService::HandleUpdate(UpdateEvent)` 第一件事就是 `++m_pumpTicks`，
+而每 5 秒打印一次的 `transport pump heartbeat` 会把这个计数写进日志。
+所以**只要这个计数在涨，就说明 `UpdateEvent` 真的在分发**——它就是 F3 那条路径的同一条链路。
+
+```
+# 实机日志（D:\sktest\LOGS，2026-09-23，1.5.97 + MO2）
+[00:02:19] transport pump heartbeat: update events 1, ...
+[00:02:24] transport pump heartbeat: update events 194, ...   <- 在涨
+[00:02:29] transport pump heartbeat: update events 388, ...
+```
+
+对照：`D:\sktest\new`（09-14，WM_TIMER 之前的版本）里这个计数**恒为 0**，
+`timer-driven update heartbeat` 也是 0 次——两处互相印证，不是单点观测。
+
+**F3 与 `IS_MASTER` 的关系（旧描述有误导）**：`GetAsyncKeyState(VK_F3)` 那段**在** `#if (!IS_MASTER)` **外面**，
+release 里照样执行。被裁掉的是 F6/F7/F8 和 Debuggers 菜单里的若干子窗口。
+**按指示保持裁掉**：F6 直连 `127.0.0.1:10578`、F7 建/退队、F8 空实现，
+这些是开发期捷径，发布版留着只会让玩家误触。
+
+> **代价与取舍**：本次**没有**改 F3 的行为，只加了两行日志（toggle 一行、首帧绘制一行）。
+> 理由是改行为需要实机验证，而本机按 §0 不能编译；加日志是零风险且能让下次实机直接定位。
+> 若下次实机看到 `debug menu toggled` 但看不到 `debug menu drawing`，问题在 ImGui 渲染泵，
+> 与 F3/UpdateEvent 无关。
+
+### 14.2 i18n：五个语言补到 0 缺键 + 4 处坏占位符
+
+`en.json` 是基准（126 键）。补键后各语言相对 `en` 的缺键数：
+
+| 语言 | 补前 | 补后 |
+|---|---|---|
+| es | 13 | 0 |
+| fr | 15 | 0 |
+| nl | 36 | 0 |
+| pl | 12 | 0 |
+| zh-CN | 12 | 0 |
+
+**顺手抓到的真 bug（不在原任务清单里）**：4 个语言的占位符写坏了，
+transloco 匹配不上 `{{name}}`，于是**把花括号原文显示给玩家**：
+
+| 文件 | 键 | 坏 | 修成 |
+|---|---|---|---|
+| de | `SERVICE.CLIENT.CONNECTION_LOST` | `{{remainingReconnectionAttempt }` | `{{remainingReconnectionAttempt}}` |
+| nl | `SERVICE.CLIENT.CONNECTION_LOST` | `{{remainingReconnectionAttempt }` | `{{remainingReconnectionAttempt}}` |
+| ru | `SERVICE.CLIENT.CONNECTION_LOST` | `{{RemainingReconnectionAttempt}` | `{{remainingReconnectionAttempt}}` |
+| fr | `COMPONENT.SERVER_LIST.SERVER_COUNT` | `{{count}` | `{{count}}` |
+
+ru 那处还错在**大小写**（`Remaining` vs `remaining`）——占位符名必须与 `en` 完全一致，
+因为参数名由 TS 侧 `pushSystemMessage(key, params)` 决定，不由翻译决定。
+
+**改法**：用脚本按 `en` 的键集合**只增不改**地补，`JSON.parse` → 补键 → 按原格式写回。
+已用"语义 diff"复核：**removed=0，changed 只有上表 4 条**（其余是 JSON 重新序列化导致的逗号/缩进位移，无内容变化）。
+编码（CRLF、无 BOM）逐文件复核过。
+
+> `cs/de/ja/ko/no/ru/tr` 仍有缺键（5~11 条），**本次未动**：任务只点名了五个语言。
+> 它们缺的是同一批键，补法照抄即可。
+
+### 14.3 自动重连 + `DisconnectedEvent`：fork 修复仍在，别被同步吃掉
+
+上游 `dev` 至今是 `ExecuteAsync("disconnect")` 无参 + `DisconnectedEvent` 空结构体。
+fork 现状（**保持**）：
+
+- `Code/client/Events/DisconnectedEvent.h`：有 `bool IsError{false}` 和 `DisconnectedEvent(bool)`；
+- `OverlayService.cpp:393`：`OnDisconnectedEvent` 组 `CefListValue` 把 `IsError` 传下去；
+- `OverlayClient.cpp:47`：`disconnect` 分支；另有 `abandonAttempt` 分支（`ProcessAbandonAttemptMessage`）；
+- `client.service.ts:367`：`isError && _remainingReconnectionAttempt > 0` 才重连，
+  重连前先 `abandonAttempt()` 拆掉旧 transport（否则 teardown 会误报一次 disconnect）。
+
+**同步时的检查点**（§3 的通用扫描之外，专查这四处）：
+
+```powershell
+Select-String -Path Code\client\Events\DisconnectedEvent.h -Pattern 'IsError'
+Select-String -Path Code\client\Services\Generic\OverlayService.cpp -Pattern 'ExecuteAsync\("disconnect", pArgs\)'
+Select-String -Path Code\skyrim_ui\src\app\services\client.service.ts -Pattern 'abandonAttempt'
+```
+
+三处都在 = fork 修复完好。任何一处没了，就是被上游合回去了。
+
+### 14.4 版本握手：**保持现状**（这是设计，不是缺陷）
+
+`TransportService.cpp:268` 发 `request.Version = BUILD_COMMIT`；
+`GameServer.cpp:856` 在 `acRequest->Version != BUILD_COMMIT` 时 `kWrongVersion` 踢出。
+
+**为什么不该放开**：消息按 `T::Opcode` 二进制直传（§3），字段增删不体现在任何版本号里。
+放宽到"同大版本即可"，等于让字段布局不同的两端进同一个世界，
+结果不是"能玩但有小 bug"，而是**静默的错位读**——比连不上难查得多。
+
+**真正的成本**在体验侧，且已经被现有代码兜住了：
+
+- 客户端把服务端版本和本地 `BUILD_COMMIT` 一起塞进 `wrong_version` 的 `data` 里（`TransportService.cpp:666`），
+  UI 有 `COMPONENT.CONNECT.ERROR.VERSION_MISMATCH` 词条（各语言都有）；
+- 服务器日志有 `tried to connect with client ... - Version mismatch`。
+
+> **给维护者的建议（未实施）**：如果以后要降低门槛，正确做法是**给协议加显式版本号并只做前向兼容的追加**，
+> 而不是放松 `BUILD_COMMIT` 比较。在那之前，这条 P3 **保持原样**。
+

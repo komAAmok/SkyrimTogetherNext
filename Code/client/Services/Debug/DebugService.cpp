@@ -167,9 +167,20 @@ void DebugService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     static std::atomic<bool> s_f7Pressed = false;
     static std::atomic<bool> s_f6Pressed = false;
 
+    // F3 is deliberately outside the IS_MASTER guard below: the debug menu
+    // bar still has the Helpers/Debuggers/Misc entries in a release build,
+    // only the individual views are cut. Logged because reaching this line at
+    // all proves UpdateEvent is alive on 1.5.97 - it was not before the
+    // WM_TIMER driver, and a silent toggle made that indistinguishable from
+    // the key never arriving.
     if (GetAsyncKeyState(VK_F3) & 0x01)
     {
         m_showDebugStuff = !m_showDebugStuff;
+
+        // Reaching this line at all is the answer we want: it means UpdateEvent
+        // is firing, which is exactly what used to be broken on 1.5.97. Whether
+        // the menu then paints is reported separately by OnDraw.
+        spdlog::info("debug menu toggled: {}", m_showDebugStuff);
     }
 
 #if (!IS_MASTER)
@@ -268,6 +279,17 @@ void DebugService::OnDraw() noexcept
     const auto view = m_world.view<FormIdComponent>();
     if (view.empty() || !m_showDebugStuff)
         return;
+
+    // One line per session: the menu bar below only renders if ImGui is being
+    // pumped from the frame end, which is a different failure than the key not
+    // arriving. Without it a blank screen has two possible causes and no way
+    // to tell them apart from the log.
+    static bool s_reportedFirstDraw = false;
+    if (!s_reportedFirstDraw)
+    {
+        s_reportedFirstDraw = true;
+        spdlog::info("debug menu drawing");
+    }
 
     ImGui::BeginMainMenuBar();
     if (ImGui::BeginMenu("Helpers"))

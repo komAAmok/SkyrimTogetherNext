@@ -253,7 +253,7 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `83bb37be` | **未打 tag** | **启动闪退**：定时器无门控，启动期提前跑 `Update()`；补 `GetInGame()` 门控 + 判空 |
 | `45577fa4` | v1.0.34 | **4 条 1.5.x id 映射错误**（§11）：`400475` 指到 TimeData、`37525`/`19708` 撞同一地址（就是那条 `already claimed`）；生成器 join 键改 `(class, symbol)` + 拒绝写重复表 |
 | `3197edde` | v1.0.35 | **`SkyrimVM::virtualMachine` 偏移**（§12.3）：legacy 应为 `0x200` 而非上游的 `0x210`；按目标分叉 + 各自 `static_assert` |
-| `待提交` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
+| `f11dbc26` | v1.0.36 | **CEF 在提权进程里自动去提权**（§13）：退出码 `38`，F2 只见光标、菜单永不出现；**并且多拉出一个原版 `SkyrimSE.exe`**（§13.2，同一根因）；`OnBeforeCommandLineProcessing` 追加 `do-not-de-elevate`，并把退出码翻译成人话 |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 

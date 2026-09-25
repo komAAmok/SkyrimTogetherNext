@@ -151,6 +151,7 @@ jobs:
       # state of the others, so each is built and reported, and the job fails
       # once at the end if any of them did not build.
       - name: Build companion plugins
+        id: companion
         if: steps.plugins.outputs.present == 'true'
         shell: pwsh
         run: |
@@ -235,9 +236,15 @@ jobs:
             Write-Host "::endgroup::"
           }
 
+          # Recorded rather than thrown. A plugin failure used to end the job
+          # here, which meant a broken plugin hid whether the framework itself
+          # compiled - two problems, one visible. The job still fails, at the
+          # end, once everything that can be checked has been.
           if ($failed.Count -gt 0) {
             Write-Host "::error::companion plugin build failed: $($failed -join ', ')"
-            exit 1
+            "failed=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "failed=false" >> $env:GITHUB_OUTPUT
           }
 
       # Flattens each plugin's own build tree into <out>/<pluginId>/ so the
@@ -355,6 +362,15 @@ jobs:
 
       - id: output-version
         run: echo "version=$(git describe --tags)" >> $env:GITHUB_OUTPUT
+
+      # The last step of the job, so it runs after everything else has had a
+      # chance to report. This is where a deferred plugin failure lands.
+      - name: Fail if the companion plugins did not build
+        if: always() && steps.companion.outputs.failed == 'true'
+        shell: pwsh
+        run: |
+          Write-Host '::error::companion plugin build failed earlier in this job; see the annotation above'
+          exit 1
 
       - name: Upload build files for the next job
         if: ${{ inputs.upload-build-for-next-job }}

@@ -68,6 +68,11 @@ jobs:
             exit 0
           }
 
+      # Must come before the plugin builds: vcpkg resolves the x64-windows
+      # triplet through Visual Studio and refuses to configure without one.
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       # Companion plugins are CMake + vcpkg projects, pinned as submodules. The
       # step is skipped, not failed, when a fork drops the submodules: the
       # framework still builds, and packaging then fails loudly on the missing
@@ -118,8 +123,16 @@ jobs:
           if (!(Test-Path "$vcpkg/scripts/buildsystems/vcpkg.cmake")) {
             throw "vcpkg toolchain missing at $vcpkg/scripts/buildsystems/vcpkg.cmake"
           }
+          # vcpkg aborts when VCPKG_DEFAULT_BINARY_CACHE names a directory that
+          # does not exist, and on a cold cache key the cache action restores
+          # nothing - so the directory is created here rather than assumed.
+          $binaryCache = Join-Path $env:GITHUB_WORKSPACE '.vcpkg-cache/binary'
+          New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
+
           "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
+          "VCPKG_DEFAULT_BINARY_CACHE=$binaryCache" >> $env:GITHUB_ENV
           Write-Host "VCPKG_ROOT=$vcpkg"
+          Write-Host "VCPKG_DEFAULT_BINARY_CACHE=$binaryCache"
 
       # STRPM is built first: it is small, it fails fast if the interface header
       # and the bridge do not compile, and the consumers below link against the
@@ -140,10 +153,12 @@ jobs:
       - name: Build companion plugins
         if: steps.plugins.outputs.present == 'true'
         shell: pwsh
-        env:
-          # VCPKG_ROOT comes from the setup step through GITHUB_ENV.
-          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache/binary
         run: |
+          # VCPKG_ROOT and VCPKG_DEFAULT_BINARY_CACHE both come from the setup
+          # step through GITHUB_ENV, so there is one place that defines them.
+          if (-not $env:VCPKG_ROOT) { throw 'VCPKG_ROOT is not set; the vcpkg setup step did not run' }
+          if (-not (Test-Path $env:VCPKG_DEFAULT_BINARY_CACHE)) { throw "binary cache dir missing: $env:VCPKG_DEFAULT_BINARY_CACHE" }
+
           $specs = @(
             @{ Id = 'OStimTogether';     Dir = 'plugins/OStimTogether' },
             @{ Id = 'MorphSyncTogether'; Dir = 'plugins/MorphSyncTogether' },
@@ -220,9 +235,6 @@ jobs:
           xmake-version: 3.1.0
           actions-cache-folder: '.xmake-cache' # This doesn't cache dependencies, only xmake itself
           actions-cache-key: ${{ matrix.os }}
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Point xmake to Visual Studio
         shell: pwsh

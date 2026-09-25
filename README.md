@@ -151,6 +151,22 @@
 > 客户端 mod 与专用服务器。逐条提交见 `git log`;踩坑记录与定量结论见
 > [docs/PITFALLS.md](docs/PITFALLS.md)。
 
+## 🙏 致谢
+
+本项目的存在离不开以下上游与协作项目。它们的成果直接构成本仓库的基础,
+在此一并致谢:
+
+| 项目 | 作者 | 本项目如何使用 |
+| --- | --- | --- |
+| [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) | Tilted Phoques | **本仓库的上游**。客户端/服务端框架、网络层与引擎逆向成果均来自该项目;GPLv3 许可亦继承于此。 |
+| [TiltedEvolution-rwf](https://github.com/rfortier/TiltedEvolution-rwf) | rfortier | **行为/动画 Mod 支持**。`Code/client/ModCompat/BehaviorVar.*` 与随包的 `SkyrimTogetherRebornBehaviors/` 继承自这条 fork 链,详见 [README-ANIMATION-MODS.md](README-ANIMATION-MODS.md)。 |
+| [STRPluginMessagingAPI](https://github.com/Caelvanost/STRPluginMessagingAPI) | Caelvanost | **插件消息接口**。对外消费者契约、facade DLL、chat-tunnel 桥与服务器中继资源;本仓库以固定提交的子模块引入,并在 `Code/plugins/STRPM/` 保存权威头文件与契约校验。 |
+| [OStimTogether](https://github.com/Caelvanost/OStimTogether) | Caelvanost | **可选联机插件**:动作场景状态、参与者对齐与装备锁同步。 |
+| [MorphSyncTogether](https://github.com/Caelvanost/MorphSyncTogether) | Caelvanost | **可选联机插件**:体型滑块与 RaceMenu 覆盖层同步。 |
+| [IEDSyncTogether](https://github.com/Caelvanost/IEDSyncTogether) | Caelvanost | **可选联机插件**:装备展示同步。 |
+
+> 三个可选插件与 STRPluginMessagingAPI 均以**固定提交的子模块**引入(`plugins/`),各自保留独立仓库、独立构建与独立发布节奏。本仓库只负责按需打包、接口一致性校验,以及为它们提供联机会话传输;它们的代码与版权归各自作者所有。
+
 ## 📄 许可证
 
 [![GNU GPLv3](https://www.gnu.org/graphics/gplv3-127x51.png)](http://www.gnu.org/licenses/gpl-3.0.en.html)

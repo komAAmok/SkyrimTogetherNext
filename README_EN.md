@@ -142,6 +142,22 @@ Please open an issue in the repo's "Issues" page, attaching reproducible steps, 
 > `git log`; measured findings and pitfalls are in
 > [docs/PITFALLS.md](docs/PITFALLS.md).
 
+## 🙏 Acknowledgements
+
+This project would not exist without the upstream and companion projects below.
+Their work is the foundation this repository builds on:
+
+| Project | Author | How this repository uses it |
+| --- | --- | --- |
+| [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) | Tilted Phoques | **The upstream this repository forks.** Client/server framework, networking layer and engine reverse-engineering all come from it; the GPLv3 licence is inherited from it too. |
+| [TiltedEvolution-rwf](https://github.com/rfortier/TiltedEvolution-rwf) | rfortier | **Behaviour and animation mod support.** `Code/client/ModCompat/BehaviorVar.*` and the bundled `SkyrimTogetherRebornBehaviors/` come from this fork chain; see [README-ANIMATION-MODS.md](README-ANIMATION-MODS.md). |
+| [STRPluginMessagingAPI](https://github.com/Caelvanost/STRPluginMessagingAPI) | Caelvanost | **The plugin messaging interface.** The consumer contract, the facade DLL, the chat-tunnel bridge and the server relay resource. Pinned here as a submodule, with the authoritative header and the contract gate kept in `Code/plugins/STRPM/`. |
+| [OStimTogether](https://github.com/Caelvanost/OStimTogether) | Caelvanost | **Optional companion plugin**: scene state, participant alignment and equipment lock synchronisation. |
+| [MorphSyncTogether](https://github.com/Caelvanost/MorphSyncTogether) | Caelvanost | **Optional companion plugin**: body morph sliders and RaceMenu overlay synchronisation. |
+| [IEDSyncTogether](https://github.com/Caelvanost/IEDSyncTogether) | Caelvanost | **Optional companion plugin**: equipment display synchronisation. |
+
+> The three companion plugins and STRPluginMessagingAPI are pulled in as **submodules pinned to exact commits** (`plugins/`). Each keeps its own repository, its own build and its own release cadence. This repository only packages them on request, verifies that they agree on one interface, and provides the session transport they ride on; their code and copyright remain with their authors.
+
 ## 📄 License
 
 [![GNU GPLv3](https://www.gnu.org/graphics/gplv3-127x51.png)](http://www.gnu.org/licenses/gpl-3.0.en.html)

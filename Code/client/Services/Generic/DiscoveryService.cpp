@@ -208,9 +208,20 @@ void DiscoveryService::DetectGridCellChange(TESWorldSpace* aWorldSpace, bool aNe
         }
     }
 
-    TESObjectCELL* pCell = PlayerCharacter::Get()->GetParentCellEx();
+    // The player pointer itself is nullable early in a load, the parent cell is
+    // nullable by definition, and the coordinate fallback is nullable too - the
+    // same call is checked two other times in this file. Without this the formID
+    // read below is the third null dereference on one line.
+    auto* pPlayer = PlayerCharacter::Get();
+    TESObjectCELL* pCell = pPlayer ? pPlayer->GetParentCellEx() : nullptr;
     if (!pCell)
         pCell = ModManager::Get()->GetCellFromCoordinates(pTES->currentGridX, pTES->currentGridY, aWorldSpace, false);
+
+    if (!pCell)
+    {
+        spdlog::warn("Grid cell change for worldspace {:X} has no player cell to report", aWorldSpace->formID);
+        return;
+    }
 
     if (!m_world.GetModSystem().GetServerModId(pCell->formID, changeEvent.PlayerCell))
     {

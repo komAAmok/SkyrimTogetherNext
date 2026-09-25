@@ -19,6 +19,11 @@ PluginMessagingService::PluginMessagingService(World& aWorld, entt::dispatcher& 
     m_pluginMessageConnection = aDispatcher.sink<PacketEvent<PluginMessagingRequest>>().connect<&PluginMessagingService::OnPluginMessage>(this);
 }
 
+void PluginMessagingService::OnPlayerRemoved(std::uint32_t aPlayerId) noexcept
+{
+    m_buckets.erase(aPlayerId);
+}
+
 bool PluginMessagingService::AllowMessage(std::uint32_t aPlayerId, std::uint32_t aBytes) noexcept
 {
     const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(

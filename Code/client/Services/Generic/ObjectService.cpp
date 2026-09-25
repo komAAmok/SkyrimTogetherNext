@@ -147,7 +147,7 @@ void ObjectService::OnCellChange(const CellChangeEvent& acEvent) noexcept
             objectData.CurrentLockData.LockLevel = pLock->lockLevel;
         }
 
-        if (pObject->baseForm->formType == FormType::Container)
+        if (pObject->baseForm && pObject->baseForm->formType == FormType::Container)
             objectData.CurrentInventory = pObject->GetInventory();
 
         request.Objects.push_back(objectData);
@@ -189,7 +189,7 @@ void ObjectService::OnAssignObjectsResponse(const AssignObjectsResponse& acMessa
             pObject->LockChange();
         }
 
-        if (pObject->baseForm->formType == FormType::Container)
+        if (pObject->baseForm && pObject->baseForm->formType == FormType::Container)
         {
             Inventory currentInventory = pObject->GetInventory();
 
@@ -292,7 +292,7 @@ void ObjectService::OnActivateNotify(const NotifyActivate& acMessage) noexcept
         return;
     }
 
-    if (pObject->baseForm->formType == FormType::Door)
+    if (pObject->baseForm && pObject->baseForm->formType == FormType::Door)
     {
         auto remotePreActivationState = static_cast<TESObjectREFR::OpenState>(acMessage.PreActivationOpenState);
         TESObjectREFR::OpenState localState = pObject->GetOpenState();

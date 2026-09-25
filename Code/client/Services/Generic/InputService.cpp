@@ -138,10 +138,12 @@ uint32_t GetCefModifiers(uint16_t aVirtualKey)
     return modifiers;
 }
 
-// remember to update this when updating toggle keys
+// F2 is the only key that opens the multiplayer menu. Right Ctrl used to be an
+// alias for it; it is gone because a second binding is a second thing to
+// support, and because right Ctrl is a key players already use for other mods.
 bool IsToggleKey(int aKey) noexcept
 {
-    return aKey == VK_RCONTROL || aKey == VK_F2;
+    return aKey == VK_F2;
 }
 
 bool IsDisableKey(int aKey) noexcept
@@ -189,7 +191,8 @@ void SetUIActive(OverlayService& aOverlay, auto apRenderer, bool aActive)
 
     // Ensures the game is actually loaded, in case the initial event was sent too early
     aOverlay.SetVersion(BUILD_COMMIT);
-    aOverlay.GetOverlayApp()->ExecuteAsync("enterGame");
+    if (auto* pApp = aOverlay.GetOverlayApp())
+        pApp->ExecuteAsync("enterGame");
 
     apRenderer->SetCursorVisible(aActive);
 

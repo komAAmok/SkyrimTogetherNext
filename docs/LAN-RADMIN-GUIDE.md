@@ -64,7 +64,7 @@ BSAnimationGraphManager 等成员整体偏移 8 字节),因此客户端按目标
      (兼容 1.5.97 的 SKSE 2.0.20 与 1.6.x/1.7.x 的 SKSE);
    - **ST 启动器**:通过游戏根目录的 `SkyrimTogether.exe` 启动。
 3. 房主在 Radmin LAN 中查看自己的 Radmin IP(形如 `26.x.x.x`)。
-4. 进入游戏后按 **F2 或 右Ctrl** 打开 Together 菜单,服务器地址填
+4. 进入游戏后按 **F2** 打开 Together 菜单(F2 是唯一的联机快捷键),服务器地址填
    `<房主Radmin IP>:10578`,输入服务器密码(如有)后连接。
 
 ## 常见问题

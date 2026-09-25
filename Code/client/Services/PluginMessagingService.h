@@ -9,6 +9,11 @@
 
 #include <TiltedCore/Stl.hpp>
 
+// Components.h brings the registry and the component types the proxy-mapping
+// observers are written against; the service is compiled into the client, where
+// that header is the normal way to reach them.
+#include <Components.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -60,13 +65,30 @@ public:
     [[nodiscard]] STRPM::Result RegisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept;
     [[nodiscard]] STRPM::Result UnregisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept;
 
+    // The facade owns the same pair and invokes it from its own Log(); the
+    // framework does the same for the diagnostics it produces itself, so a plugin
+    // that installed one is not left with a callback that never fires.
     void SetLogCallback(STRPM::LogCallback aCallback, void* apUserData) noexcept;
+    void Log(const char* acpMessage) noexcept;
 
     // ---- framework side -----------------------------------------------------
 
     void OnPluginMessage(const NotifyPluginMessaging& acMessage) noexcept;
 
 private:
+    // The proxy mapping a plugin needs is the FormIdComponent of the entity that
+    // carries a remote player's PlayerComponent. These two observers are the only
+    // places that mapping appears and disappears, so the mapping events are fired
+    // from them rather than left for the plugin to poll for.
+    void OnPlayerComponentAdded(entt::registry& aRegistry, entt::entity aEntity) noexcept;
+    void OnPlayerComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept;
+
+    // Delivers one mapping event to every registered listener. Collects first and
+    // calls after the lock is dropped, for the same reason OnPluginMessage does: a
+    // listener that calls back into the service would otherwise deadlock.
+    void FireProxyMapping(STRPM::ProxyMappingEventType aType, STRPM::ConnectionID aConnectionId,
+                          STRPM::ProxyFormID aOldFormId, STRPM::ProxyFormID aNewFormId) noexcept;
+
     PluginMessagingService() = default;
     ~PluginMessagingService() = default;
 
@@ -107,6 +129,11 @@ private:
     };
 
     TiltedPhoques::Vector<MappingListener> m_mappingListeners;
+
+    // Kept so Shutdown() can disconnect them: the service is a singleton that
+    // outlives the World whose registry they point at.
+    entt::scoped_connection m_playerAddedConnection;
+    entt::scoped_connection m_playerRemovedConnection;
 
     World* m_pWorld{ nullptr };
     std::uint64_t m_nextHandle{ 1 };

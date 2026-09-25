@@ -31,10 +31,62 @@ PluginMessagingService& PluginMessagingService::Get() noexcept
 void PluginMessagingService::Initialize(World& aWorld) noexcept
 {
     m_pWorld = &aWorld;
+
+    // A peer's proxy is the FormIdComponent of the entity that carries its
+    // PlayerComponent. Registering here is what makes the mapping events below
+    // possible at all - without it a plugin that asked to be told about proxies
+    // was never called, and had to poll ResolveProxy on every payload.
+    m_playerAddedConnection = aWorld.on_construct<PlayerComponent>().connect<&PluginMessagingService::OnPlayerComponentAdded>(this);
+    m_playerRemovedConnection = aWorld.on_destroy<PlayerComponent>().connect<&PluginMessagingService::OnPlayerComponentRemoved>(this);
+}
+
+void PluginMessagingService::OnPlayerComponentAdded(entt::registry& aRegistry, entt::entity aEntity) noexcept
+{
+    const auto* pPlayer = aRegistry.try_get<PlayerComponent>(aEntity);
+    const auto* pFormId = aRegistry.try_get<FormIdComponent>(aEntity);
+    if (!pPlayer || !pFormId || pFormId->Id == 0)
+        return;
+
+    FireProxyMapping(STRPM::ProxyMappingEventType::kAdded, pPlayer->Id, STRPM::kInvalidProxyFormID, pFormId->Id);
+}
+
+void PluginMessagingService::OnPlayerComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept
+{
+    const auto* pPlayer = aRegistry.try_get<PlayerComponent>(aEntity);
+    const auto* pFormId = aRegistry.try_get<FormIdComponent>(aEntity);
+    if (!pPlayer || !pFormId)
+        return;
+
+    FireProxyMapping(STRPM::ProxyMappingEventType::kRemoved, pPlayer->Id, pFormId->Id, STRPM::kInvalidProxyFormID);
+}
+
+void PluginMessagingService::FireProxyMapping(STRPM::ProxyMappingEventType aType, STRPM::ConnectionID aConnectionId,
+                                              STRPM::ProxyFormID aOldFormId, STRPM::ProxyFormID aNewFormId) noexcept
+{
+    STRPM::ProxyMappingEvent event{};
+    event.type = aType;
+    event.connectionID = aConnectionId;
+    event.oldFormID = aOldFormId;
+    event.newFormID = aNewFormId;
+
+    TiltedPhoques::Vector<MappingListener> listeners;
+    {
+        std::scoped_lock lock(g_pluginMessagingMutex);
+        listeners = m_mappingListeners;
+    }
+
+    for (const auto& listener : listeners)
+        listener.Callback(&event, listener.UserData);
 }
 
 void PluginMessagingService::Shutdown() noexcept
 {
+    // Disconnected before the registry is touched: the World this points at is
+    // being destroyed, and an observer that outlived it would be called through
+    // a dangling pointer.
+    m_playerAddedConnection.disconnect();
+    m_playerRemovedConnection.disconnect();
+
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_listeners.clear();
     m_channels.clear();
@@ -191,6 +243,11 @@ STRPM::Result PluginMessagingService::SetLocalDisplayName(const char* acpDisplay
     if (!acpDisplayName)
         return STRPM::Result::kInvalidArgument;
 
+    // Accepted and remembered, but deliberately not put on the wire: the name
+    // other players see for a sender is the one the server authenticated at
+    // login (NotifyPluginMessaging::SenderDisplayName, filled from
+    // Player::GetUsername). Letting a plugin set it would let any plugin claim
+    // to speak as somebody else.
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_localDisplayName = acpDisplayName;
     return STRPM::Result::kOk;
@@ -201,6 +258,26 @@ void PluginMessagingService::SetLogCallback(STRPM::LogCallback aCallback, void* 
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_logCallback = aCallback;
     m_logUserData = apUserData;
+}
+
+void PluginMessagingService::Log(const char* acpMessage) noexcept
+{
+    if (!acpMessage)
+        return;
+
+    // Copied out under the lock and called after it is dropped: the callback is
+    // plugin code, and a plugin that logs from inside it would otherwise
+    // deadlock on a non-recursive mutex.
+    STRPM::LogCallback callback = nullptr;
+    void* pUserData = nullptr;
+    {
+        std::scoped_lock lock(g_pluginMessagingMutex);
+        callback = m_logCallback;
+        pUserData = m_logUserData;
+    }
+
+    if (callback)
+        callback(acpMessage, pUserData);
 }
 
 
@@ -276,10 +353,16 @@ STRPM::Result PluginMessagingService::UnregisterProxyMappingListener(STRPM::Prox
 void PluginMessagingService::OnPluginMessage(const NotifyPluginMessaging& acMessage) noexcept
 {
     if (acMessage.Channel.empty() || acMessage.Channel.size() > STRPM::kMaxChannelLength)
+    {
+        Log("dropped a plugin payload with an empty or over-long channel");
         return;
+    }
 
     if (acMessage.PluginData.size() > STRPM::kMaxPayloadBytes)
+    {
+        Log("dropped a plugin payload larger than the contract allows");
         return;
+    }
 
     STRPM::Sender sender{};
     sender.connectionID = acMessage.SenderPlayerId;

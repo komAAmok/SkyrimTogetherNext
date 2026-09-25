@@ -212,7 +212,13 @@ void PlayerService::RunRespawnUpdates() noexcept
 
     static bool s_startTimer = false;
 
+    // Runs every frame from OnUpdate, including while a save is loading and on
+    // the main menu, where there is no player yet. This file already checks the
+    // same pointer on another path; these two did not.
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
     if (!pPlayer->actorState.IsBleedingOut())
     {
         m_cachedMainSpellId = pPlayer->magicItems[0] ? pPlayer->magicItems[0]->formID : 0;
@@ -300,7 +306,8 @@ void PlayerService::RunDifficultyUpdates() const noexcept
     if (!m_transport.IsConnected())
         return;
 
-    PlayerCharacter::Get()->SetDifficulty(m_serverDifficulty);
+    if (auto* pPlayer = PlayerCharacter::Get())
+        pPlayer->SetDifficulty(m_serverDifficulty);
 }
 
 void PlayerService::RunLevelUpdates() const noexcept
@@ -316,9 +323,16 @@ void PlayerService::RunLevelUpdates() const noexcept
 
     lastSendTimePoint = now;
 
-    static uint16_t oldLevel = PlayerCharacter::Get()->GetLevel();
+    auto* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
 
-    uint16_t newLevel = PlayerCharacter::Get()->GetLevel();
+    // Deliberately a function-local static: the first observation has to come
+    // from the game rather than from a literal, or the first level-up after a
+    // load looks like a change and is sent as one.
+    static uint16_t oldLevel = pPlayer->GetLevel();
+
+    const uint16_t newLevel = pPlayer->GetLevel();
     if (newLevel != oldLevel)
     {
         PlayerLevelRequest request{};
@@ -343,7 +357,7 @@ void PlayerService::RunBeastFormDetection() const noexcept
     lastSendTimePoint = now;
 
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
-    if (!pPlayer->race)
+    if (!pPlayer || !pPlayer->race)
         return;
 
     if (pPlayer->race->formID == lastRaceFormID)

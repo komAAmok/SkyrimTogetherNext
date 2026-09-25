@@ -174,29 +174,36 @@ void DebugService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     }
 
 
-    // F3 is deliberately outside the IS_MASTER guard below: the debug menu
-    // bar still has the Helpers/Debuggers/Misc entries in a release build,
-    // only the individual views are cut. Logged because reaching this line at
-    // all proves UpdateEvent is alive on 1.5.97 - it was not before the
-    // WM_TIMER driver, and a silent toggle made that indistinguishable from
-    // the key never arriving.
+// F3 used to toggle the debug menu bar. F2 is now the only in-game key, so
+// this is disabled in every configuration - the same treatment F6/F7/F8
+// already had. The reason is the one in the block below: a shortcut that
+// fires on a stray keypress is a support burden, not a feature.
+//
+// m_showDebugStuff is still settable from the overlay page through the
+// "toggleDebugUI" binding (OverlayClient::ProcessToggleDebugUI). That is the
+// only writer left, and the shipped page does not call it, so in practice the
+// menu bar below now stays off unless that binding is invoked deliberately.
+// Nothing below became unreachable code - it became opt-in.
+//
+// This block also used to be the proof that UpdateEvent is alive on 1.5.97,
+// because it logged on every toggle. That job no longer needs a keypress:
+// "vm tick heartbeat", "main loop heartbeat", "timer-driven update heartbeat"
+// and "transport pump heartbeat" all report it unconditionally.
+#if 0
     if (GetAsyncKeyState(VK_F3) & 0x01)
     {
         m_showDebugStuff = !m_showDebugStuff;
-
-        // Reaching this line at all is the answer we want: it means UpdateEvent
-        // is firing, which is exactly what used to be broken on 1.5.97. Whether
-        // the menu then paints is reported separately by OnDraw.
         spdlog::info("debug menu toggled: {}", m_showDebugStuff);
     }
+#endif
 
 // F6/F7/F8 are development shortcuts: F6 dials 127.0.0.1:10578 directly, F7
 // creates or leaves a party, F8's body is commented out and does nothing.
-// Online play is defined by F2 (menu) and F3 (debug bar) only, so these stay
-// compiled out in every configuration rather than only in a release build -
-// IS_MASTER comes from the branch name, which meant any non-main build turned
-// a stray keypress into a connect attempt. The bodies are kept for whoever
-// needs them again; flip this to 1 rather than deleting the block.
+// F2 is the only in-game key, so these stay compiled out in every
+// configuration rather than only in a release build - IS_MASTER comes from the
+// branch name, which meant any non-main build turned a stray keypress into a
+// connect attempt. The bodies are kept for whoever needs them again; flip this
+// to 1 rather than deleting the block.
 #if 0
     static std::atomic<bool> s_f8Pressed = false;
     static std::atomic<bool> s_f7Pressed = false;

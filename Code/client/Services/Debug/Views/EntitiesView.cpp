@@ -66,10 +66,13 @@ void DebugService::DisplayEntities() noexcept
 
         char name[256];
 
-        if (!pActor->baseForm)
-            strncpy_s(name, "UNNAMED", sizeof(name));
-
-        sprintf_s(name, std::size(name), "%s (%x)", pActor->baseForm->GetName(), formComponent.Id);
+        // The old guard wrote "UNNAMED" into name and the sprintf below then
+        // overwrote it unconditionally, so the check did nothing and the deref
+        // happened anyway.
+        if (pActor->baseForm)
+            sprintf_s(name, std::size(name), "%s (%x)", pActor->baseForm->GetName(), formComponent.Id);
+        else
+            sprintf_s(name, std::size(name), "UNNAMED (%x)", formComponent.Id);
 
         if (ImGui::Selectable(name, m_formId == formComponent.Id))
             m_formId = formComponent.Id;

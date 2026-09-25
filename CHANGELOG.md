@@ -7,9 +7,81 @@
 每个 tag(形如 `v1.0.20`)对应一个 Release,附上版本号相同的两个包——
 客户端 mod 与专用服务器。逐条提交的历史见 `git log` 与各次 PR。
 
-## 未发布(2026-09-26)
+## v1.1.2(2026-09-26)
 
-第四次审计,以及**一次真实缺陷的回滚**。
+第四轮审计:全仓复查 + 插件层专项,以及**一次真实缺陷的回滚**。
+
+### 稳定性修复(全部为可复现的空指针)
+
+- **服务端可被远程打崩**:同一连接上发第二次 `AuthenticationRequest` 时
+  `PlayerManager::Create` 返回 `nullptr`,而调用点直接解引用。已改为拒绝重复认证;
+- **`PlayerService` 三个每帧路径**在载入/主菜单(此时没有玩家)解引用空玩家指针:
+  `RunRespawnUpdates`、`RunBeastFormDetection`、`RunDifficultyUpdates`;同文件另两处
+  本来就判空,这三处漏了;
+- **`DiscoveryService::DetectGridCellChange`**:`GetParentCellEx()` 与坐标回退
+  **都**可能为空,而下一行直接读 `pCell->formID`。同文件另外两处对同一个调用都判了空;
+- **`CalculateHealthPercentage`**:每帧传入 `PlayerCharacter::Get()`,函数内部不判空;
+- **`WeatherService`** 三处 `Sky::Get()->` 未判空(其中一处由服务端消息驱动),
+  同文件另外两处判了空;
+- **`OverlayService`/`PartyService`/`InputService` 五处 `GetOverlayApp()->`**:
+  该指针在 `Create()` 之前为空,而组队事件正是连接后立刻会到的;
+- **`baseForm` 空指针**:仓库自己的调试视图里就写着 `if (!pRefr->baseForm)`,
+  但 12 处日志/分支直接解引用它(含每帧的裸体检查与网络驱动的物体/魔法/角色路径);
+- **`EntitiesView` 一个死守卫**:先写 `"UNNAMED"` 又在下一行无条件 `sprintf_s` 覆盖它,
+  等于没判。
+
+### 插件层(专项)
+
+- **ProxyResolver 的映射监听器从来没被调用过**:`OStimTogether` 与 `IEDSyncTogether`
+  都注册了 `registerListener`,而框架只把回调存起来、从不触发;OStim 的反向映射
+  (`_connectionByProxy`)因此永远是空的,而它的注释写着这条映射是 "Required"。
+  现在由 `on_construct/on_destroy<PlayerComponent>` 触发 `kAdded`/`kRemoved`
+  (`FormIdComponent` 每实体只写一次、拆除时移除,所以这两类事件就是全部迁移);
+- **`setLogCallback` 存了不用**:插件装上的回调永远不会被调用。现在框架自己的
+  插件层诊断(丢弃超长 channel / 超限载荷)会通过它发出,且**在锁外**调用;
+- **`setLocalDisplayName` 存了不用**:如实注明这是**有意不上线**的——
+  发送者显示名只能来自服务端认证过的登录名,否则任何插件都能冒充别人;
+- **服务端限流桶泄漏**:`m_buckets` 以单调递增、永不复用的 `PlayerId` 为键且从不清理,
+  长开的服务器会一直涨。现在随玩家行一起移除。
+
+### 快捷键:只保留 F2
+
+按需求把**除 F2 以外的所有游戏内快捷键**注释或禁用:
+
+| 键 | 原用途 | 处理 |
+|---|---|---|
+| **F2** | 联机菜单 | **保留**(唯一) |
+| 右 Ctrl | F2 的别名 | **移除**(第二个绑定=第二个要维护的东西) |
+| F3 | 调试菜单栏 | `#if 0`;`toggleDebugUI` 绑定仍在,变成纯 opt-in |
+| F4 | 揭示其他玩家 | 移除按键;`reveal players` 按钮照常工作 |
+| F6 | Discord 覆盖层解锁 | 置于 `if (false && …)`,并在注释里写明重新启用覆盖层时不得复活 |
+| F7/F8 | 开发快捷方式 | 保持 `#if 0` |
+
+### 版本支持(1.5.x / 1.6.x / 1.7.x)
+
+- 复核 `VersionDb` 三条加载路径:format 1(1.5.x,SE id 经 ae-to-se 映射表翻译)、
+  format 2(1.6.x AE)、format 5(1.7.99+ 密集偏移数组);
+- **34 个地址库文件还原**(见上),1.5.x 的 10 个 `.bin` + 10 张映射表、
+  1.6.x/1.7.x 的 13 个 `versionlib` 全部在位;
+- `GamePatch::At` 的按版本偏移与 `legacyMeasuredOn` 前缀校验保持原样(1.5.97 之外的
+  1.5.x 不会被套用 1.5.97 的偏移)。
+
+### 上一轮遗留
+
+- **修复地址库文件误删**:上一个提交在搬移 `STRPluginMessagingAPI.ini` 时,
+  连带删掉了 `GameFiles/Skyrim/SKSE/Plugins/` 下**全部 34 个**地址库文件
+  (`version-*.bin` 10 个、`versionlib-*.bin` 13 个、`versionlib-ae-to-se-*.map` 11 个)。
+  打包路径直接吃 `GameFiles/Skyrim/`,少了它们玩家一启动就会"地址库失败"并退出。
+  **34 个文件已按删除前的 blob 哈希逐一还原**;
+- **`#if 0` 逐块判读**:22 处 → **删 15 留 7**。留下的 7 处都是"改 0 为 1"型开关
+  (F6/F7/F8、旧战斗瞄准 ×3、地图菜单、imgui 上游 ×2),判据是**块外有没有为它留位置**;
+- **debug 天气开关从未生效**:`Sky` 三个 hook 里的 `s_shouldUpdateWeather` 判据
+  全在 `#if 0` 里,开关写了个没人读的变量。判据已启用(该变量只由 debug 窗口写,
+  而该窗口在 release 版被裁掉,所以对发布版无影响);
+- **EF 哨兵结论写进代码**:查清 SKSE 插件路径**本来就不需要** `_initterm_e` 哨兵
+  (SKSE 已先加载 EF,我们的 hook 装在其 thunk 之上),只补注释、不改逻辑;
+- **发布冻结解除**:`RELEASE-FREEZE.md` 删除,README 中英横幅同步移除;
+  `release.yml` 的 guard 保留(冻结文件仍是唯一开关)。
 
 - **修复地址库文件误删**:上一个提交在搬移 `STRPluginMessagingAPI.ini` 时,
   连带删掉了 `GameFiles/Skyrim/SKSE/Plugins/` 下**全部 34 个**地址库文件

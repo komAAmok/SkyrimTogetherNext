@@ -604,7 +604,8 @@ void Actor::EquipOutfit(bool aIsSleepOutfit) noexcept
         if (!pArmor)
             continue;
 
-        spdlog::debug(__FUNCTION__ ": equipping {:X} on actor {:X} {}", pArmor->formID, formID, baseForm->GetName());
+        spdlog::debug(__FUNCTION__ ": equipping {:X} on actor {:X} {}", pArmor->formID, formID,
+                      baseForm ? baseForm->GetName() : "<no base form>");
         pEquipManager->Equip(this, pArmor, nullptr, 1, nullptr, false, true, false, false);  
     }
 
@@ -1366,7 +1367,8 @@ bool Actor::IsSpeakingInScene()
     const bool isTalking = IsTalking(); 
     const bool isLeader = World::Get().GetPartyService().IsLeader(); // Helps distinguish logs in 2-party
 
-    spdlog::debug(__FUNCTION__ ": isSpeakingInScene {}, isTalking {}, voiceRecoveryTime {}, isLeader {}, formId {:X}, name {}", isSpeakingInScene, isTalking, GetVoiceRecoveryTime(), isLeader, formID, baseForm->GetName());
+    spdlog::debug(__FUNCTION__ ": isSpeakingInScene {}, isTalking {}, voiceRecoveryTime {}, isLeader {}, formId {:X}, name {}", isSpeakingInScene, isTalking, GetVoiceRecoveryTime(), isLeader, formID,
+                  baseForm ? baseForm->GetName() : "<no base form>");
 
     return isSpeakingInScene;
 }

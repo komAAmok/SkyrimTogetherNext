@@ -654,6 +654,11 @@ void GameServer::OnDisconnection(const ConnectionId_t aConnectionId, EDisconnect
 
         m_pWorld->GetDispatcher().update();
 
+        // Same lifetime as the player row: the messaging service keys its
+        // per-sender rate-limit buckets by PlayerId, which is handed out from a
+        // monotonic counter and never reused.
+        m_pWorld->GetPluginMessagingService().OnPlayerRemoved(pPlayer->GetId());
+
         m_pWorld->GetPlayerManager().Remove(pPlayer);
     }
 
@@ -963,7 +968,21 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
             responseList.ModList.push_back(entry);
         }
 
+        // Create() refuses a connection that already has a row, so a second
+        // AuthenticationRequest on the same connection - a retry, a duplicated
+        // packet, or a hostile client - returns null here. There is no
+        // "already authenticated" guard above, so without this the server
+        // dereferences it and dies; rejecting the duplicate is the correct
+        // answer either way.
         Player* pPlayer = m_pWorld->GetPlayerManager().Create(aConnectionId);
+        if (!pPlayer)
+        {
+            spdlog::warn("New player {:x} '{}' sent a second authentication request on a connection that already has a "
+                         "player; ignoring it",
+                         aConnectionId, remoteAddress);
+            return;
+        }
+
         pPlayer->SetEndpoint(remoteAddress);
         pPlayer->SetDiscordId(acRequest->DiscordId);
         pPlayer->SetUsername(std::move(acRequest->Username));

@@ -142,6 +142,12 @@ String GetCellName(const GameId& aWorldSpaceId, const GameId& aCellId) noexcept
 
 float CalculateHealthPercentage(Actor* apActor) noexcept
 {
+    // Its per-frame caller passes PlayerCharacter::Get(), which is null while a
+    // save is loading and on the main menu. The two other callers look the actor
+    // up from the world and already know it is there.
+    if (!apActor)
+        return 0.f;
+
     const float maxHealth = apActor->GetActorPermanentValue(ActorValueInfo::kHealth);
     const float tempModHealth = apActor->healthModifiers.temporaryModifier;
 
@@ -545,13 +551,22 @@ void OverlayService::OnNotifyPlayerHealthUpdate(const NotifyPlayerHealthUpdate& 
 
 void OverlayService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
 {
+    // The overlay app is created in Init(), so it is null for anything that
+    // arrives before the page exists - a party event right after connecting is
+    // the normal way to hit that. Reload() guards the same pointer; these two
+    // did not.
+    auto* pApp = GetOverlayApp();
+    if (!pApp)
+        return;
+
     if (acEvent.IsLeader)
-        m_world.GetOverlayService().GetOverlayApp()->ExecuteAsync("partyCreated");
+        pApp->ExecuteAsync("partyCreated");
 }
 
 void OverlayService::OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept
 {
-    m_world.GetOverlayService().GetOverlayApp()->ExecuteAsync("partyLeft");
+    if (auto* pApp = GetOverlayApp())
+        pApp->ExecuteAsync("partyLeft");
 }
 
 void OverlayService::RunDebugDataUpdates() noexcept

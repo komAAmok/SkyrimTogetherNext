@@ -2071,3 +2071,125 @@ python Code/plugins/tools/merge_fomod.py check           -> FOMOD OK (与 plugin
 > 那是一个独立的决定。
 
 
+
+---
+
+## 27. 2026-09-26 第二轮：插件层专项、空指针清扫、F2 唯一化、发布 v1.1.2
+
+§26 是同一场的上半段（F8 / `#if 0` / EF 哨兵 / 冻结解除）。这一段是**全仓复查 + 插件层
+专项**，判据是**新的一条**：**同一个指针在同一份文件里被判空过，就不该在别处被直接解引用。**
+
+### 27.1 服务端：一个可被远程打崩的空指针
+
+`GameServer::HandleAuthenticationRequest` 在版本、人数、SKSE/MO2、密码四道检查之后
+调 `PlayerManager::Create(aConnectionId)`。而 `Create` 是：
+
+```cpp
+const auto itor = m_players.find(aConnectionId);
+if (itor == std::end(m_players)) { ... return insertedItor.value().get(); }
+return nullptr;      // 这条连接已经有玩家行了
+```
+
+**没有任何"已认证"守卫**，所以同一条连接上的第二个 `AuthenticationRequest`（重试、
+重复包、或恶意客户端）会拿到 `nullptr`，紧接着 `pPlayer->SetEndpoint(...)` 就是空解引用。
+
+**验证**：`HandleAuthenticationRequest` 里四道检查都不拦重复请求；`m_messageHandlers`
+对 `AuthenticationRequest` 也没有前置条件。**修法**：判空并拒绝重复认证。
+
+### 27.2 插件层：注册了却永远不会被调用的两个回调
+
+这是本轮最重的一处，因为**两个随包发布的插件都依赖它**。
+
+| 接口 | 框架侧 | 插件侧 | 结论 |
+|---|---|---|---|
+| `registerListener`（ProxyResolver） | 只存进 `m_mappingListeners`，**从不触发** | `OStimTogether`（`STRPMTransport.cpp:246-259`）、`IEDSyncTogether`（`STRPMAdapter.cpp:132-142`）都注册了 | **真缺陷** |
+| `setLogCallback` | 只存，从不调用 | 只在接口结构里声明，无人调用 | 存而不用 |
+| `setLocalDisplayName` | 只存，从不读 | `OStimTogether` 真的调了 | 见 §27.3 |
+
+**为什么这是缺陷而不是"设计如此"**：OStimTogether 用它维护
+`_connectionByProxy` 反向映射，而它自己的注释写着这条映射是
+**"Required when the local OStim thread contains a dynamic STR proxy"**；
+IEDSyncTogether 则在注册成功后打印 `STRPM ProxyResolver listener registered`。
+两边都当它工作。
+
+**修法**：在 `PluginMessagingService::Initialize` 里挂
+`on_construct<PlayerComponent>` / `on_destroy<PlayerComponent>`，由它们触发
+`kAdded` / `kRemoved`。
+
+**为什么这两类事件就是全部迁移（不是猜的）**：查过 `FormIdComponent` 的全部写入点——
+`emplace_or_replace` 只在 `CharacterService.cpp:250`（实体创建时一次），
+移除只在 `:280`/`:887`（拆除时）。**一个实体的 proxy FormID 在它存活期间不会变**，
+所以 `kUpdated` 在这个框架里不可达，`kAdded`/`kRemoved` 覆盖了全部迁移。
+
+**回调在锁外调用**：与 `OnPluginMessage` 同一理由——插件若在自己的回调里回呼框架，
+非递归锁会死锁。`Shutdown()` 里**先断开 observer 再清表**，否则单例会对着已销毁的
+registry 被回调。
+
+### 27.3 `setLocalDisplayName`：**有意不上线**，已注明
+
+OStimTogether 会把自己的玩家名传进来。框架存了却不用——**这是对的**：
+`NotifyPluginMessaging::SenderDisplayName` 由服务端从 `Player::GetUsername()` 填，
+是**登录时认证过的名字**。若让插件改名，任何插件都能冒充别人。已把这条理由写进代码。
+
+### 27.4 空指针清扫（判据：同文件别处判过空）
+
+| 位置 | 问题 | 依据 |
+|---|---|---|
+| `PlayerService::RunRespawnUpdates` | `pPlayer->actorState.IsBleedingOut()` 不判空 | 同文件 `:309` 判过 |
+| `PlayerService::RunBeastFormDetection` | `pPlayer->race` 前不判 `pPlayer` | 同上 |
+| `PlayerService::RunDifficultyUpdates` | `PlayerCharacter::Get()->SetDifficulty` | 同上 |
+| `PlayerService::RunLevelUpdates` | `static uint16_t oldLevel = PlayerCharacter::Get()->GetLevel();` 静态初始化只在首帧跑一次，载入期首帧没有玩家 | 同上 |
+| `DiscoveryService::DetectGridCellChange` | `pCell` 经 `GetParentCellEx()` 与坐标回退**都可能为空**，下一行读 `pCell->formID` | 同文件 `:194` 对同一调用判过空 |
+| `CalculateHealthPercentage` | 每帧被传 `PlayerCharacter::Get()`，函数内不判 | 调用点 `:609` 是每帧路径 |
+| `WeatherService` ×3 | `Sky::Get()->`（`OnWeatherChange` 由服务端消息驱动） | 同文件 `:58`/`:148` 判过 |
+| `OverlayService` ×2、`PartyService` ×2、`InputService` ×1 | `GetOverlayApp()->`：该指针在 `Create()` 之前为空，而组队事件正是连接后立刻会到 | `OverlayService.cpp:224` 判过 |
+| `ObjectService` ×3 | `pObject->baseForm->formType` | `EntitiesView.cpp:69/110` 判过 `baseForm` |
+| `InventoryService`（每帧裸体检查）、`MagicService`、`CharacterService`、`Actor.cpp` | `baseForm->GetName()` | 同上 |
+| `EntitiesView` ×1 | **死守卫**：先写 `"UNNAMED"`，下一行无条件 `sprintf_s` 覆盖它 | 自己的代码 |
+
+`baseForm` **确实可为空**——这不是推测：仓库自己的调试视图里就写着
+`if (!pActor->baseForm)`（`EntitiesView.cpp:69`）与 `if (!pRefr || !pRefr->baseForm)`
+（`:110`）。同一份代码里两处判、12 处不判，只能有一边是错的。
+
+### 27.5 服务端限流桶：随玩家一起清理
+
+`PluginMessagingService::m_buckets` 以 `PlayerId` 为键，而 `PlayerId` 来自
+`GenerateId()` 的**单调递增原子计数**（`Player.cpp:4-10`）——**永不复用**。
+`AllowMessage` 只插入不删除，于是服务器开得越久这个 map 越大。
+已在 `GameServer::OnDisconnection` 的玩家行移除处一起清掉。
+
+### 27.6 快捷键：只保留 F2
+
+按需求把除 F2 外**所有游戏内快捷键**注释或禁用（逐条见 CHANGELOG 表格）。
+其中两条值得记：
+
+- **右 Ctrl 是 F2 的别名**（`IsToggleKey` 里的 `VK_RCONTROL`），已移除；
+  `docs/LAN-RADMIN-GUIDE.md:67` 同步改掉（文档里写着"F2 或 右Ctrl"）；
+- **F3 的注释里原先写着"F2 和 F3 是仅有的两个在线按键"**——本轮 F3 也关掉后
+  这句话变成错的，已一并改掉。
+
+F3 关掉后 `m_showDebugStuff` 只剩 `toggleDebugUI` 这一个写者（CEF 绑定），
+**调试菜单从"按键开"变成"纯 opt-in"**，代码没有被变成不可达——这一点写进了注释。
+
+### 27.7 复核用的命令（照抄）
+
+```powershell
+# 1. 服务端重复认证（代码路径：四道检查之后才是 Create）
+Select-String -Path Code\server\GameServer.cpp -Pattern 'PlayerManager\(\)\.Create' -Context 0,6
+
+# 2. 插件层两个回调是否真的被触发（应只剩 Initialize 里的注册 + FireProxyMapping 的调用）
+git grep -n 'm_mappingListeners' -- Code
+git grep -n 'm_logCallback' -- Code
+
+# 3. F2 唯一性：游戏内按键只应剩 F2（其余都在 #if 0 / if(false) 里）
+git grep -n 'GetAsyncKeyState' -- Code
+git grep -n 'IsToggleKey' -- Code
+
+# 4. 本机跑插件闸门（plugins.yml 的全部内容，5/5）
+python Code/plugins/tools/strpm_contract.py check
+python Code/plugins/tools/plugin_snapshot.py verify
+python Code/plugins/tools/check_exports.py
+python Code/plugins/tools/check_transport_compat.py
+python Code/plugins/tools/merge_fomod.py check
+```
+

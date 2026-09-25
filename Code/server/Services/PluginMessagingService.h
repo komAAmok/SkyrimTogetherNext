@@ -28,6 +28,12 @@ class PluginMessagingService
 public:
     PluginMessagingService(World& aWorld, entt::dispatcher& aDispatcher);
 
+    // Drops the sender's token bucket. PlayerId comes from a monotonic counter
+    // and is never reused, so a bucket left behind is never read again - without
+    // this the map grows for the lifetime of the server, one entry per player
+    // who ever connected.
+    void OnPlayerRemoved(std::uint32_t aPlayerId) noexcept;
+
 protected:
     void OnPluginMessage(const PacketEvent<PluginMessagingRequest>& acMessage) noexcept;
 

@@ -132,7 +132,7 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
     {
         spdlog::error(
             __FUNCTION__ ": failed to find server id, actorId: {:X}, isLeader: {}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}, name: {}",
-            acEvent.ActorId, isLeader, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId, pActor->baseForm->GetName());
+            acEvent.ActorId, isLeader, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
         return;
     }
 
@@ -142,7 +142,7 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
             __FUNCTION__ ": WaitingForAssignment, don't send equipment changes actorId: {:X}, serverId {:X}, isLeader: {}, "
                          "item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}, name: {}",
             acEvent.ActorId, serverIdRes.value(), isLeader, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId,
-            pActor->baseForm->GetName());
+            pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
         return;
     }
 
@@ -168,7 +168,7 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
     spdlog::info(
         __FUNCTION__ ": sending equipment change, actorId: {:X}, serverId {:X}, isLeader: {}, item: {:X}, count: {}, name: {}",
-        acEvent.ActorId, request.ServerId, isLeader, acEvent.ItemId, acEvent.Count, pActor->baseForm->GetName());
+        acEvent.ActorId, request.ServerId, isLeader, acEvent.ItemId, acEvent.Count, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
 }
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
@@ -380,28 +380,33 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
         if (pActor->GetExtension()->IsPlayer())
             continue;
 
+        // baseForm is not resolved for every actor this loop can reach - the
+        // debug views guard the same field before reading the name - and this
+        // runs once per frame. Read it once, safely, for the log lines below.
+        const char* pActorName = pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>";
+
         if (pActor->GetExtension()->nakedDeadline == cNoDeadline)
             continue;
 
         if (pActor->IsDead() || !pActor->ShouldWearBodyPiece())
         {
             pActor->GetExtension()->nakedDeadline = cNoDeadline;
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check is irrelevant {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check is irrelevant {}", pActor->formID, pActorName);
             continue; 
         }
 
         if (now < pActor->GetExtension()->nakedDeadline + cDelayAfterAssignment)
         {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} with naked check deadline {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::debug(__FUNCTION__ ": actorId {:X} with naked check deadline {}", pActor->formID, pActorName);
             continue; 
         }
 
         else
         {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActorName);
             if (m_world.try_get<WaitingForAssignmentComponent>(entity))
             {
-                spdlog::debug(__FUNCTION__ ": but still WaitingForAssignment", pActor->formID, pActor->baseForm->GetName());
+                spdlog::debug(__FUNCTION__ ": but still WaitingForAssignment", pActor->formID, pActorName);
                 pActor->GetExtension()->SetNakedDeadline();
                 continue;
             }
@@ -411,7 +416,7 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
 
         if (pActor->GetExtension()->IsRemote())
         {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActorName);
             continue;
         }
 
@@ -420,7 +425,7 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
         TESNPC* pBase = Cast<TESNPC>(pActor->baseForm);
         if (!pActor->IsWearingBodyPiece() && pBase)
         {
-            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {}", pActor->formID, pActorName);
             pActor->EquipOutfit();
         }
     }

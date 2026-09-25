@@ -545,8 +545,8 @@ void MagicService::ApplyQueuedEffects() noexcept
         AddTargetEvent target = m_queuedEffects.front().Target();
         Actor* pCaster = Cast<Actor>(TESForm::GetById(target.CasterID));
         Actor* pTarget = Cast<Actor>(TESForm::GetById(target.TargetID));
-        auto pTargetName = !pTarget ? "" : pTarget->baseForm->GetName();
-        auto pCasterName = !pCaster ? "" : pCaster->baseForm->GetName();
+        auto pTargetName = (pTarget && pTarget->baseForm) ? pTarget->baseForm->GetName() : "";
+        auto pCasterName = (pCaster && pCaster->baseForm) ? pCaster->baseForm->GetName() : "";
 
         // Check for and skip expired (timed out) events, that Actor isn't likely to exist anymore.
         if (m_queuedEffects.front().Expired())
@@ -609,8 +609,8 @@ void MagicService::ApplyQueuedEffects() noexcept
         NotifyAddTarget target = m_queuedRemoteEffects.front().Target();
         Actor* pTarget = Utils::GetByServerId<Actor>(target.TargetId); 
         Actor* pCaster = Utils::GetByServerId<Actor>(target.CasterId); 
-        auto pTargetName = !pTarget ? "" : pTarget->baseForm->GetName();
-        auto pCasterName = !pCaster ? "" : pCaster->baseForm->GetName(); 
+        auto pTargetName = (pTarget && pTarget->baseForm) ? pTarget->baseForm->GetName() : "";
+        auto pCasterName = (pCaster && pCaster->baseForm) ? pCaster->baseForm->GetName() : ""; 
 
         if (m_queuedRemoteEffects.front().Expired())
             MagicQueue::Spdlog("{}: removing expired NotifyAddTarget event from queue: caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})",
@@ -654,7 +654,13 @@ void MagicService::UpdateRevealOtherPlayersEffect(bool aForceTrigger) noexcept
     static std::chrono::steady_clock::time_point revealStartTimePoint;
     static std::chrono::steady_clock::time_point lastSendTimePoint;
 
-    const bool shouldActivate = aForceTrigger || GetAsyncKeyState(VK_F4) & 0x01;
+    // F4 used to be a shortcut for revealing other players. F2 is the only
+    // in-game key now, so the key check is gone. The feature itself is
+    // untouched: the overlay's own "reveal players" button reaches this
+    // through StartRevealingOtherPlayers(), which passes aForceTrigger.
+    //
+    // The old form was: aForceTrigger || (GetAsyncKeyState(VK_F4) & 0x01)
+    const bool shouldActivate = aForceTrigger;
 
     if (shouldActivate && !m_revealingOtherPlayers)
     {

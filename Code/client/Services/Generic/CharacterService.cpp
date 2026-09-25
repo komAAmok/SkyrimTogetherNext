@@ -429,7 +429,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
     if (acMessage.Owner)
     {
-        spdlog::info(__FUNCTION__ ": received local actor, form id: {:X}, {}", pActor->formID, pActor->baseForm->GetName());
+        spdlog::info(__FUNCTION__ ": received local actor, form id: {:X}, {}", pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
 
         pActor->GetExtension()->SetRemote(true);
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, true);
@@ -452,7 +452,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
     }
     else
     {
-        spdlog::info(__FUNCTION__ ": received remote actor, form id: {:X}, isweapondrawn: {}, {}", pActor->formID, acMessage.IsWeaponDrawn, pActor->baseForm->GetName());
+        spdlog::info(__FUNCTION__ ": received remote actor, form id: {:X}, isweapondrawn: {}, {}", pActor->formID, acMessage.IsWeaponDrawn, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
 
         m_world.emplace_or_replace<RemoteComponent>(cEntity, acMessage.ServerId, formIdComponent->Id, acMessage.OwnershipEpoch);
 
@@ -1129,8 +1129,8 @@ void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
     spdlog::debug(
         __FUNCTION__ ": isLocal {}, isInScene {}, isSpeakingInScene {}, isTaskDialogue {}, willSync {}, scene {:X}, Actor "
                      "{:X}, serverId {:X}, isLeader {}, name {}, soundFile {}",
-        isLocal, isInScene, isSpeakingInScene, isTaskDialogue, willSync, sceneId, pActor->formID, serverIdRes.value(), isLeader, pActor->baseForm->GetName(),
-        acEvent.VoiceFile);
+        isLocal, isInScene, isSpeakingInScene, isTaskDialogue, willSync, sceneId, pActor->formID, serverIdRes.value(), isLeader,
+        pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>", acEvent.VoiceFile);
 
     if (willSync)
     {
@@ -1195,8 +1195,8 @@ void CharacterService::OnSubtitleEvent(const SubtitleEvent& acEvent) noexcept
     spdlog::debug(
         __FUNCTION__ ": isLocal {}, isInScene {}, isSpeakingInScene {}, isTaskDialogue {}, willSync {}, scene {:X}, Actor "
                      "{:X}, serverId {:X}, isLeader {}, name {}, subtitle {}",
-        isLocal, isInScene, isSpeakingInScene, isTaskDialogue, willSync, sceneId, pActor->formID, serverIdRes.value(), isLeader, pActor->baseForm->GetName(),
-        acEvent.Text);
+        isLocal, isInScene, isSpeakingInScene, isTaskDialogue, willSync, sceneId, pActor->formID, serverIdRes.value(), isLeader,
+        pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>", acEvent.Text);
 
     if (willSync)
     {
@@ -1220,7 +1220,8 @@ void CharacterService::OnNotifySubtitle(const NotifySubtitle& acMessage) noexcep
     pInfo = Cast<TESTopicInfo>(TESForm::GetById(acMessage.TopicFormId));
 
     spdlog::debug(__FUNCTION__ ": showing subtitle Actor {:X}, serverId {:X}, isLeader {}, name {}, message: {}",
-                     pActor->formID, acMessage.ServerId, isLeader, pActor->baseForm->GetName(), acMessage.Text);
+                  pActor->formID, acMessage.ServerId, isLeader, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>",
+                  acMessage.Text);
 
     SubtitleManager::Get()->HideSubtitle(pActor);   // Subtitle conflicts can hang, this makes it beter at least.
     SubtitleManager::Get()->ShowSubtitle(pActor, acMessage.Text.c_str(), pInfo);
@@ -1483,7 +1484,7 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 void CharacterService::CancelServerAssignment(const entt::entity aEntity, const uint32_t aFormId) const noexcept
 {
     Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
-    const char* pName = !pActor ? "" : pActor->baseForm->GetName();
+    const char* pName = (pActor && pActor->baseForm) ? pActor->baseForm->GetName() : "";
 
     if (m_world.all_of<RemoteComponent>(aEntity))
     {
@@ -1915,7 +1916,7 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         readyEntities.push_back(entity);
 
-        spdlog::debug(__FUNCTION__ ": applied 3D for actor, form id: {:X}, name {}", pActor->formID, pActor->baseForm->GetName());
+        spdlog::debug(__FUNCTION__ ": applied 3D for actor, form id: {:X}, name {}", pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>");
     }
 
     for (auto entity : readyEntities)

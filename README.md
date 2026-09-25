@@ -99,6 +99,7 @@
 
 | 版本 | 日期 | 主要内容 |
 | --- | --- | --- |
+| **1.1.2** | 2026-09-26 | 四轮审计 + 插件层专项:修复服务端可被远程打崩(重复认证请求空指针)、`PlayerService`/`DiscoveryService`/`WeatherService`/`OverlayService`/`CalculateHealthPercentage` 等 20 余处空指针;插件层 **ProxyResolver 映射监听器从来没被触发过**(`OStimTogether`/`IEDSyncTogether` 都注册了),现已由 `PlayerComponent` 构造/销毁触发;`setLogCallback` 存而不用、服务端限流桶泄漏也已修;**快捷键只保留 F2**(右 Ctrl/F3/F4/F6/F7/F8 全部注释或禁用);还原被误删的 34 个地址库文件(1.5.x 与 1.6.x/1.7.x 全部在位) |
 | **1.1.1** | 2026-09-25 | 三轮审计收尾:修复 `VisitInteriorCell` 在整个 load 期间对空 cell 的链式解引用、`Actor::Create` 对玩家的连续三次解引用、`DebugService` 未判空就用的 actor;并修正 `Actor::Create` 的判空顺序(原会把已分配的 actor 泄漏) |
 | **1.1.0** | 2026-09-25 | **性能与同步**:插值改 Catmull-Rom 三次曲线 + 有界外推(消除远端玩家的折线感与丢包时的冻结—跳变);帧循环间隔 16→8 ms,更新率约 32→64/s;移动更新由 O(更新数×实体数) 降为线性;修复重复生成同一远程玩家引发的引擎空指针崩溃;全仓库 `GetById` 解引用审计,修复 15 处无守卫解引用;**自部署「假失败」修复**:改为内容比对,mtime 仅作前置过滤,删除从未存在的 `.str_old` 清理(它把错误码污染成 `error 2`);定时器量化定量(请求 16 ms 实为 31.25 ms) |
 | 1.0.41 | 2026-09-23 | FOMOD 安装引导中英双语 + 精简;修掉发布包内中文变乱码(盖章版本号时未指定编码) |

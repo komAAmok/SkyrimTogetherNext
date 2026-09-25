@@ -135,7 +135,11 @@ void DiscordService::WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_SYSKEYUP:
     {
         bool down = ((msg == WM_KEYDOWN) || (msg == WM_SYSKEYDOWN));
-        if (down && wParam == VK_F6)
+        // F2 is the only in-game key. This F6 binding is unreachable today
+        // because DISCORD_OVERLAY_ENABLE is 0, and it must stay that way if
+        // the overlay is ever switched back on: pick a key the game does not
+        // use, or drive the unlock from the overlay page instead.
+        if (false && down && wParam == VK_F6)
         {
             m_pOverlayMgr->set_locked(m_pOverlayMgr, false, nullptr, [](void*, EDiscordResult result) { spdlog::info("unlocking discord overlay ({})", static_cast<int>(result)); });
         }

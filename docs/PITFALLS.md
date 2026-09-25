@@ -262,6 +262,8 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `3bf0294a` | v1.0.39 | **每帧开销导致加载慢/人物卡顿**（§16）：`WndProc` 每条消息注入鼠标位置（含自制 16ms `WM_TIMER`）、`BehaviorVar::Patch` 每角色刷全部动画变量（载入期 **501 行/秒**）；另删无生产者的 `ActorSpawnedEvent`；**F6/F7/F8 全配置裁掉，只留 F2/F3** |
 | `2635ea36` | v1.0.41 | **FOMOD 引导中英双语 + 精简**（§18）：FOMOD 没有 i18n，改用条件旗标 `lang` + `<visible>/<flagDependency>` 门控两条语言分支；顺带修掉**发布包里的中文会变乱码**——`release.yml` 盖章版本号时 `Set-Content` 未指定编码，PS 5.1 按 ANSI 往返 |
 | `280c0518` | v1.0.40 | **hook 冲突真身是 EngineFixes**（§17）：全日志只有 1 处冲突（原文误作 2 处），`0xc02260`=id 68115=`GameHeap::Allocate`；`HookAudit` 只认 `e9`，跟不下 `ff 25` thunk 才报"无人可跟"——扩成 `BranchTarget` 并点名模块。另记 SKSE 路径缺 `_initterm_e` 哨兵（§17.4，待办） |
+| `9ad19de2` | **未打 tag** | **CI 自 `49378750` 起全红，且不会自愈**（§24.1）：`dc77b99b` 把 `.vcpkg/downloads` 加进缓存路径，而"Set up vcpkg"的守卫判的是**目录存在**——缓存命中即创建该目录 → 跳过 clone → 下一行跑不存在的 `bootstrap-vcpkg.bat`。最后一次绿灯 `2579c599` 结束时（`12:18:05Z`）写下的缓存**毒化了之后每一次**。判据改为"checkout 存在"，克隆改到 `RUNNER_TEMP` 再并入 |
+| `a8b0f76e` | **未打 tag** | **打包演练首次执行即失败，且是发布阻断**（§24.2）：清单把 `IEDSyncTogether.esp` 列为 **artifact**（"从插件构建输出拷"），但全流程无人生产它——上游在 `build-vortex.ps1` 的 `Write-MinimalPlugin` 里生成，而 CI 对每个插件**只跑 CMake**。`release.yml` 调同一脚本、同一 `ArtifactsRoot`，故推 tag 也会死在这。改为 **payload**（本仓库自持，与 STRPM 的 ini 同构），提交的副本与脚本输出**逐字节相同**（110 B，`9811c7bd…`） |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -1543,3 +1545,134 @@ if (!pPlayer) return nullptr;     // 提前返回 -> pActor 泄漏
 > `Actor::Create` 以前实际上不会返回 null（内部直接解引用玩家），
 > 我让它能返回 null 之后，23 个调用点里 `DebugService` 那一处就会崩。
 > **改契约和改实现是两件事，不能只做后者。**
+
+---
+
+## 24. 2026-09-25 傍晚：CI 全红与打包阻断（两处都是"成功的那次埋的雷"）
+
+这两条是同一轮里先后暴露的，且都不是"谁写错了逻辑"，而是**验证基础设施自己
+把自己锁死**。共同点：**上一次成功运行留下的产物，成了下一次必然失败的输入**。
+
+### 24.1 vcpkg 缓存命中反而跳过自己的 checkout
+
+**现象**：`49378750`、`5afa14fb`、`85873946` 三次 push 全红，且都在
+**step 9 `Set up vcpkg`**、37~46 秒内死掉——**编译前**。而更早的失败都在
+step 11/19（真的在编译）。
+
+**根因**：`dc77b99b` 为了让冷缓存不必重编 commonlibsse-ng，把
+`.vcpkg/downloads` 加进了 `actions/cache` 的路径。但"Set up vcpkg"的守卫判的是
+**目录**：
+
+```powershell
+if (Test-Path $vcpkg) { "restored from cache" } else { git clone ... }
+& "$vcpkg/bootstrap-vcpkg.bat"   # ← 这个文件从没被取下来
+```
+
+缓存命中会**创建** `.vcpkg/downloads`，于是目录判据为真 → 跳过 clone →
+下一行执行一个不存在的 bat → 退出码 1。
+
+**为什么不会自愈**：缓存一旦写下就一直在，之后每次 run 都命中、都走同一分支。
+
+**证据（三条独立）**：
+1. 全仓唯一一个 `Windows-vcpkg-*` 缓存创建于 `2026-09-25T12:18:05Z`，
+   **正是最后一次绿灯 `2579c599` 结束的瞬间**——是那次成功构建自己写的；
+2. 该时间点之后的每一次 run 都死在 step 9，之前没有一次死在 step 9；
+3. 本机复现判据：造一个只有 `downloads/` 的 `.vcpkg`，旧判据为真而
+   `bootstrap-vcpkg.bat` 不存在。
+
+**修法（`9ad19de2`）**：
+```powershell
+if (Test-Path (Join-Path $vcpkg 'bootstrap-vcpkg.bat')) { ... } else {
+  $scratch = Join-Path $env:RUNNER_TEMP 'vcpkg-clone'
+  git clone --depth 1 ... $scratch          # 不能直接 clone 进 .vcpkg
+  Get-ChildItem -Force -LiteralPath $scratch | Move-Item -Destination $vcpkg -Force
+}
+```
+
+**为什么必须绕到 scratch**：`git clone` **拒绝非空目标目录**
+（`destination path already exists and is not an empty directory`），
+而 `.vcpkg` 里恰恰躺着刚恢复的 downloads——那正是缓存存在的理由。
+直接 clone 会把"文件缺失"换成"目录非空"，**同样是红的**。
+
+**验证**：`Build windows #142` = **Success 13m 45s**（修复前 #140 = 1m 0s），
+`plugin-artifacts` 2.88 MB 上传成功（step 13，远在 step 9 之后）。
+
+> **教训**：**缓存的守卫必须判"缓存提供了什么"，而不是"目标路径在不在"。**
+> `Test-Path <dir>` 对"部分恢复"和"完整就绪"给出同一个答案，
+> 而这两者需要完全不同的后续动作。凡是被缓存的路径，都要问一句
+> "命中之后，我下一步真正需要的那个文件/目录，是缓存给的吗？"
+
+### 24.2 打包演练第一次真正跑起来，就抓到一个发布阻断
+
+`49378750` 加 step 28 的**全部理由**是"release.yml 只在 tag 跑、而发布已冻结，
+打包路径从未被执行过"。它加完之后**一次都没跑成**（被 §24.1 挡在前面）。
+§24.1 修好，它立刻失败——**这正是它存在的意义**。
+
+**报错**：
+```
+PLUGIN STAGING FAILED (2)
+  - IEDSyncTogether produced no 'IEDSyncTogether.esp' under plugin-artifacts/IEDSyncTogether
+  - missing staged artifact: (OptionalPlugins)/IEDSyncTogether/IEDSyncTogether.esp
+```
+
+**根因**：`Code/plugins/plugins.json` 把 `IEDSyncTogether.esp` 列在 **`artifacts`**
+下，语义是"从该插件自己的构建输出里拷"。但**全流程没有任何一步生产它**：
+
+| 谁生成 | 在哪 | CI 跑不跑 |
+|---|---|---|
+| `Write-MinimalPlugin`（TES4 + CNAM/SNAM） | `plugins/IEDSyncTogether/build-vortex.ps1` | **不跑**——CI 对每个插件只调 `cmake -S/-B/--build` |
+| `IEDSyncTogether.dll` | CMake | 跑 |
+
+`git grep 'build-vortex' .github/` = **空**。所以这个 artifact 条目要求一个
+**不可能存在的文件**。
+
+**这不是"演练脚本的问题"**：`release.yml:104` 调的是**同一个脚本、同一个
+`ArtifactsRoot`**。**即使解冻、推 tag，release 也会死在打包这一步。**
+换句话说，冻结文件里写的"插件工作尚未落地"，被这条失败**实证**了。
+
+**这个 esp 是载荷，不是装饰**：`IEDBridge.cpp` 与 `RemoteIEDRenderer.cpp`
+都把 `"IEDSyncTogether.esp"` 当 plugin key 传给 IED 的 Papyrus 调用
+（`CreateItemActor` / `SetItemFormActor` / `AddActorBlock` …），
+少了它插件什么也不做。
+
+**修法（`a8b0f76e`）**：改为 **payload**——本仓库自持的文件，
+与 `STRPluginMessagingAPI.ini` **完全同构**（那处的 `payloadNote` 已经写明理由：
+插件仓库是 pinned submodule 且本仓库不推它们，所以"必须存在才能打包"的文件
+只能放在这里）。
+
+**逐字节验证（不是"看起来对"）**：
+1. 从 `build-vortex.ps1` **抽出** `Write-Subrecord`/`Write-MinimalPlugin` **原样执行**，
+   与提交文件比对 → 两侧 `110 B / sha256 9811c7bd…` **一致**；
+2. 结构自洽：`TES4` 签名、`dataSize=86` 与文件长度 `24+86=110` 相符、
+   `HEDR/CNAM/SNAM` 三条子记录**恰好消费到 EOF**；
+3. git **存为二进制**（`--numstat` 报 `- -`），暂存 blob 的 sha256 与工作文件相同
+   → 行尾规则改不动它；
+4. **端到端**：按 CI 真实产物集（仅 CMake 输出、`plugin-artifacts` 里没有 esp）
+   跑打包 → 成功，zip 内 `OptionalPlugins/IEDSyncTogether/IEDSyncTogether.esp` 字节正确。
+
+**验证**：`Build windows #142` step 28 `Verify the packaging pipeline (dry run)` = **success**
+（`plugin-artifacts` digest `3149d8f8…`）。
+
+> **教训**：**`payload` 与 `artifacts` 的分界线不是"文件类型"，而是"谁生产它"。**
+> 凡是上游在 CMake 之外（自己的 build 脚本、手工、CreationKit）产出的文件，
+> 在 CI 里**等于不存在**，必须走 `payload` 并由本仓库持有。
+> 这条已写进 `plugins.json` 的 `$comment`，因为**下一个插件会重犯**。
+
+### 24.3 复核用的命令（照抄）
+
+```powershell
+# 1. 缓存是不是"成功那次写的"（比对缓存创建时间与最后一次绿灯的结束时间）
+#    在 Actions 页 / API: /actions/caches 看 created_at
+
+# 2. 哪些 run 死在哪个 step（失败步骤比失败信息更快定位）
+#    /actions/runs/<id>/jobs -> jobs[].steps[] 里 conclusion=failure 的 name
+
+# 3. CI 到底跑不跑某个插件自己的构建脚本（应为空）
+git grep -n 'build-vortex' -- .github/
+
+# 4. 某个 esp 的逐字节真值：拿插件脚本原样跑一遍再比
+#    见 §24.2 的验证步骤 1（抽出 Write-MinimalPlugin 后 Invoke-Expression）
+
+# 5. 清单里某个文件是 payload 还是 artifact
+python -c "import json;d=json.load(open('Code/plugins/plugins.json',encoding='utf-8'));[print(p['id'],'payload=',[x['source'] for x in p.get('payload',[])],'artifacts=',[x['from'] for x in p.get('artifacts',[])]) for p in d['plugins']]"
+```

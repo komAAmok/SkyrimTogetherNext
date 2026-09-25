@@ -26,6 +26,8 @@ This repository extends the upstream [TiltedEvolution](https://github.com/tilted
 - **LAN multiplayer out of the box**: The networking layer is pure UDP / GameNetworkingSockets, with no Steam dependency — works over LAN, Radmin LAN, Hamachi, public VPS / Docker, or any other network topology;
 - **Automatic release builds**: Pushing a tag triggers a Windows build in GitHub Actions and publishes two packages — `SkyrimTogetherNextMod-<version>` (client mod) and `SkyrimTogetherNextServer-<version>` (dedicated server).
 
+> ⚠️ **Release freeze active**: while `RELEASE-FREEZE.md` exists at the repository root, **no new version may be published** - pushing a `v*` tag or publishing a Release by hand is refused by the release workflow. Pushing ordinary commits, running CI and local packaging dry runs are unaffected. See that file for how to lift it.
+
 ## 🚀 Quick Start (Players)
 
 1. Download the two zips (Mod package and Server package with matching version numbers) from this repo's [Releases](../../releases);

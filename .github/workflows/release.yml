@@ -9,6 +9,10 @@ name: Release build
 #                                             control panel on Windows)
 # Can also be triggered manually (workflow_dispatch); the zips are then
 # uploaded as workflow artifacts instead.
+#
+# RELEASE FREEZE: while RELEASE-FREEZE.md exists at the repository root this
+# workflow refuses to run. That file is the single switch - delete it to allow
+# releases again. See it for the reasoning.
 
 on:
   push:
@@ -17,7 +21,27 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Runs first and cheaply, so a frozen repository never spends a Windows build
+  # on a release it is not allowed to publish.
+  freeze-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Refuse to release while the freeze is active
+        shell: bash
+        run: |
+          if [ -f RELEASE-FREEZE.md ]; then
+            echo "::error::Release freeze is active (RELEASE-FREEZE.md exists)."
+            echo "No version may be published while the companion-plugin work is in progress."
+            echo "Delete RELEASE-FREEZE.md to allow releases again; see that file for details."
+            exit 1
+          fi
+          echo "No release freeze; proceeding."
+
   build-windows:
+    needs: freeze-check
     uses: ./.github/workflows/windows.yml
     with:
       build-mode: 'release'
@@ -25,7 +49,7 @@ jobs:
 
   package:
     runs-on: windows-latest
-    needs: build-windows
+    needs: [freeze-check, build-windows]
     permissions:
       contents: write
     steps:
@@ -113,6 +137,17 @@ jobs:
           path: |
             SkyrimTogetherNextMod-*.zip
             SkyrimTogetherNextServer-*.zip
+
+      # Belt and braces: the freeze job already gated this workflow, but the step
+      # that actually publishes is the one place worth re-checking, since a
+      # published release cannot be taken back.
+      - name: Refuse to publish while the freeze is active
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          if (Test-Path RELEASE-FREEZE.md) {
+            throw "Release freeze is active (RELEASE-FREEZE.md exists): refusing to publish $env:GITHUB_REF_NAME."
+          }
 
       - name: Publish GitHub Release (tag pushes only)
         if: startsWith(github.ref, 'refs/tags/')

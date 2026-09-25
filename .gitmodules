@@ -10,3 +10,15 @@
 [submodule "Libraries/TiltedHooks"]
 	path = Libraries/TiltedHooks
 	url = https://github.com/TiltedPhoques/TiltedHooks
+[submodule "plugins/STRPluginMessagingAPI"]
+	path = plugins/STRPluginMessagingAPI
+	url = https://github.com/Caelvanost/STRPluginMessagingAPI.git
+[submodule "plugins/OStimTogether"]
+	path = plugins/OStimTogether
+	url = https://github.com/Caelvanost/OStimTogether.git
+[submodule "plugins/MorphSyncTogether"]
+	path = plugins/MorphSyncTogether
+	url = https://github.com/Caelvanost/MorphSyncTogether.git
+[submodule "plugins/IEDSyncTogether"]
+	path = plugins/IEDSyncTogether
+	url = https://github.com/Caelvanost/IEDSyncTogether.git

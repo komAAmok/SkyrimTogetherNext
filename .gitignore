@@ -98,3 +98,6 @@ packaged/*
 
 # agent working memory (not part of the shipped tree)
 .workbuddy/
+
+# python bytecode from Tools/Scripts and Code/plugins/STRPM/tools
+__pycache__/

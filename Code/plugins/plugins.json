@@ -1,0 +1,342 @@
+{
+  "$comment": [
+    "Single source of truth for the companion-plugin packaging pipeline.",
+    "Read by Code/plugins/tools/merge_fomod.py (wizard generation) and",
+    "Tools/Packaging/Add-PluginPayload.ps1 (archive assembly), so the wizard",
+    "and the staged tree cannot disagree.",
+    "",
+    "Every plugin is staged into <stageRoot>/<id>/, every sub-option into",
+    "<stageRoot>/<id>__<subId>/. The wizard installs exactly those two folder",
+    "shapes, which is why payload entries describe what goes inside them.",
+    "",
+    "payload:  copied from the plugin submodule at build time (repo content)",
+    "artifacts: copied from that plugin's own build output (compiled files)",
+    "dest '.':  the source is a directory and its CONTENTS land in the root",
+    "",
+    "The upstream fomod/ModuleConfig.xml files are NOT reused: IEDSyncTogether's",
+    "copy references a '00 Core' folder its own build script never creates, so it",
+    "is stale. STN owns the one wizard and this manifest is the only source."
+  ],
+  "stageRoot": "OptionalPlugins",
+  "plugins": [
+    {
+      "id": "STRPluginMessagingAPI",
+      "flag": "strpm",
+      "displayName": "STR Plugin Messaging API",
+      "submodule": "plugins/STRPluginMessagingAPI",
+      "required": true,
+      "wizardSteps": false,
+      "rationale": "Transport every companion plugin links against. Installed whenever any companion plugin is selected.",
+      "payload": [
+        {
+          "source": "package/Data/SKSE/Plugins/STRPluginMessagingAPI.ini",
+          "dest": "SKSE/Plugins/STRPluginMessagingAPI.ini"
+        }
+      ],
+      "artifacts": [
+        {
+          "from": "STRPluginMessagingAPI.dll",
+          "dest": "SKSE/Plugins/STRPluginMessagingAPI.dll"
+        },
+        {
+          "from": "STRPluginMessagingBridge.dll",
+          "dest": "SKSE/Plugins/STRPluginMessagingBridge.dll"
+        }
+      ]
+    },
+    {
+      "id": "OStimTogether",
+      "flag": "ostim",
+      "displayName": "OStim Together",
+      "submodule": "plugins/OStimTogether",
+      "required": false,
+      "wizardSteps": true,
+      "payload": [
+        {
+          "source": "package/Data",
+          "dest": "."
+        }
+      ],
+      "artifacts": [
+        {
+          "from": "OStimTogether.dll",
+          "dest": "SKSE/Plugins/OStimTogether.dll"
+        },
+        {
+          "from": "OSKSE.pex",
+          "dest": "Scripts/OSKSE.pex"
+        },
+        {
+          "from": "OStimTogetherNative.pex",
+          "dest": "Scripts/OStimTogetherNative.pex"
+        }
+      ],
+      "introduction": {
+        "zh": "让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。",
+        "en": "Keeps scene state, participant alignment, equipment locks and undress/appearance repair in sync between connected players. Every player must install the same version; leaving it unchecked changes nothing else about the framework."
+      },
+      "subOptions": [
+        {
+          "id": "OCumAscended",
+          "payload": [
+            {
+              "source": "optional/OCumIntegration/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "OCum Ascended 同步",
+            "desc": "同步 OCum Ascended 的 RaceMenu CumOverlay。需要所有客户端都装了 OCum Ascended。"
+          },
+          "en": {
+            "name": "OCum Ascended synchronisation",
+            "desc": "Synchronises OCum Ascended RaceMenu CumOverlays. Requires OCum Ascended on every client."
+          }
+        },
+        {
+          "id": "PPA",
+          "payload": [
+            {
+              "source": "optional/PPAIntegration/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "PPA 同步",
+            "desc": "同步 PPA(Procedural Penis Animations)的动画参数。需要所有客户端都装了 PPA。"
+          },
+          "en": {
+            "name": "PPA synchronisation",
+            "desc": "Synchronises PPA (Procedural Penis Animations) parameters. Requires PPA on every client."
+          }
+        }
+      ]
+    },
+    {
+      "id": "MorphSyncTogether",
+      "flag": "morph",
+      "displayName": "MorphSyncTogether",
+      "submodule": "plugins/MorphSyncTogether",
+      "required": false,
+      "wizardSteps": true,
+      "payload": [
+        {
+          "source": "package/Data",
+          "dest": "."
+        }
+      ],
+      "artifacts": [
+        {
+          "from": "MorphSyncTogether.dll",
+          "dest": "SKSE/Plugins/MorphSyncTogether.dll"
+        }
+      ],
+      "introduction": {
+        "zh": "同步角色体型滑块与 RaceMenu 覆盖层(纹身、体毛等),让队友看到和你一致的身体外观。需要所有玩家一起安装同一版本。",
+        "en": "Synchronises character morph sliders and RaceMenu overlays (tattoos, body hair and similar) so other players render the same body appearance you do. Every player must install the same version."
+      },
+      "subOptions": [
+        {
+          "id": "PubesForeverFemale",
+          "payload": [
+            {
+              "source": "optional/PubesForeverFemale/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "Pubes Forever Female",
+            "desc": "同步该包提供的女性阴毛覆盖层。"
+          },
+          "en": {
+            "name": "Pubes Forever Female",
+            "desc": "Synchronises the female pubic-hair overlays supplied by this pack."
+          }
+        },
+        {
+          "id": "PubesForeverMale",
+          "payload": [
+            {
+              "source": "optional/PubesForeverMale/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "Pubes Forever Male",
+            "desc": "同步该包提供的男性阴毛覆盖层。"
+          },
+          "en": {
+            "name": "Pubes Forever Male",
+            "desc": "Synchronises the male pubic-hair overlays supplied by this pack."
+          }
+        },
+        {
+          "id": "NaturalPubicHairstyles",
+          "payload": [
+            {
+              "source": "optional/NaturalPubicHairstyles/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "Natural Pubic Hairstyles",
+            "desc": "同步该包提供的阴毛样式。"
+          },
+          "en": {
+            "name": "Natural Pubic Hairstyles",
+            "desc": "Synchronises the pubic-hair styles supplied by this pack."
+          }
+        },
+        {
+          "id": "NaturalPubicHairstylesUBE",
+          "payload": [
+            {
+              "source": "optional/NaturalPubicHairstylesUBE/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "Natural Pubic Hairstyles UBE",
+            "desc": "同步 UBE 版本的阴毛样式。"
+          },
+          "en": {
+            "name": "Natural Pubic Hairstyles UBE",
+            "desc": "Synchronises the UBE variant of the pubic-hair styles."
+          }
+        },
+        {
+          "id": "MorePubesSlaveTats",
+          "payload": [
+            {
+              "source": "optional/MorePubesSlaveTats/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "More Pubes for SlaveTats",
+            "desc": "同步 SlaveTats 版本的阴毛覆盖层。"
+          },
+          "en": {
+            "name": "More Pubes for SlaveTats",
+            "desc": "Synchronises the SlaveTats pubic-hair overlays."
+          }
+        },
+        {
+          "id": "NordicWarmaiden",
+          "payload": [
+            {
+              "source": "optional/NordicWarmaiden/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "Nordic Warmaiden 体毛",
+            "desc": "同步该包的女性腋下/腹部/背部等体毛样式。"
+          },
+          "en": {
+            "name": "Nordic Warmaiden Body Hair",
+            "desc": "Synchronises that pack's female armpit, stomach, butt and back styles."
+          }
+        },
+        {
+          "id": "HIMBOBodyhair",
+          "payload": [
+            {
+              "source": "optional/HIMBOBodyhair/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "HIMBO 体毛覆盖层",
+            "desc": "同步 HIMBO 体毛包的男性体毛覆盖层。"
+          },
+          "en": {
+            "name": "HIMBO V3 Bodyhair Overlays",
+            "desc": "Synchronises male body-hair overlays from the HIMBO body-hair pack."
+          }
+        },
+        {
+          "id": "OPubes",
+          "payload": [
+            {
+              "source": "optional/OPubes/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "OPubes NG 兼容",
+            "desc": "同步经 BodyHairSliders 兼容处理的 OPubes 覆盖层。"
+          },
+          "en": {
+            "name": "OPubes NG compatibility",
+            "desc": "Synchronises OPubes overlays handled through the BodyHairSliders compatibility provider."
+          }
+        },
+        {
+          "id": "TNG",
+          "payload": [
+            {
+              "source": "optional/TNG/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "The New Gentleman (TNG)",
+            "desc": "同步 TNG 相关外观数据。"
+          },
+          "en": {
+            "name": "The New Gentleman (TNG)",
+            "desc": "Synchronises TNG-related appearance data."
+          }
+        }
+      ]
+    },
+    {
+      "id": "IEDSyncTogether",
+      "flag": "ied",
+      "displayName": "IEDSyncTogether",
+      "submodule": "plugins/IEDSyncTogether",
+      "required": false,
+      "wizardSteps": true,
+      "payload": [
+        {
+          "source": "config/IEDSyncTogether.ini",
+          "dest": "SKSE/Plugins/IEDSyncTogether.ini"
+        }
+      ],
+      "artifacts": [
+        {
+          "from": "IEDSyncTogether.dll",
+          "dest": "SKSE/Plugins/IEDSyncTogether.dll"
+        },
+        {
+          "from": "IEDSyncTogether.esp",
+          "dest": "IEDSyncTogether.esp"
+        }
+      ],
+      "introduction": {
+        "zh": "让队友看到你身上实际装备与挂载的物件(沉浸式装备展示类效果)。走本框架的联机会话传输,不需要自己开放或转发任何端口。需要所有玩家一起安装同一版本。",
+        "en": "Shows other players the equipment and attached objects you actually have equipped. Rides the framework's own session transport, so it opens and forwards no ports of its own. Every player must install the same version."
+      },
+      "subOptions": [
+        {
+          "id": "RelayHost",
+          "payload": [
+            {
+              "source": "optional/RelayHost/package/Data",
+              "dest": "."
+            }
+          ],
+          "zh": {
+            "name": "旧版 UDP 中继主机配置",
+            "desc": "只在你明确想用旧 UDP 传输并已转发 UDP 38471 时才勾选。默认传输不需要它。"
+          },
+          "en": {
+            "name": "Legacy UDP relay host config",
+            "desc": "Only for the explicit legacy UDP transport with UDP 38471 forwarded. The default transport does not need it."
+          }
+        }
+      ]
+    }
+  ]
+}

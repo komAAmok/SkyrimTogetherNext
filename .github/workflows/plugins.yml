@@ -1,0 +1,70 @@
+name: Plugin gates
+
+# Fast gates for the companion-plugin layer. Both jobs run in seconds and need
+# no toolchain, so they are worth blocking on for every change that touches the
+# interface header, a plugin submodule pin, or the installer wizard.
+#
+#   contract  the four repositories compile against one ABI; a consumer that
+#             vendored an older copy of the header must fail here, not at
+#             runtime on a player's machine
+#   wizard    the generated FOMOD must match the packaging manifest and stay
+#             valid against the published FOMOD 5.0 schema
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Code/plugins/**'
+      - 'plugins/**'
+      - 'GameFiles/Skyrim/fomod/**'
+      - 'Tools/Packaging/**'
+      - '.github/workflows/plugins.yml'
+  pull_request:
+    paths:
+      - 'Code/plugins/**'
+      - 'plugins/**'
+      - 'GameFiles/Skyrim/fomod/**'
+      - 'Tools/Packaging/**'
+      - '.github/workflows/plugins.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Verify the STRPM consumer contract
+        shell: pwsh
+        run: python Code/plugins/tools/strpm_contract.py check
+
+  wizard:
+    runs-on: windows-latest
+    steps:
+      # No submodules: the wizard only depends on the manifest and the schema.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate the generated installer wizard
+        shell: pwsh
+        run: |
+          python -m pip install --quiet --disable-pip-version-check pyyaml
+          python Code/plugins/tools/merge_fomod.py check
+
+      - name: Check the packaging scripts parse
+        shell: pwsh
+        run: |
+          foreach ($script in 'Tools/Packaging/Add-PluginPayload.ps1', 'Tools/Packaging/New-STNModPackage.ps1') {
+            $errors = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script).Path, [ref]$null, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              Write-Host "::error file=$script::$($errors[0].Message)"
+              $errors | Select-Object -First 5 | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+              exit 1
+            }
+            Write-Host "$script : syntax OK"
+          }
+          Write-Host ('manifest plugins: ' + ((Get-Content Code/plugins/plugins.json -Raw | ConvertFrom-Json).plugins.Count))

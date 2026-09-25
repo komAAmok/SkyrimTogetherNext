@@ -68,6 +68,119 @@ jobs:
             exit 0
           }
 
+      # Companion plugins are CMake + vcpkg projects, pinned as submodules. The
+      # step is skipped, not failed, when a fork drops the submodules: the
+      # framework still builds, and packaging then fails loudly on the missing
+      # plugin payload rather than shipping a wizard option that installs nothing.
+      - name: Check companion plugin submodules
+        id: plugins
+        shell: pwsh
+        run: |
+          $ids = (Get-Content Code/plugins/plugins.json -Raw | ConvertFrom-Json).plugins.id
+          $missing = @($ids | Where-Object { -not (Test-Path "plugins/$_/CMakeLists.txt") })
+          if ($missing.Count -gt 0) {
+            Write-Host "::warning::companion plugin submodules not checked out: $($missing -join ', ')"
+            "present=false" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "companion plugins present: $($ids -join ', ')"
+            "present=true" >> $env:GITHUB_OUTPUT
+          }
+
+      # vcpkg buildtrees are the difference between a few minutes and most of an
+      # hour: commonlibsse-ng comes from a third-party registry and is compiled
+      # from source on a cold cache.
+      - name: Cache vcpkg downloads
+        if: steps.plugins.outputs.present == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/.vcpkg-cache/downloads
+            ${{ github.workspace }}/.vcpkg-cache/binary
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('plugins/*/vcpkg.json', 'plugins/*/vcpkg-configuration.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+
+      # STRPM is built first: it is small, it fails fast if the interface header
+      # and the bridge do not compile, and the consumers below link against the
+      # ABI it defines.
+      - name: Build STRPluginMessagingAPI
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          cmake -S plugins/STRPluginMessagingAPI -B plugins/STRPluginMessagingAPI/build -A x64 -DSTRPM_ENABLE_UDP_BACKEND=OFF -DSTRPM_BUILD_STR180_BRIDGE_PROBE=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build plugins/STRPluginMessagingAPI/build --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # The three consumers share the vcpkg toolchain and the STRPM headers.
+      # They are otherwise independent: one failing consumer must not hide the
+      # state of the others, so each is built and reported, and the job fails
+      # once at the end if any of them did not build.
+      - name: Build companion plugins
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache/binary
+        run: |
+          $specs = @(
+            @{ Id = 'OStimTogether';     Dir = 'plugins/OStimTogether' },
+            @{ Id = 'MorphSyncTogether'; Dir = 'plugins/MorphSyncTogether' },
+            @{ Id = 'IEDSyncTogether';   Dir = 'plugins/IEDSyncTogether' }
+          )
+          $failed = @()
+          foreach ($spec in $specs) {
+            Write-Host "::group::Build $($spec.Id)"
+            # A consumer that vendors its own copy of the interface header is
+            # compiled against the authoritative one instead. That is what
+            # makes the STRPM contract enforceable rather than advisory.
+            $vendored = Get-ChildItem -Path $spec.Dir -Recurse -Filter 'STRPluginMessagingAPI.h' -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -notmatch '\\build\\' } | Select-Object -First 1
+            if ($vendored) {
+              Copy-Item 'Code/plugins/STRPM/include/STRPluginMessagingAPI/STRPluginMessagingAPI.h' $vendored.FullName -Force
+              Write-Host "pinned vendored header: $($vendored.FullName)"
+            }
+
+            $toolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+            cmake -S $spec.Dir -B "$($spec.Dir)/build" -A x64 -DCMAKE_TOOLCHAIN_FILE=$toolchain
+            if ($LASTEXITCODE -ne 0) { $failed += "$($spec.Id) (configure)"; Write-Host "::endgroup::"; continue }
+
+            cmake --build "$($spec.Dir)/build" --config Release --parallel
+            if ($LASTEXITCODE -ne 0) { $failed += "$($spec.Id) (build)" }
+
+            Write-Host "::endgroup::"
+          }
+
+          if ($failed.Count -gt 0) {
+            Write-Host "::error::companion plugin build failed: $($failed -join ', ')"
+            exit 1
+          }
+
+      # Flattens each plugin's own build tree into <out>/<pluginId>/ so the
+      # packaging script finds artifacts without knowing each project's output
+      # directory convention.
+      - name: Collect plugin artifacts
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $root = 'plugin-artifacts'
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          foreach ($id in (Get-Content Code/plugins/plugins.json -Raw | ConvertFrom-Json).plugins.id) {
+            $from = "plugins/$id/build"
+            if (-not (Test-Path $from)) { Write-Host "  $id : no build tree"; continue }
+            New-Item -ItemType Directory -Force -Path "$root/$id" | Out-Null
+            Get-ChildItem $from -Recurse -File -Include *.dll,*.pex,*.esp |
+              Where-Object { $_.FullName -notmatch '\\CMakeFiles\\' } |
+              ForEach-Object { Copy-Item $_.FullName "$root/$id/" -Force }
+            Write-Host "  $id : $((Get-ChildItem "$root/$id" -File).Count) artifact(s)"
+          }
+
+      - name: Upload plugin artifacts
+        if: steps.plugins.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-artifacts
+          path: plugin-artifacts/**
       - name: Cache xmake dependencies
         uses: actions/cache@v4
         with:

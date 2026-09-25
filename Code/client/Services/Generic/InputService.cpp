@@ -39,7 +39,12 @@ static bool s_imeComposing = false;
 // responds at all. On runtimes where the hooks do fire this is simply an extra
 // update per interval; World::Update() is idempotent and measures its own delta.
 static constexpr UINT_PTR kWorldUpdateTimerId = 0x5A17;
-static constexpr UINT kWorldUpdateTimerIntervalMs = 16;
+// SetTimer quantises to the 15.625 ms system tick, so the interval is rounded
+// *up* to a multiple of it. 16 ms therefore becomes two ticks (31.25 ms, about
+// 32 updates a second) while 8 ms fits inside one (15.625 ms, about 64). Remote
+// movement is sampled on this cadence, so the halved interval is what removes
+// the stepping visible on other players during interpolation.
+static constexpr UINT kWorldUpdateTimerIntervalMs = 8;
 
 static std::atomic<uint64_t> s_timerTicks{0};
 static std::chrono::steady_clock::time_point s_lastTimerUpdate{};

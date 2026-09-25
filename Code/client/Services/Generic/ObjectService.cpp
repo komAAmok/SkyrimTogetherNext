@@ -325,6 +325,15 @@ void ObjectService::OnLockChange(const LockChangeEvent& acEvent) noexcept
 
     const auto* const pObject = Cast<TESObjectREFR>(TESForm::GetById(acEvent.FormId));
 
+    // The object can be gone by the time the queued lock change runs: the form
+    // id comes off an event, not off a live reference. The cell lookup below
+    // used to dereference the result unconditionally.
+    if (!pObject)
+    {
+        spdlog::error("Activated object no longer exists: {:X}", acEvent.FormId);
+        return;
+    }
+
     TESObjectCELL* pCell = pObject->GetParentCellEx();
     if (!pCell)
     {

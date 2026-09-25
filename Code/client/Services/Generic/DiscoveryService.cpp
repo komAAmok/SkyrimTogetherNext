@@ -120,6 +120,11 @@ void DiscoveryService::VisitExteriorCell(bool aForceTrigger) noexcept
         if (!pCell)
             pCell = ModManager::Get()->GetCellFromCoordinates(gameCurrentGrid.X, gameCurrentGrid.Y, pWorldSpace, false);
 
+        // The fallback walk can come back empty for a cell that is not attached
+        // yet, which is exactly the state a load leaves behind.
+        if (!pCell)
+            return;
+
         if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellChangeEvent.CellId))
         {
             spdlog::error("Failed to find cell id for form id {:X}", pCell->formID);
@@ -138,7 +143,15 @@ void DiscoveryService::VisitInteriorCell(bool aForceTrigger) noexcept
 {
     ResetCachedCellData();
 
-    const uint32_t cellId = PlayerCharacter::Get()->GetParentCellEx()->formID;
+    // The player is between cells during a load, and the interior cell is then
+    // null while the exterior walk above still succeeds. VisitCell() only checks
+    // that this call is reached, not that the cell exists.
+    const auto* pPlayer = PlayerCharacter::Get();
+    const auto* pParentCell = pPlayer ? pPlayer->GetParentCellEx() : nullptr;
+    if (!pParentCell)
+        return;
+
+    const uint32_t cellId = pParentCell->formID;
     if (m_interiorCellId != cellId || aForceTrigger)
     {
         CellChangeEvent cellChangeEvent{};

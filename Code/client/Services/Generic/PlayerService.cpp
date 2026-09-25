@@ -30,6 +30,15 @@
 #include <Games/References.h>
 #include <AI/AIProcess.h>
 #include <EquipManager.h>
+
+namespace
+{
+// Game globals the multiplayer session reskins. Named rather than inlined
+// because the same two ids are written from several handlers, and a wrong or
+// missing lookup must be a no-op instead of a null write.
+constexpr uint32_t kKillMoveGlobalId = 0x100F19;
+constexpr uint32_t kWorldEncountersGlobalId = 0xB8EC1;
+} // namespace
 #include <Forms/TESRace.h>
 
 PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -61,12 +70,15 @@ void PlayerService::OnUpdate(const UpdateEvent&) noexcept
 
 void PlayerService::OnConnected(const ConnectedEvent& acEvent) noexcept
 {
-    // TODO: SkyrimTogether.esm
-    TESGlobal* pKillMove = Cast<TESGlobal>(TESForm::GetById(0x100F19));
-    pKillMove->f = 0.f;
+    // These two reskins load a global by a hardcoded form id. A load order that
+    // does not have them - or has not reached them yet - makes the lookup fail,
+    // and the disconnect path that writes the same values then turns that into a
+    // crash on the way out. Guard every write.
+    if (TESGlobal* pKillMove = Cast<TESGlobal>(TESForm::GetById(kKillMoveGlobalId)))
+        pKillMove->f = 0.f;
 
-    TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
-    pWorldEncountersEnabled->f = 0.f;
+    if (TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(kWorldEncountersGlobalId)))
+        pWorldEncountersEnabled->f = 0.f;
 }
 
 void PlayerService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
@@ -76,15 +88,15 @@ void PlayerService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
 
     ToggleDeathSystem(false);
 
-    TESGlobal* pKillMove = Cast<TESGlobal>(TESForm::GetById(0x100F19));
-    pKillMove->f = 1.f;
+    if (TESGlobal* pKillMove = Cast<TESGlobal>(TESForm::GetById(kKillMoveGlobalId)))
+        pKillMove->f = 1.f;
 
     // Restore to the default value (150 in skyrim, 175 in fallout 4)
     float* greetDistance = Settings::GetGreetDistance();
     *greetDistance = 150.f;
 
-    TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
-    pWorldEncountersEnabled->f = 1.f;
+    if (TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(kWorldEncountersGlobalId)))
+        pWorldEncountersEnabled->f = 1.f;
 }
 
 void PlayerService::OnServerSettingsReceived(const ServerSettings& acSettings) noexcept
@@ -178,8 +190,8 @@ void PlayerService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
     // TODO: this can be done a bit prettier
     if (acEvent.IsLeader)
     {
-        TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
-        pWorldEncountersEnabled->f = 1.f;
+        if (TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(kWorldEncountersGlobalId)))
+            pWorldEncountersEnabled->f = 1.f;
     }
 }
 
@@ -188,8 +200,8 @@ void PlayerService::OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept
     // TODO: this can be done a bit prettier
     if (World::Get().GetTransport().IsConnected())
     {
-        TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
-        pWorldEncountersEnabled->f = 0.f;
+        if (TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(kWorldEncountersGlobalId)))
+            pWorldEncountersEnabled->f = 0.f;
     }
 }
 

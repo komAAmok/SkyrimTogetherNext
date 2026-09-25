@@ -55,7 +55,9 @@ git push origin v1.0.20
 - 自动部署失败(权限/杀软拦截)时会弹窗列出 payload 与游戏根路径,按提示手动复制一次即可;
 - **卸载**:MO2 中卸载本 mod 不会清理已部署到游戏根目录的文件,可手动删除
   `SkyrimTogetherRuntime.dll`、`SkyrimTogetherRuntime_1_5.dll`、`UI/`、`bin/`
-  与 `.str_new`/`.str_old` 残留(均在游戏根目录)。
+  与 `.str_new` 残留(均在游戏根目录)。
+  `.str_new` 是被占用文件的**待替换副本**:下次启动时会自动顶上,
+  正常情况下无需手动处理。
 
 ## 三、不用 MO2 时的手动安装
 

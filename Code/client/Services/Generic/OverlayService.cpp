@@ -220,9 +220,12 @@ void OverlayService::Reload() noexcept
 {
     SetInGame(false);
 
-    const auto pBrowser = GetOverlayApp()->GetClient()->GetBrowser();
-    if (pBrowser)
-        pBrowser->Reload();
+    // Reload() is reachable from the UI before CEF has produced an app.
+    if (const auto* pApp = GetOverlayApp())
+    {
+        if (const auto pBrowser = pApp->GetClient()->GetBrowser())
+            pBrowser->Reload();
+    }
 
     Initialize();
     SetInGame(true);

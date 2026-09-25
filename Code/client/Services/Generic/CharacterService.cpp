@@ -213,6 +213,13 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
 {
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId));
 
+    // The discovery sweep can report a form id that no longer resolves: an actor
+    // unloaded between the sweep and this call, or a temporary reference the
+    // engine already recycled. The player branch used to dereference the result
+    // unconditionally, which is a null write on exactly that race.
+    if (!pActor)
+        return;
+
     if (acEvent.FormId == 0x14)
     {
         pActor->GetExtension()->SetPlayer(true);
@@ -231,7 +238,8 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
 
     if (it != std::end(view))
     {
-        Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId));
+        // Same actor the check above already resolved; re-fetching it here only
+        // gave the compiler a second chance to lose that proof.
         pActor->GetExtension()->SetRemote(true);
 
         entity = *it;
@@ -486,6 +494,18 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         return;
     }
 
+    // Same for an actor this client already owns. Re-adding it as a remote spawn
+    // puts a second actor in the world for one server id, which is the state the
+    // engine crashes on.
+    auto localView = m_world.view<LocalComponent>();
+    const auto localItor = std::find_if(std::begin(localView), std::end(localView), [localView, Id = acMessage.ServerId](auto entity) { return localView.get<LocalComponent>(entity).Id == Id; });
+
+    if (localItor != std::end(localView))
+    {
+        spdlog::warn("Character with remote id {:X} is already owned locally.", acMessage.ServerId);
+        return;
+    }
+
     Actor* pActor = nullptr;
 
     std::optional<entt::entity> entity;
@@ -620,17 +640,28 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
 void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest& acMessage) const noexcept
 {
+    if (acMessage.Updates.empty())
+        return;
+
     auto view = m_world.view<RemoteComponent, InterpolationComponent, RemoteAnimationComponent>();
+
+    // Index the view once instead of scanning it per entry. The scan made this
+    // O(updates x entities) on the movement path, and a busy cell puts one entry
+    // per actor in range into every packet.
+    TiltedPhoques::Map<uint32_t, entt::entity> byServerId;
+    for (auto entity : view)
+        byServerId[view.get<RemoteComponent>(entity).Id] = entity;
 
     for (const auto& [serverId, update] : acMessage.Updates)
     {
-        auto itor = std::find_if(std::begin(view), std::end(view), [serverId = serverId, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == serverId; });
+        const auto itor = byServerId.find(serverId);
 
-        if (itor == std::end(view))
+        if (itor == std::end(byServerId))
             continue;
 
-        auto& interpolationComponent = view.get<InterpolationComponent>(*itor);
-        auto& animationComponent = view.get<RemoteAnimationComponent>(*itor);
+        const auto entity = itor->second;
+        auto& interpolationComponent = view.get<InterpolationComponent>(entity);
+        auto& animationComponent = view.get<RemoteAnimationComponent>(entity);
         const auto& movement = update.UpdatedMovement;
 
         InterpolationComponent::TimePoint point;
@@ -1279,7 +1310,7 @@ void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
             RequestOwnership(pActor->formID, pRemoteComponent->Id, aEntity);
         }
         else
-            spdlog::info("New entity remotely managed, form id: {:X}, server id: {:X}", pActor->formID, pRemoteComponent->Id);
+            spdlog::debug("New entity remotely managed, form id: {:X}, server id: {:X}", pActor->formID, pRemoteComponent->Id);
 
         return;
     }
@@ -1884,7 +1915,7 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         readyEntities.push_back(entity);
 
-        spdlog::info(__FUNCTION__ ": applied 3D for actor, form id: {:X}, name {}", pActor->formID, pActor->baseForm->GetName());
+        spdlog::debug(__FUNCTION__ ": applied 3D for actor, form id: {:X}, name {}", pActor->formID, pActor->baseForm->GetName());
     }
 
     for (auto entity : readyEntities)
@@ -1958,9 +1989,21 @@ void CharacterService::RunSpawnUpdates() const noexcept
             // TODO(cosideci): IsDragon probably shouldn't be straight up false here.
             if (GridCellCoords::IsCellInGridCell(characterCoords, playerCoords, false))
             {
+                // A server id that already carries a ref id must never grow a second
+                // actor. The create below used to run whenever the lookup failed, and
+                // the lookup legitimately fails for a tick or two while the engine
+                // finishes registering a freshly created reference. That produced two
+                // live actors for one remote player - both then had their 3D updated
+                // back to back and the game dereferenced a null in its own reference
+                // update (SkyrimSE.exe+0x23d000, rcx=0). Only the first create, the one
+                // with no ref id yet, may spawn; a lost actor is replaced through the
+                // server's own spawn request instead.
                 auto* pActor = Cast<Actor>(TESForm::GetById(remoteComponent.CachedRefId));
                 if (!pActor)
                 {
+                    if (remoteComponent.CachedRefId != 0)
+                        continue;
+
                     pActor = CreateCharacterForEntity(entity);
                     if (!pActor)
                         continue;

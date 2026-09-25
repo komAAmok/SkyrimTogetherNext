@@ -198,8 +198,14 @@ void TP_MAKE_THISCALL(HookSetBeastForm, void, void* apUnk1, void* apUnk2, bool a
 {
     if (!aEntering)
     {
-        PlayerCharacter::Get()->GetExtension()->GraphDescriptorHash = BehaviorVar::GetHumanoidHash();
-        World::Get().GetRunner().Trigger(BeastFormChangeEvent());
+        // This is a game hook, so it can fire before the player object exists -
+        // a load that tears the player down and rebuilds it reaches here with
+        // nothing to write to.
+        if (auto* pPlayer = PlayerCharacter::Get())
+        {
+            pPlayer->GetExtension()->GraphDescriptorHash = BehaviorVar::GetHumanoidHash();
+            World::Get().GetRunner().Trigger(BeastFormChangeEvent());
+        }
     }
 
     TiltedPhoques::ThisCall(RealSetBeastForm, apThis, apUnk1, apUnk2, aEntering);

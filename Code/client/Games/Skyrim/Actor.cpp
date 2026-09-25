@@ -60,6 +60,10 @@
 
 namespace
 {
+// The game's "PlayerFaction" record. Named because a missing load-order entry
+// must be a no-op, not a null write, and the intent is not obvious from the id.
+constexpr uint32_t kPlayerFactionId = 0xDB1;
+
 void QueueActorInventoryChange(Actor* apActor, InventoryChangeEvent aEvent, TESObjectREFR* apTransferReference = nullptr)
 {
     auto ownershipToken = Utils::GetLocalOwnershipToken(apActor->formID);
@@ -209,7 +213,12 @@ GamePtr<Actor> Actor::Create(TESNPC* apBaseForm) noexcept
     pActor->SetSkipSaveFlag(true);
     pActor->GetExtension()->SetRemote(true);
 
+    // The player is the anchor every remote actor is spawned around, so a
+    // missing one has to fail closed here rather than three dereferences later.
     const auto pPlayer = static_cast<Actor*>(GetById(0x14));
+    if (!pPlayer)
+        return nullptr;
+
     auto pCell = pPlayer->parentCell;
     const auto pWorldSpace = pPlayer->GetWorldSpace();
 
@@ -240,6 +249,9 @@ GamePtr<Actor> Actor::Create(TESNPC* apBaseForm) noexcept
 GamePtr<Actor> Actor::Spawn(uint32_t aBaseFormId) noexcept
 {
     TESNPC* pNpc = Cast<TESNPC>(TESForm::GetById(aBaseFormId));
+    if (!pNpc)
+        return nullptr;
+
     return Actor::Create(pNpc);
 }
 
@@ -319,8 +331,11 @@ void Actor::SetPlayerRespawnMode(bool aSet) noexcept
 
     if (formID != 0x14)
     {
-        auto pPlayerFaction = Cast<TESFaction>(TESForm::GetById(0xDB1));
-        SetFactionRank(pPlayerFaction, 1);
+        // Hardcoded "PlayerFaction" id. A load order without it - or one where
+        // the record has not been loaded yet - leaves this null, and the rank
+        // write below used to hand that straight to the engine.
+        if (auto pPlayerFaction = Cast<TESFaction>(TESForm::GetById(kPlayerFactionId)))
+            SetFactionRank(pPlayerFaction, 1);
     }
 }
 
@@ -1027,7 +1042,7 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
     const auto* pNpc = Cast<TESNPC>(apThis->baseForm);
     if (pNpc)
     {
-        spdlog::info("Spawn Actor: {:X}, and NPC {}", apThis->formID, pNpc->fullName.value);
+        spdlog::debug("Spawn Actor: {:X}, and NPC {}", apThis->formID, pNpc->fullName.value);
     }
 
     return TiltedPhoques::ThisCall(RealSpawnActorInWorld, apThis);

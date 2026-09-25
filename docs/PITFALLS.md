@@ -298,6 +298,19 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   启动期读到 null 本身是正常的（VM 单例尚未建立）。
 - **【观察项】客户端日志 0 字节**：曾出现从非 SKSE bootstrap 路径启动（launcher）导致
   `st_boot.log` 为空的情况，排查前先问清"这次是怎么启动的"（MO2 / 直接 SKSE / launcher）。
+- **【已结案，见 §19.1/§19.2/§19.3/§19.4】`st_deploy_error.log` 的 `failed: d3dcompiler_47.dll (error 2)`**：
+  文件**不缺**。① `DeployFile` 末尾清理一个全仓无人创建的 `.str_old`，把错误码冲成
+  `ERROR_FILE_NOT_FOUND`；② 调用方在整轮遍历后才读 `GetLastError()`，真实错误被冲掉；
+  ③ 真触发者是**内容相同但 mtime 更新**（18 个文件里只有它），旧判据纯看时间戳，于是
+  每次启动都重复制一份 4.7MB 的 `.str_new` 且永远顶不上。三条都已修。
+- **【P2，待办，见 §19.5】帧循环定时器量子**：`kWorldUpdateTimerIntervalMs = 16`
+  在 Windows 默认 15.625ms 粒度下被**向上取整到 31.25ms**，所以实测 28.8 tick/s
+  **不是"只跑到理论上限的一半"，而是上限本就只有 32/s**（§16.5 的 62.5/s 算错了）。
+  改成 8（或 15）可到 ~64/s，但会改变 `World::Update()` 频率与 actor 发现延迟，
+  **必须实机验证**，本轮不动。
+- **【已查，不修，见 §19.7】`BehaviorVar` 的"multiple behavior replacers"与选错物种**：
+  日志里狼/麋鹿被认成 Cow，看着像 bug，但**逐条验证后决定不动**（换了三种"更聪明"的
+  判据都**没有变好**，其中两种更差），原因与判据见 §19.7。
 
 ---
 
@@ -1055,3 +1068,420 @@ MO2 的 C++ 安装器里**硬编码**了三个路径（`installer_fomod.dll` 的
 > **方法教训**：`Set-Content` 不带 `-Encoding` 时，"能跑通"和"编码正确"是两件事——
 > 前者取决于**谁在跑**（`pwsh` 7 还是 5.1），后者才取决于**代码写了什么**。
 > 对含非 ASCII 的文件做读-改-写，编码必须写死在脚本里。
+
+
+---
+
+## 19. v1.0.42 自部署的假失败与定时器分辨率（2026-09-23 场次）
+
+本轮日志：`D:\sktest\new`（1.5.97 + MO2 + 整合包，673 行，一场 5 分钟会话，
+`authentication accepted` 且跑满全程无崩溃）。§12.6 的复核项**全绿**：
+`already claimed` 0、`vm tick heartbeat|main loop heartbeat` 0、
+`did not take the queued messages` 0、`holds the papyrus vm` 0、崩溃 0。
+所以本轮的问题不在联机链路，而在**自部署**和**帧循环速率**这两处。
+
+### 19.1 `st_deploy_error.log` 的 "error 2" 是伪造的（已修）
+
+**现象**：`st_deploy_error.log` 只有两行，两场会话一模一样：
+
+```
+[deploy] non-critical failures; continuing
+[deploy] failed: d3dcompiler_47.dll (error 2)
+```
+
+`error 2` = `ERROR_FILE_NOT_FOUND`，于是所有人都会去找"缺哪个文件"。
+**但文件根本不缺**：`D:\game\SkyrimSE\d3dcompiler_47.dll` 存在，4741480 字节。
+
+**根因**（两个缺陷叠加，缺一不可）：
+
+1. `DeployFile` 的失败路径**最后**是 `DeleteFileW(<target>.str_old)`，
+   而全仓**没有任何地方创建 `.str_old`**（已 grep 确认）。删除一个不存在的文件
+   必然失败，并把线程 last error 覆盖成 `ERROR_FILE_NOT_FOUND`（实测：
+   `DeleteFileW(missing) -> False err 2`）。
+2. 调用方在**整轮遍历之后**才读 `GetLastError()`：
+   `swprintf_s(buf, L"failed: %s (error %lu)", rel.c_str(), GetLastError())`。
+   中间隔了几十个文件系统调用，于是**真实错误被冲掉**，只剩那两行。
+
+**修法**：`DeployFile` 增加 `DWORD& aError` 出参，在**出错的那一步原地**记录
+（`std::error_code::value()` 优先，回退 `GetLastError()`）；调用方改读它；
+顺手删掉那个只用来污染错误码的 `.str_old` 清理。
+
+### 19.2 假失败的真正触发者：**内容相同但 mtime 更新**（已修）
+
+**为什么偏偏是 `d3dcompiler_47.dll`**：把游戏根目录与 MO2 payload 逐个比对
+（18 个文件，SHA-256 + mtime）后，**只有它一个**满足"payload 比目标新"：
+
+```
+file                              identical  target mtime    payload mtime   payload newer
+d3dcompiler_47.dll                True       09-19 17:36:32  09-23 08:56:54  True
+其余 17 个文件                     True       09-23 08:5x:xx  09-23 08:5x:xx  False
+```
+
+**字节完全相同**，只是 MO2 解包时给 payload 盖了**更新的 mtime**。而旧判据是
+"payload 不旧于目标就跳过"（纯时间戳），于是每次启动都判定"要更新"→ 复制一份
+`.str_new` → `DeleteFileW(target)` 因游戏已加载该 dll 而失败 → 保留 `.str_new`
+→ 下次启动**重复同一件事**。实机残留证据：`.str_new` 与目标**同哈希**，
+且目标 mtime 停留在 09-19、payload 是 09-23。
+
+**修法**：判据改成**内容优先**——大小相同且 payload 看着更新时，才逐块比对内容
+（`SameContents`，64KB 分块，250MB 的 `libcef.dll` 也不会整份进内存）；
+内容一致就认作已是最新，把目标 mtime 顶到 payload 的（下次走廉价分支），
+并**顺手删掉那个永远没人消费的 `.str_new`**。mtime 相同则直接跳过，不做无谓读盘。
+
+**为什么不用「直接删掉 `.str_old` 那行就完事」**：那只能让错误码变对，
+`d3dcompiler_47.dll` 仍会**每次启动都被复制一遍**（白白写 4.7MB），
+且游戏根目录仍会不断堆积 `.str_new`。19.1 修的是**报告**，19.2 修的是**行为**。
+
+### 19.3 换文件必须用 `MoveFileExW`，不能先删后移（实测）
+
+旧代码 `if (DeleteFileW(target)) return MoveFileW(...)` 是**危险顺序**：
+删除会成功，而随后的移动会失败，游戏根目录就此**少一个 dll**。
+（`libcef.dll` 走这条路径就是"启动直接挂"。）
+
+改成 `MoveFileExW(tmp, target, MOVEFILE_REPLACE_EXISTING)`，并在本机实测了
+锁定语义（独占句柄模拟已加载的 dll）：
+
+```
+MoveFileExW over LOCKED target   -> False err 5 (ACCESS_DENIED)
+  target still exists: True
+  target bytes intact: True      <- 失败时目标**原封不动**，不会丢文件
+  staged file preserved: True    <- 待替换副本留着，下次启动顶上
+MoveFileExW over UNLOCKED target -> True
+  staged file consumed: True
+```
+
+### 19.4 `.str_new` 以前**根本没人顶上**（已修）
+
+原注释写"the next launch picks it up"，但**没有任何代码去捡它**——
+既没有"启动时把 `.str_new` 提上来"的分支，也没有清理。这正是 19.2 里
+`.str_new` 能在游戏根目录躺好几天的原因。
+
+现在补上两条：**先尝试顶替**（复用已存在的、且**不旧于 payload 且同大小**的
+`.str_new`，省掉每次启动重复复制几百 MB），**顶替不掉再复制**。
+
+> 为什么要校验大小：截断的 `.str_new`（正是上面那个 size 检查存在的原因）
+> 若仅凭 mtime 就顶替上去，会把一个好的 dll 换成半截的。
+
+### 19.5 帧循环真实速率：**31.25ms 的定时器量子**（已定位，未改）
+
+实测本轮会话（`timer-driven update heartbeat`，剔除一次载入尖峰）：
+
+| 量 | 值 |
+|---|---|
+| 整场平均 | 28.8 tick/s |
+| 稳态中位间隔 | **31.27 ms** |
+| 定时器请求间隔 | 16 ms（`InputService.cpp:42`） |
+
+31.25 ms 不是噪声，是**算术必然**：Windows 默认定时器粒度是 **15.625 ms**，
+`SetTimer` 的间隔会**向上取整到粒度的整数倍**：
+
+```
+16 / 15.625 = 1.024  -> 进位到 2 个粒度 = 31.25 ms = 32.0 tick/s
+ 8 / 15.625 = 0.512  -> 进位到 1 个粒度 = 15.625 ms = 64.0 tick/s
+```
+
+本机实测复现（`SetTimer` + 消息泵）：请求 16ms → 中位 **29.7ms（33.7/s）**；
+请求 8ms → 中位 **15.8ms（63.2/s）**；`timeBeginPeriod(1)` **对结果无影响**
+（33.5 / 63.6），因为 16ms 的取整**不是分辨率不够，而是量子对齐**。
+
+**结论**：§16.5 遗留的"tick 速率仍未达标（25.2/s，理论上限 62.5/s）"里，
+**有一半是算错了上限**——16ms 请求在默认粒度下**根本到不了 62.5/s**，只能到 32/s。
+当前 28.8/s 距 32/s 的量子上限只差 ~10%，剩下那点才是真正的每帧开销。
+
+**本轮不改**：把 `kWorldUpdateTimerIntervalMs` 从 16 改成 8（或 15）能翻倍到
+~64/s，但它同时改变 `World::Update()` 的调用频率（`World.cpp:72` 还有个 8ms
+的自限流），会牵动 actor 发现延迟与同步节奏，**必须实机验证**才能动。
+记入 §10 待办。
+
+### 19.6 复核用的命令（照抄）
+
+```powershell
+# 1. payload 与游戏根目录是否真的不同（内容 + mtime，两个都要看）
+#    只比 mtime 会得出"要更新"的错误结论，只比内容会看不出触发条件
+#    （对每个文件算 SHA-256 并打印两边 mtime）
+
+# 2. 目标是不是被占用（独占打开失败 = 被游戏加载）
+try { $fs=[System.IO.File]::Open('D:\game\SkyrimSE\d3dcompiler_47.dll','Open','ReadWrite','None'); $fs.Close(); 'not locked' }
+catch { 'LOCKED: ' + $_.Exception.Message }
+
+# 3. `.str_old` 到底有没有生产者（应为空 -> 那行清理纯属污染错误码）
+git grep -n "str_old"
+
+# 4. 定时器量子：请求 16ms 与 8ms 各测一次中位间隔（本机实测 29.7ms / 15.8ms）
+```
+
+> **方法教训**：`GetLastError()` 是**线程级**状态，只在**紧邻**失败调用的地方有意义。
+> 把它读在几十个文件系统调用之后，等于读到一个随机数——本例里它稳定地返回
+> `ERROR_FILE_NOT_FOUND`，把"文件被占用"报成了"文件不存在"，
+> 而**文件名又是对的**，于是看起来完全可信。诊断信息出错比没有诊断信息更贵。
+
+### 19.7 查过但**故意不改**的：`BehaviorVar` 选错物种（狼被当成牛）
+
+**现象**：日志里狼（`DC556`）和麋鹿（`DC553`）都被判成 `Cow`：
+
+```
+BehaviorVar::Patch: found match, behavior hash b0b931cbfefb2d2b (found on formID dc556)
+  has original behavior Cow signature iState_CowDefault,!iState_DogRun
+```
+
+**为什么签名会撞**：`Cow` 的签名是 `iState_CowDefault,!iState_DogRun`。
+用**真实的** `DumpAnimationVariables` 输出逐条代入（狼的 110 个变量）：
+狼**确实**含 `iState_CowDefault`、**确实**不含 `iState_DogRun`，
+所以签名判据本身**没写错**——它只是**不足以区分**狼/牛/鹿/山羊等一群动物。
+同一次 dump 满足 **8 个**replacer 的签名（Cow/Deer/Goat/Horker/Horse/SabreCat/Skeever/Wolf）。
+
+**试过但否决的三个"更聪明"判据**（都以日志里的**真实物种名**做真值）：
+
+| 判据 | 正确率 | 结论 |
+|---|---|---|
+| **现状**：`matchedReplacers[0]`（目录顺序第一个） | **7/9** | 基线 |
+| 覆盖最多"该物种同步变量名" | 7/9 | **没变好** |
+| 缺失最少 → 再看覆盖 | 7/9 | **没变好** |
+| 先看"最多同步变量"再看覆盖 | 3/9 | **明显更差** |
+
+三个替代判据在**同样的 8 候选**上给出的答案与现状**同分或更差**，
+没有一条能稳定把狼判成 Wolf。**没有证据支持改**，按 YAGNI 不动——
+改了只会把 7/9 换成另一个 7/9，却要冒引入回归的风险。
+
+**真正的限制**：`iState_*` 这一类变量在**多个物种的图里同时存在**（狼的 dump 里
+有 `iState_CowDefault`、`iState_WolfDefault`、`iState_DeerDefault`、`iState_DogDefault`），
+所以**单靠变量名集合无法定位物种**。要真正修，得换一个能唯一标识物种的量
+（例如基对象的 editorID / 模板），那是**新功能**而不是 bug 修复，不在本轮范围。
+
+> **方法教训**："日志看起来不对"不等于"代码错了"。本例里**签名判据是对的**，
+> 错的是"这些签名互不重叠"这个**假设**。动手前先用真值表量一次现状准确率，
+> 否则会把 7/9 的基线改成 3/9 还自以为在修 bug。
+> 反过来，`multiple behavior replacers have the same signature` 这条
+> `critical` 日志**正是该假设被打破的正确报警**，应当保留。
+
+---
+
+## 20. v1.1.0 联机崩溃（SkyrimSE.exe+0x23d000 空指针）与加载期日志（2026-09-25 场次）
+
+### 20.1 现象
+
+`D:\sktest\new\tp_client.log` 末场（10:30 启动）在 10:35:03.114 崩溃：
+
+```
+10:35:03.113 [tid 6352] Spawn Actor: FF000A0A, and NPC hr
+10:35:03.114 [tid 6352] Spawn Actor: FF000AA0, and NPC hr
+10:35:03.114 [critical] VectoredExceptionHandler: crash occurred!
+WriteCrashReport: faulting instruction is in SkyrimSE.exe+0x23d000
+WriteCrashReport: registers: rax=0x80000001 rbx=0x22c3e25a2a0 rcx=0x0 ...
+WriteCrashReport: access type read (code 0), target address 0x40 (unmapped 0x40)
+```
+
+调用栈：`#05 SkyrimSE.exe+0x23d000` ← `#06 +0x23d12f` ← `#07 +0xd2cdcf` ← … ←
+`#12 +0xc0d6bd` ← KERNEL32/n兽ntdll（线程入口）。`#00/#01` 两个
+`SkyrimTogetherRuntime_1_5.dll+0xa8feb / +0xa7f37` 是 **VEH 崩溃处理器自身**，
+不是肇事帧——别被它误导成"我们代码里崩的"。
+
+### 20.2 根因
+
+`0x23d000` 是个 17 字节的小 getter：
+
+```
+14023d000: f6 41 40 01   test byte ptr [rcx + 0x40], 1
+14023d004: 74 03         je  0x14023d009
+14023d006: 33 c0         xor eax, eax
+14023d008: c3            ret
+14023d009: 48 8b 81 20 01 00 00  mov rax, [rcx + 0x120]
+14023d010: c3            ret
+```
+
+`rcx = 0` ⇒ 读 `[0x40]` ⇒ AV。调用方 `0x23d12a`（在 `0x23d070` 内）执行的是
+`mov rcx, r14; call 0x23d000`，而 `r14` 来自
+`mov rcx,[rax+0x140]; test rcx,rcx; je → r14 = r12(=0)`——即**引擎自己的代码
+把 null 传给了自己的 accessor**。
+
+**这不是我们 hook 的函数**：`0x23d000`(SE id 17859) 与 `0x23d070`(17865) 都不在
+`versionlib-ae-to-se-1-5-97-0.map` 的 3698 条里，我们既没 hook 也没调用它们。
+崩的是**引擎在被我们搞坏的状态上继续跑**。
+
+真正的前置状态：**同一个远程玩家被生成了两个 actor**。
+
+- 10:31:56.451 `CharacterSpawnRequest, server id: 1E, form id: FF000A0A`
+- 10:33:09.461 `CharacterSpawnRequest, server id: 1E, form id: FF000AA0` ← 同一 server id，**不同** form id
+- 10:35:03.113/114 两个 actor 的 3D 背靠背建立 → 引擎在自身 reference 更新里解引用 null
+
+第二条请求之所以没被 `OnCharacterSpawn` 的重复守卫拦下，是因为第一条的实体在
+`10:31:56.705` 起就**已经查不到了**：紧接着是 18 条
+`ActorValueService::OnHealthChangeBroadcast: could not find actor server id 1E`。
+即第一次 spawn 建的实体中途丢了 `RemoteComponent`，守卫自然失效。
+
+### 20.3 修复
+
+两处，都在**客户端**，都不碰引擎：
+
+1. `CharacterService::RunSpawnUpdates()`——`remoteComponent.CachedRefId` 已经是非 0
+   （说明这个 server id **已经生成过 actor**）时，绝不再调 `CreateCharacterForEntity()`。
+   原逻辑是"查不到就建"，而 `TESForm::GetById()` 在引擎注册新引用期间会**正常地**
+   失败一两帧，于是又建了一个。丢掉的 actor 交给服务器的 spawn 请求重建，不由这条路径补。
+
+2. `CharacterService::OnCharacterSpawn()`——重复守卫除了查 `RemoteComponent`，
+   再查一次 `LocalComponent`：本机已拥有的 actor 被当成远程 spawn 再插一次，
+   同样会造出"一个 server id 两个 actor"。
+
+### 20.4 加载/过场卡顿：把热路径日志降到 debug
+
+10:30:25 那一秒写了 **220 行**日志，其中 64 行是 `hook target ...`、约 80 行是
+BehaviorVar 的物种名列表。这些都在主线程同步写盘。三处每实体/每 hook 的
+`spdlog::info` 降为 `debug`：
+
+| 位置 | 原日志 | 频率 |
+| --- | --- | --- |
+| `Actor.cpp` `HookSpawnActorInWorld` | `Spawn Actor: ...` | 每个引用 3D 更新一次 |
+| `CharacterService::RunRemoteUpdates` | `applied 3D for actor...` | 每个远程实体一次 |
+| `CharacterService::ProcessNewEntity` | `New entity remotely managed...` | 每个新实体一次 |
+| `HookAudit::Report` | `hook target ...` | 每个 hook 一次(64) |
+
+> **教训**：崩溃日志里的栈要**先分清哪些帧是崩溃处理器**。
+> `VectoredExceptionHandler` / `WriteCrashReport` 永远在最内层，
+> 把它们当肇事帧会把排查方向整个带偏。真正的肇事帧是**第一条落在
+> 游戏模块里的**那个（这里是 `SkyrimSE.exe+0x23d000`）。
+>
+> 另外：**"查不到就建"是一类危险的幂等性假设**。只要那个"查"会在引擎
+> 尚未完成注册时合理地失败，就必须用"是否已经建过"（`CachedRefId != 0`）
+> 而不是"现在查得到吗"来做判据。
+
+---
+
+## 21. v1.1.0 联机流畅度与同步的算法级改进（2026-09-25 场次）
+
+### 21.1 定时器量化：联机更新率实际只有请求值的一半
+
+`SetTimer` 会把间隔**向上**取整到 15.625 ms 的系统 tick 的整数倍：
+
+| 请求 | 实际 | 更新率 |
+| --- | --- | --- |
+| 16 ms | 2 tick = 31.25 ms | ~32/s |
+| 8 ms | 1 tick = 15.625 ms | ~64/s |
+
+远端玩家的位置是按这个节拍采样的，所以 16 ms 让插值每 31 ms 才推进一次，
+在 60 fps 画面里表现为可见的"一步一顿"。改为 **8 ms**，更新率翻倍。
+
+### 21.2 插值：线性 → Catmull-Rom，并允许有界外推
+
+原实现的两个算法缺陷：
+
+1. **线性插值只有 C0 连续**。相邻线段的方向在快照边界上是突变，
+   瞄准角速度不连续，看起来就是"折线感"。
+2. **`delta` 被钳到 1.0**。丢包时播放头越过最新样本，角色被钉在最后
+   已知位置**冻结**，下一个包到达时再**跳**过去——冻结+跳变比轻微过冲
+   难看得多。
+
+改为：
+
+- **均匀 Catmull-Rom**（p0/p1/p2/p3），平滑线段交界处的方向；
+- 窗口边界处的 p0/p3 **夹到线段端点**，退化为线性而不是外推失控；
+- `delta` 上限放宽到 **1.25**，沿最后一段速度做有界外推；
+- `delta` 下限补 **0**，防止播放头落后窗口起点时**反向**外推。
+
+窗口裁剪改为"保留活动线段前一个样本"（`size > 3`），保证 p0 存在；
+并加了 `kMaxSamples = 8` 的硬上限，防时钟重同步时窗口失控。
+
+> **验证方法**：把裁剪+选段逻辑抽成纯函数，用 9 组代表性输入（含播放头
+> 落在中间、落在两端之外、窗口只有 2 个样本、样本数超上限）跑一遍，
+> 逐个核对选出的 p0/p1/p2/p3 与 delta。**纯逻辑改动完全可以离线验证**，
+> 不必等实机。
+
+### 21.3 移动更新：O(更新数 × 实体数) → O(实体数 + 更新数)
+
+`OnReferencesMoveRequest` 原本对**每一条** update 都做一次
+`std::find_if` 遍历整个 view。一个繁忙格子里每个在范围内的 actor 都是一条
+update，于是这个热路径成了**平方复杂度**，而它每 100 ms 就跑一次。
+
+改为**先建一次索引**（serverId → entity），再逐条 O(1) 查表。
+
+### 21.4 审计发现的两个真实空指针崩溃
+
+**（a）`CharacterService::OnActorAdded`**——发现扫描上报的 form id 可能
+**已经解析不出 actor**（扫描与本次调用之间 actor 卸载，或临时引用已被引擎
+回收）。而 `acEvent.FormId == 0x14`（玩家）分支**无条件解引用**返回的
+指针 —— 在这个竞态上就是一次空指针写。已补 `if (!pActor) return;`。
+
+**（b）同函数**在命中 `RemoteComponent` 索引后**重新取了一次 actor**，
+把上面刚校验过的指针丢掉了。改为复用已校验的指针。
+
+> **审计教训**：`TESForm::GetById` 是**可能返回 null 的查询**，不是断言。
+> 同一个函数里"取一次、校验、然后再取一次"，第二次取值会让编译器
+> （和人）失去第一次的证明。**要么只取一次，要么每次取完都判空。**
+> 全仓库还有 ~50 处 `Cast<Actor>(TESForm::GetById(...))`，
+> 本次只修了有**明确无保护解引用**的两处，其余需要逐个确认调用上下文。
+
+### 21.5 全仓库 `GetById` 解引用审计（v1.1.0 续）
+
+对上一条遗留的 ~50 处做了**全量机械审计**：用脚本抓
+`var = Cast<T>(TESForm::GetById(...))`，然后向后看 10 行内**第一次
+解引用** `var->` 的位置，若在此之前没有 `if (!var)` / `var &&` /
+`var ?` 形式的守卫，就报出来。
+
+**结果**：全仓库 123 处此类取值，61 处已有守卫，脚本报出 62 处可疑，
+人工核对后确认 **19 处是真无守卫**，其余是 C++17 `if (T* x = ...)`
+初始化语句或已被注释掉的代码——**正则抓不到初始化语句**，这是本次
+审计的已知假阳性来源。
+
+修掉的真实缺陷（按危害排序）：
+
+| 位置 | 问题 | 触发条件 |
+| --- | --- | --- |
+| `Actor::Create` | `GetById(0x14)` 取玩家后**连解引用三次** | 主菜单 / 玩家尚未建立 |
+| `PlayerService` ×5 处 | `0x100F19`(KillMove)、`0xB8EC1`(WorldEncounters) 取全局后直接写 `->f` | 加载顺序缺这两条记录；**断线路径也写**，所以退出时崩 |
+| `PartyService` | 同上 `0xB8EC1` | 同上 |
+| `Actor::SetEssential` | `GetById(0xDB1)`(PlayerFaction) 后 `SetFactionRank` | 同上 |
+| `Actor::Spawn` | 基表单取不到仍 `Actor::Create(nullptr)` | 基表 id 无效 |
+| `ObjectService` 锁变更 | `GetById(acEvent.FormId)` 后直接 `GetParentCellEx()` | form id 来自**事件**而非活引用，排队执行时对象可能已消失 |
+| `InventoryService` 收武器轮询 | **每帧**遍历本地实体时解引用可能已死的 actor | actor 在遍历途中卸载 |
+| `QuestService` 场景事件 | `GetById(sceneFormId)` 后直接 `->owningQuest` | 场景已卸载；**同一文件的阶段事件处理器已经判空** |
+| `ContainerDebugView` ×2 | 排队 lambda 解引用**几秒前捕获**的 actor | 队列执行时已卸载 |
+| `CharacterService::OnActorAdded` ×1 | 命中索引后**重复取值**丢掉已校验的指针 | 见 21.4(b) |
+
+**修法**：给硬编码 id 起名（`kKillMoveGlobalId` 等）并把
+`if (T* p = Cast<T>(...))` 作为**统一写法**——校验和取值在同一条语句里，
+不可能只做一半。
+
+> **审计教训（补充）**：
+> 1. **"已知可达"不等于"一定可达"**。这些 id 都是原版固定记录，作者假设
+>    它必然存在——但加载顺序可以改变这一点，而**崩溃发生在退出路径**上，
+>    最难复现。
+> 2. **正则审计会有假阳性，但不会漏掉真阳性**（在保守写法下）。62 报
+>    19 真看着效率低，但比人工翻 123 处可靠。**关键在于明确写出假阳性
+>    的成因**（C++17 初始化语句），否则下一轮审计会重复踩。
+> 3. 修 `Cast<T>(TESForm::GetById())` 时**优先用初始化语句**而不是
+>    "先声明、再 if"——后者留出了"有人插一行解引用"的位置。
+
+---
+
+## 22. v1.1.0 二次审计：链式解引用与"cell 可能在 load 中为空"
+
+### 22.1 现象与根因
+
+第一轮审计只看了 `var = Cast<T>(GetById(...))` 这种**赋值式**取值。
+第二轮换了个判据：找 **`A()->B()->` 链式解引用**——一次表达式里
+连续解引用两个"查询结果"。
+
+抓到 3 处，其中 2 处是真缺陷：
+
+| 位置 | 问题 | 触发条件 |
+| --- | --- | --- |
+| `DiscoveryService::VisitInteriorCell` | `PlayerCharacter::Get()->GetParentCellEx()->formID` | **loading 中**：玩家存在但 parentCell 为空 |
+| `DiscoveryService::VisitExteriorCell` | `GetCellFromCoordinates` 回退后仍可能为空就取 `->formID` | 目标格尚未 attach |
+| `PlayerCharacter` `HookSetBeastForm` | 游戏 hook 里直接 `PlayerCharacter::Get()->GetExtension()` | hook 在玩家对象建立前触发 |
+| `OverlayService::Reload` | `GetOverlayApp()->GetClient()->GetBrowser()` | CEF 尚未产生 app 时从 UI 调用 |
+
+`VisitCell()` 只在**入口**判了 `if (!pPlayer) return;`，进到
+`VisitInteriorCell` 之后就不再判了——这是典型的"守卫只做了一半"。
+
+### 22.2 为什么第二轮才抓到
+
+第一轮的正则要求 **`变量 = Cast<T>(...)`** 的形态，链式写法
+（`F()->G()->h`）里根本没有中间变量，**两轮判据正交**。
+
+> **审计教训**：审计的**判据决定覆盖率**，不是"审计了一遍"就完事。
+> 交换判据（赋值式 → 链式；返回值 → 参数；单函数 → 跨帧）比
+> 在同一判据上加大力度有效得多。本轮两次交换都立刻抓到新缺陷。
+>
+> 另一个具体教训：**loading 期间"对象存在但成员为空"是常态而不是异常**。
+> `PlayerCharacter::Get() != nullptr` **不蕴含** `GetParentCellEx() != nullptr`。
+> 玩家对象在 load 全程存活，它的 cell 却在换——所有 `Get()->GetX()->`
+> 的写法都要按"load 中"来审。

@@ -174,7 +174,7 @@ void HookAudit::Report() noexcept
         // the id that says which entry to look up.
         char idText[32];
         FormatId(recorded.pTarget, idText);
-        spdlog::info("hook target {} ({})", where, idText);
+        spdlog::debug("hook target {} ({})", where, idText);
 
         uint8_t now[8]{};
         SafeReadCode(now, recorded.pTarget, sizeof(now));

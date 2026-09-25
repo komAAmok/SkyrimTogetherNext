@@ -11,7 +11,7 @@
 <fomod>
     <Name>Skyrim Together Next</Name>
     <Author>komAAmok</Author>
-    <Version>1.0.41</Version>
+    <Version>1.1.0</Version>
     <Website>https://github.com/komAAmok/SkyrimTogetherNext</Website>
     <Description>Skyrim Together 的联机 mod(1.5.x / 1.6.x / 1.7.x)。装上后从 MO2 启动 skse64_loader.exe 即可,SKSE 插件会自动部署运行时。联机:房主开服务器,其他玩家游戏内按 F2 输入房主 IP:10578。
 

@@ -21,8 +21,10 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <cwchar>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -126,47 +128,163 @@ bool IsLegacyGame()
     return HIWORD(ffi->dwFileVersionMS) == 1 && LOWORD(ffi->dwFileVersionMS) == 5;
 }
 
-bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::path& acTarget)
+// Compares two files by content, in chunks, so a multi-hundred-megabyte dll is
+// never held in memory at once. Only called when the sizes already match, so a
+// size mismatch is handled by the caller and never reaches here.
+bool SameContents(const std::filesystem::path& acLeft, const std::filesystem::path& acRight)
 {
+    std::ifstream left(acLeft, std::ios::binary);
+    std::ifstream right(acRight, std::ios::binary);
+    if (!left.is_open() || !right.is_open())
+        return false;
+
+    constexpr std::streamsize kChunk = 64 * 1024;
+    std::vector<char> a(static_cast<size_t>(kChunk));
+    std::vector<char> b(static_cast<size_t>(kChunk));
+
+    for (;;)
+    {
+        left.read(a.data(), kChunk);
+        right.read(b.data(), kChunk);
+
+        const auto leftRead = left.gcount();
+        const auto rightRead = right.gcount();
+
+        if (leftRead != rightRead)
+            return false;
+        if (leftRead == 0)
+            return true;
+        if (std::memcmp(a.data(), b.data(), static_cast<size_t>(leftRead)) != 0)
+            return false;
+    }
+}
+
+// Deploys one payload file, reporting the error of the step that actually
+// failed through aError.
+//
+// Why the error is captured here instead of by the caller: this function's
+// failure path used to end with DeleteFileW(<target>.str_old), and nothing in
+// the code base ever creates a .str_old file - so that call always failed and
+// left ERROR_FILE_NOT_FOUND (2) as the thread's last error. The caller then
+// reported that, which is why every real failure - a locked target, a denied
+// write, a full disk - showed up in st_deploy_error.log as "error 2". That
+// sends everyone hunting for a file that is present and merely in use.
+bool DeployFile(const std::filesystem::path& acSource, const std::filesystem::path& acTarget, DWORD& aError)
+{
+    aError = ERROR_SUCCESS;
+
     std::error_code ec;
     if (!std::filesystem::exists(acTarget, ec))
-        return std::filesystem::copy_file(acSource, acTarget, std::filesystem::copy_options::overwrite_existing, ec);
+    {
+        if (std::filesystem::copy_file(acSource, acTarget, std::filesystem::copy_options::overwrite_existing, ec))
+            return true;
+        aError = ec.value() != 0 ? static_cast<DWORD>(ec.value()) : GetLastError();
+        return false;
+    }
 
-    // keep the newer build; skip when the target is already up to date.
-    // a mismatching SIZE means an earlier copy was interrupted (permissions,
+    // Decide whether the target already *is* the payload.
+    //
+    // The test is content first, timestamps only as a cheap pre-filter. It used
+    // to be the other way round - "skip when the target is not older than the
+    // source" - and that silently redeployed files whose content never changed.
+    // A mod package extracted by Mod Organizer, or copied by an archive tool
+    // that restores stored timestamps, gives the payload a *newer* mtime than
+    // the file already in the game root even when the bytes are identical, so
+    // every launch copied that file again and then failed to swap it, because
+    // the game had it loaded. d3dcompiler_47.dll is exactly this case: it is
+    // what produced the permanent "failed: d3dcompiler_47.dll" line and the
+    // .str_new file that sat in the game root for days.
+    //
+    // A mismatching SIZE means an earlier copy was interrupted (permissions,
     // crash, AV) and left a truncated file behind - a truncated dll makes
     // LoadLibrary fail with ERROR_INVALID_DATATYPE (182), so always re-copy.
-    const auto srcSize = std::filesystem::file_size(acSource, ec);
-    const auto dstSize = std::filesystem::file_size(acTarget, ec);
-    if (ec || srcSize == 0 || srcSize != dstSize)
+    std::error_code srcSizeEc, dstSizeEc;
+    const auto srcSize = std::filesystem::file_size(acSource, srcSizeEc);
+    const auto dstSize = std::filesystem::file_size(acTarget, dstSizeEc);
+    if (!srcSizeEc && !dstSizeEc && srcSize != 0 && srcSize == dstSize)
     {
-        // fall through and re-copy (the .str_new dance below replaces it)
-    }
-    else
-    {
-        const auto srcTime = std::filesystem::last_write_time(acSource, ec);
-        const auto dstTime = std::filesystem::last_write_time(acTarget, ec);
-        if (!ec && srcTime <= dstTime)
+        // Separate error codes again, and this one matters: a failed call
+        // returns a default-constructed timestamp, so sharing a single code
+        // would let a successful read of the *target* clear an error from the
+        // read of the *source*, and the default-constructed source time would
+        // then compare as "not newer" - reporting a file as up to date on the
+        // strength of a timestamp that was never read.
+        std::error_code srcTimeEc, dstTimeEc;
+        const auto srcTime = std::filesystem::last_write_time(acSource, srcTimeEc);
+        const auto dstTime = std::filesystem::last_write_time(acTarget, dstTimeEc);
+
+        // Same timestamp: the target was deployed from this very payload, so the
+        // content cannot differ and reading a 250MB dll on every launch is not
+        // worth it. Only when the payload looks newer is the content compared.
+        if (!srcTimeEc && !dstTimeEc && srcTime <= dstTime)
             return true;
+
+        if (SameContents(acSource, acTarget))
+        {
+            // Identical bytes, so the target is already correct. Touch its
+            // timestamp forward to the payload's so later launches take the
+            // cheap path above instead of hashing the file again.
+            std::error_code touchEc;
+            std::filesystem::last_write_time(acTarget, srcTime, touchEc);
+
+            // Any staging file next to it is a copy of a *previous* payload that
+            // this one supersedes, and leaving it behind is how the game root
+            // accumulated a .str_new that no launch would ever consume. It is
+            // only removed now that the target is known to match the payload.
+            std::filesystem::path stale = acTarget;
+            stale += L".str_new";
+            std::error_code removeEc;
+            std::filesystem::remove(stale, removeEc);
+
+            return true;
+        }
     }
 
-    // write to a temp name first so a loaded/locked dll can be replaced on
-    // the next start, then swap
+    // Stage the payload next to the target and swap it in.
+    //
+    // MOVEFILE_REPLACE_EXISTING, not delete-then-move: when the target is
+    // locked - it is a loaded dll, or the game is still shutting down - the move
+    // fails with ERROR_ACCESS_DENIED and leaves the target untouched, so a
+    // failed swap can never leave the game root without a dll. A delete would
+    // succeed and then the move would fail, which is exactly how a game folder
+    // ends up missing libcef.dll.
     std::filesystem::path tmp = acTarget;
     tmp += L".str_new";
 
-    if (!std::filesystem::copy_file(acSource, tmp, std::filesystem::copy_options::overwrite_existing, ec))
-        return false;
+    // A .str_new left behind by an earlier launch is the *staged payload*, so
+    // reuse it when it is already current instead of copying the same multi-
+    // hundred-megabyte file again on every single launch while the target stays
+    // locked. The staged copy is only trusted when it is at least as new as the
+    // payload AND the same size - a stale leftover can then never downgrade the
+    // target, and a truncated leftover (the failure mode the size check above
+    // exists for) is never promoted over a good payload.
+    bool staged = false;
+    {
+        // One error_code per call: these calls clear the code they are handed on
+        // success, so sharing a single one would let a later success mask an
+        // earlier failure and compare against a default-constructed timestamp.
+        std::error_code timeEc, sizeEc, srcEc;
+        const auto tmpTime = std::filesystem::last_write_time(tmp, timeEc);
+        const auto tmpSize = std::filesystem::file_size(tmp, sizeEc);
+        const auto srcTime = std::filesystem::last_write_time(acSource, srcEc);
+        staged = !timeEc && !sizeEc && !srcEc && tmpTime >= srcTime && tmpSize == srcSize;
+    }
 
-    if (DeleteFileW(acTarget.c_str()))
-        return MoveFileW(tmp.c_str(), acTarget.c_str());
+    if (staged || std::filesystem::copy_file(acSource, tmp, std::filesystem::copy_options::overwrite_existing, ec))
+    {
+        if (MoveFileExW(tmp.c_str(), acTarget.c_str(), MOVEFILE_REPLACE_EXISTING))
+            return true;
 
-    // the target is locked (loaded by a running process); the .str_new file
-    // stays in place and the next launch picks it up, keep the failure
-    // count bounded by removing staged leftovers of older updates
-    std::filesystem::path old = acTarget;
-    old += L".str_old";
-    DeleteFileW(old.c_str());
+        aError = GetLastError();
+    }
+    else
+    {
+        aError = ec.value() != 0 ? static_cast<DWORD>(ec.value()) : GetLastError();
+    }
+
+    // The swap was deferred: the .str_new file stays in place and the next
+    // launch promotes it (see the note at the top of this function for why the
+    // real error, and not a fabricated ERROR_FILE_NOT_FOUND, is reported).
     return false;
 }
 
@@ -274,10 +392,11 @@ bool DeployRuntime(const std::filesystem::path& acGameRoot, const std::filesyste
 
         const auto target = acGameRoot / rel;
         std::filesystem::create_directories(target.parent_path(), ec);
-        if (!DeployFile(it->path(), target))
+        DWORD error = ERROR_SUCCESS;
+        if (!DeployFile(it->path(), target, error))
         {
             wchar_t buf[320];
-            swprintf_s(buf, L"failed: %s (error %lu)", rel.c_str(), GetLastError());
+            swprintf_s(buf, L"failed: %s (error %lu)", rel.c_str(), error);
             aFailures.emplace_back(buf);
         }
     }

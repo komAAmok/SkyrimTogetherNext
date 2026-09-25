@@ -177,13 +177,19 @@ jobs:
               Write-Host "pinned vendored header: $($vendored.FullName)"
             }
 
-            $toolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+            # Quoted interpolation matters here: passed bare, CMake receives the
+            # literal text "$toolchain" and reports "Could not find toolchain
+            # file: $toolchain". Asserting existence first turns that class of
+            # mistake into a message that names the path it actually looked for.
+            $toolchain = Join-Path $env:VCPKG_ROOT 'scripts/buildsystems/vcpkg.cmake'
+            if (-not (Test-Path -LiteralPath $toolchain)) { throw "vcpkg toolchain not found at $toolchain" }
+            Write-Host "toolchain: $toolchain"
 
             # The configure output is captured so a failure can be reported as a
             # GitHub annotation. Annotations are readable without signing in,
             # and the step log is not, so a bare "configure failed" would leave
             # the actual reason visible only to whoever has an account.
-            $configureLog = & cmake -S $spec.Dir -B "$($spec.Dir)/build" -A x64 -DCMAKE_TOOLCHAIN_FILE=$toolchain 2>&1
+            $configureLog = & cmake -S $spec.Dir -B "$($spec.Dir)/build" -A x64 "-DCMAKE_TOOLCHAIN_FILE=$toolchain" 2>&1
             $configureCode = $LASTEXITCODE
             $configureLog | ForEach-Object { Write-Host $_ }
             if ($configureCode -ne 0) {

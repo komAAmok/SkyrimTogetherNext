@@ -25,6 +25,11 @@ on:
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
       - '.github/workflows/plugins.yml'
+      # The snapshot gate exists to protect snapshots/, so it has to run when
+      # they change - and when .gitignore changes, because an ignore rule is
+      # what silently excluded 22 of them the first time.
+      - 'snapshots/**'
+      - '.gitignore'
   pull_request:
     paths:
       - 'Code/plugins/**'
@@ -32,6 +37,11 @@ on:
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
       - '.github/workflows/plugins.yml'
+      # The snapshot gate exists to protect snapshots/, so it has to run when
+      # they change - and when .gitignore changes, because an ignore rule is
+      # what silently excluded 22 of them the first time.
+      - 'snapshots/**'
+      - '.gitignore'
   workflow_dispatch:
 
 jobs:

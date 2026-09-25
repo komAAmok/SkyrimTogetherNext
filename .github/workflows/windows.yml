@@ -334,10 +334,17 @@ jobs:
           $code = $LASTEXITCODE
           $log | ForEach-Object { Write-Host $_ }
           if ($code -ne 0) {
-            $errors = $log | Where-Object { $_ -match 'error [A-Z]+\d+|error:|fatal error' } | Select-Object -First 8
-            if (-not $errors) { $errors = $log | Select-Object -Last 8 }
-            $detail = ($errors -join ' || ') -replace '%', '%25' -replace '\r', '' -replace '\n', '%0A'
-            Write-Host "::error title=xmake build failed::$detail"
+            $errors = @($log | Where-Object { $_ -match 'error [A-Z]+\d+|error:|fatal error' })
+            if ($errors.Count -eq 0) { $errors = @($log | Select-Object -Last 40) }
+
+            # The job summary renders on the run page and needs no account to
+            # read, unlike the step log. The whole error list goes there, so a
+            # failure can be diagnosed from outside GitHub entirely.
+            $summary = @('## xmake build failed', '', '```', ($errors | Select-Object -First 200), '```') -join "`n"
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+            $detail = (($errors | Select-Object -First 6) -join ' || ') -replace '%', '%25' -replace '\r', '' -replace '\n', '%0A'
+            Write-Host "::error title=xmake build failed ($($errors.Count) error line(s), see the job summary)::$detail"
             exit 1
           }
           "STR_BUILD_DIR=build/windows/${{ matrix.arch }}/${{ inputs.build-mode }}/" >> $env:GITHUB_ENV

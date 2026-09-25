@@ -264,6 +264,8 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 | `280c0518` | v1.0.40 | **hook 冲突真身是 EngineFixes**（§17）：全日志只有 1 处冲突（原文误作 2 处），`0xc02260`=id 68115=`GameHeap::Allocate`；`HookAudit` 只认 `e9`，跟不下 `ff 25` thunk 才报"无人可跟"——扩成 `BranchTarget` 并点名模块。另记 SKSE 路径缺 `_initterm_e` 哨兵（§17.4，待办） |
 | `9ad19de2` | **未打 tag** | **CI 自 `49378750` 起全红，且不会自愈**（§24.1）：`dc77b99b` 把 `.vcpkg/downloads` 加进缓存路径，而"Set up vcpkg"的守卫判的是**目录存在**——缓存命中即创建该目录 → 跳过 clone → 下一行跑不存在的 `bootstrap-vcpkg.bat`。最后一次绿灯 `2579c599` 结束时（`12:18:05Z`）写下的缓存**毒化了之后每一次**。判据改为"checkout 存在"，克隆改到 `RUNNER_TEMP` 再并入 |
 | `a8b0f76e` | **未打 tag** | **打包演练首次执行即失败，且是发布阻断**（§24.2）：清单把 `IEDSyncTogether.esp` 列为 **artifact**（"从插件构建输出拷"），但全流程无人生产它——上游在 `build-vortex.ps1` 的 `Write-MinimalPlugin` 里生成，而 CI 对每个插件**只跑 CMake**。`release.yml` 调同一脚本、同一 `ArtifactsRoot`，故推 tag 也会死在这。改为 **payload**（本仓库自持，与 STRPM 的 ini 同构），提交的副本与脚本输出**逐字节相同**（110 B，`9811c7bd…`） |
+| `f1cb45dd` | **未打 tag** | **i18n 七个语言补到 0 缺键**（§25.1）：cs/de/ja/ko/no/ru/tr 各缺 5~11 条，全库 13 个语言文件现已**无一缺键**；逐键核对含 `{{占位符}}` 与英文串一致 |
+| `cd0d90dd` | **未打 tag** | **编码测试从"只编译"改为"真的跑"**（§25.2）：CI 新增 "Run the encoding tests"，编译后、打包前执行 `TPTests.exe` 并**阻断**；实测 step 21 = success |
 
 ## 10. 未修复 / 遗留问题（open，按优先级）
 
@@ -287,8 +289,10 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 - **【已结案，见 §14.1】F3 调试菜单在 1.5.97 走不通**：阻塞点（`UpdateEvent` 不触发）已由 WM_TIMER
   驱动消除，**证据见 §14.1**（不是"应该好了"）。F3 本来就**不在** `IS_MASTER` 里；F6/F7/F8 保持裁掉。
   加了 toggle/draw 两行日志，下次实机一看就知道卡在哪一段。
-- **【已结案，见 §14.2】i18n 缺键**：es/fr/nl/pl/zh-CN 五个语言补到 0 缺键；顺带修了 4 处
+- **【已结案，见 §14.2 + §25.1】i18n 缺键**：es/fr/nl/pl/zh-CN 五个语言补到 0 缺键；顺带修了 4 处
   **坏占位符**（`{{x }`、`{{x}`、大小写不符），它们会让聊天窗直接显示花括号原文。
+  **§15.5 遗留的 cs/de/ja/ko/no/ru/tr 七个语言已于 `f1cb45dd` 补齐到 0 缺键**（§25.1），
+  全库 13 个语言文件现在**没有一个缺键**——这一项不要再当待办重开。
 - **【保持修复，勿丢】自动重连 + `DisconnectedEvent`**：fork 版是有参的（`IsError`），
   上游 `dev` 仍是无参 + 空结构体。同步时按 §3 的"新增语句行存活率"扫描，别被合回去。
 - **【保持现状】版本握手强制同 commit**：`TransportService.cpp:268` 发 `Version=BUILD_COMMIT`，
@@ -822,13 +826,14 @@ Get-ChildItem -Recurse -Path Code\client,Code\server -Include *.cpp |
 
 ### 15.5 本次审计**未做**的（留给下一轮，别当成已修）
 
-1. **`Code/tests/` 从不执行**：CI 只构建不跑测试（`.github/workflows/windows.yml` 里没有
-   `xmake run`）。要接上得先确认 catch2 目标能在 CI 跑通，属于独立改动。
+1. ~~**`Code/tests/` 从不执行**~~ → **已完成**（`cd0d90dd`，见 §25.2）：前提条件（catch2 目标能在
+   CI 跑通）已由 §24.1 修复后的绿灯构建证实，CI 现新增 "Run the encoding tests"，
+   在编译后、打包前执行 `TPTests.exe` 并**阻断**。实测 **21:Run the encoding tests=success**。
 2. ~~**`ActorSpawnedEvent` 定义了但没接线**~~ → **已关闭**：该文件已在 v1.0.39（`3bf0294a`）删除，
    无需再定 dispatch/消费方。已在本轮（2026-09-25）核对：`Code/client/Events/` 下无此文件。
 3. **`PlaceActorInWorld`（F8）**：调用点被注释，恢复需要实机验证会不会崩。
-4. **其余语言的缺键**：`cs/de/ja/ko/no/ru/tr` 仍缺 5~11 条（本次只点名了五个语言），
-   缺的是同一批键，补法照 §14.2 抄。
+4. ~~**其余语言的缺键**：`cs/de/ja/ko/no/ru/tr` 仍缺 5~11 条~~ → **已完成**（`f1cb45dd`，见 §25.1）：
+   七个语言全部补到 **0 缺键**，且**逐键核对**（含 `{{占位符}}` 与英文串的一致性）。
 5. **22 处 `#if 0`**：未逐个判断哪些是上游残留、哪些是有意保留的调试开关。
 
 > 记在这里的原因：审计结论如果不写清"哪些查过、哪些没查"，
@@ -1675,4 +1680,87 @@ git grep -n 'build-vortex' -- .github/
 
 # 5. 清单里某个文件是 payload 还是 artifact
 python -c "import json;d=json.load(open('Code/plugins/plugins.json',encoding='utf-8'));[print(p['id'],'payload=',[x['source'] for x in p.get('payload',[])],'artifacts=',[x['from'] for x in p.get('artifacts',[])]) for p in d['plugins']]"
+```
+
+---
+
+## 25. 2026-09-25 晚：清掉 §15.5 的两条遗留（i18n 与"从不执行的测试"）
+
+§15.5 当时把"本次审计**未做**的"列成清单，理由是"审计结论如果不写清哪些查过、
+哪些没查，下一轮会把'查过且故意保留'重新当成'没查'再查一遍"。本节结掉其中两条。
+
+### 25.1 i18n：七个语言补到 0 缺键
+
+§14.2 当时只把 **es/fr/nl/pl/zh-CN** 补到 0 缺键，**cs/de/ja/ko/no/ru/tr** 留了
+5~11 条，§15.5 记了"补法照 §14.2 抄"。现已补齐，**全库 13 个语言文件无一缺键**。
+
+补的是玩家在**最难受的时刻**会看到的那批：
+
+| 键 | 什么时候出现 | 原先缺 |
+|---|---|---|
+| `COMPONENT.CONNECT.SUCCESS.TITLE/MESSAGE` | 连上服务器后的弹窗 | cs,de,ja,ko,no,ru,tr |
+| `COMPONENT.ROOT.STATUS.OFFLINE/CONNECTING/ONLINE` | 连接状态标签 | cs,de,ja,ko,no,ru,tr |
+| `COMPONENT.ROOT.REVEAL_PLAYERS` | 同面板的按钮 | cs,ja,ko,no |
+| `COMPONENT.CHAT.SET_TIME_ARGUMENT_COUNT / SET_TIME_INVALID_ARGUMENTS` | `/settime` 拒绝时的提示 | cs,de,ja,ko,no |
+| `SERVICE.COMMANDS.NOT_ADMIN` | 指令被拒的原因 | cs,de,ja,ko,no |
+| `SERVICE.ERROR.ERRORS.BAD_UGRIDSTOLOAD / NON_DEFAULT_INSTALL` | 启动期两条长警告 | cs,de,ko |
+
+后两条尤其值得点名：ja/no/ru/tr/es/pl/zh-CN **本来就有**，只有 **cs/de/ko** 在显示
+英文的 uGridsToLoad / 非原版安装警告。
+
+**做法**：插入顺序跟随 `en.json`，文件格式**原样保留**（CRLF、无 BOM、
+`ensure_ascii=False`、结尾换行）。动手前先对七个文件各做一次
+"读入→重写→比对"，**确认重写结果与原文逐字节相同**才批量插入——
+否则 diff 里会混进成千上万行无关的行尾变化，把真正的改动淹掉。
+
+**验证**：逐键与 `en.json` 比对（缺键/多键分开报）+ 每个 `{{占位符}}` 与该键英文串
+的占位符集合比对（**0 处不一致**）。es/fr/pl/nl/zh-CN 本来就各多 1~5 个键，
+那是它们自己的内容，不在本次范围、未动。
+
+### 25.2 编码测试：从"每次编译"到"真的执行"
+
+`TPTests`（catch2，5 个 `TEST_CASE`）**每次构建都被编译，从未在任何地方运行**：
+CI 只 `xmake -y` 构建，而 playable-build 工作流又特意把 `*Tests.exe` 从载荷里剔掉。
+**一个从不运行的测试，等于一个已经坏掉的测试。**
+
+§15.5 留这条时写了前提："**要接上得先确认 catch2 目标能在 CI 跑通**"。
+这个前提已由 §24.1 修复后的绿灯构建**证实**（`*Tests.exe` 确实被产出——
+playable-build 的 `Remove-Item ... *Tests.exe` 就是它存在的证据）。
+
+**改动**：`windows.yml` 新增 **"Run the encoding tests"**，位置在**最后一次 C++ 编译之后、
+打包之前**（step 21），**阻断**而非警告——只警告的闸门等于没有闸门。
+
+**为什么值得阻断**：这 5 个用例覆盖的是**整个协议依赖的序列化往返**
+（`ClientMessageFactory`/`ServerMessageFactory` 的 opcode 提取、各类消息的
+`Serialize`→`DeserializeRaw` 相等性）。**往返错了不是编译错误，是 desync。**
+
+**踩到的坑（值得记）**：我第一版用 `Start-Process -PassThru` 拿 `$proc.ExitCode`
+来判断成败，本机实测 **`.ExitCode` 返回空**，而 PowerShell 里
+**`$null -ne 0` 为 True** —— 于是**测试全过也会把这一步判失败**。
+改用本文件已有的 `$log = & $exe 2>&1; $code = $LASTEXITCODE` 形式后正确
+（实测 exit 0 / exit 1 都如实反映）。
+
+> **教训**：**不要用 `Start-Process` 的 `.ExitCode` 做 CI 判据**，
+> 至少要先在本机确认它真的会填值；`$null` 参与数值比较是**静默**的错，
+> 不会报错、只会把结果判反。判"外部程序成败"用 `&` + `$LASTEXITCODE`。
+
+**验证**：`Build windows #143` = **Success 13m 50s**，其中
+**step 21 `Run the encoding tests` = success**、**step 29 打包演练 = success**。
+即：测试**确实跑了，而且全过**——这是这条遗留项从"只编译"变成"真跑"的实证。
+
+### 25.3 复核用的命令（照抄）
+
+```powershell
+# 1. i18n 缺键（应输出 none）
+#    逐键比对 + 占位符比对，见 §25.1 的验证描述
+
+# 2. CI 里测试步骤到底跑没跑（看 step 名与结论，不看整体绿灯）
+#    /actions/runs/<id>/jobs -> jobs[].steps[] 里 name 含 'encoding tests' 的那条
+
+# 3. 测试二进制是否真的被产出（playable-build 剔掉它 = 它存在）
+git grep -n 'Tests.exe' -- .github/
+
+# 4. `Start-Process` 的 ExitCode 陷阱，本机 30 秒复现
+$p = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-Command','exit 0' -NoNewWindow -PassThru -Wait
+"ExitCode=[$($p.ExitCode)]  (null -ne 0) = $($null -ne 0)"
 ```

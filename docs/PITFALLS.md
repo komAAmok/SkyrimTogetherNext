@@ -303,11 +303,12 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   `ERROR_FILE_NOT_FOUND`；② 调用方在整轮遍历后才读 `GetLastError()`，真实错误被冲掉；
   ③ 真触发者是**内容相同但 mtime 更新**（18 个文件里只有它），旧判据纯看时间戳，于是
   每次启动都重复制一份 4.7MB 的 `.str_new` 且永远顶不上。三条都已修。
-- **【P2，待办，见 §19.5】帧循环定时器量子**：`kWorldUpdateTimerIntervalMs = 16`
+- **【已结案，见 §21.1】帧循环定时器量子**：`kWorldUpdateTimerIntervalMs` 曾为 `16`，
   在 Windows 默认 15.625ms 粒度下被**向上取整到 31.25ms**，所以实测 28.8 tick/s
   **不是"只跑到理论上限的一半"，而是上限本就只有 32/s**（§16.5 的 62.5/s 算错了）。
-  改成 8（或 15）可到 ~64/s，但会改变 `World::Update()` 频率与 actor 发现延迟，
-  **必须实机验证**，本轮不动。
+  **v1.1.0 已改为 `8`**（落在单 tick 内 = 15.625ms，~64/s），改动与理由见 §21.1；
+  现值在 `Code/client/Services/Generic/InputService.cpp` 的 `kWorldUpdateTimerIntervalMs`。
+  §19.5 的"本轮不改"是**当时**的结论，已被 §21.1 取代——不要再把它当待办重开。
 - **【已查，不修，见 §19.7】`BehaviorVar` 的"multiple behavior replacers"与选错物种**：
   日志里狼/麋鹿被认成 Cow，看着像 bug，但**逐条验证后决定不动**（换了三种"更聪明"的
   判据都**没有变好**，其中两种更差），原因与判据见 §19.7。
@@ -792,8 +793,8 @@ Select-String -Path Code\skyrim_ui\src\app\services\client.service.ts -Pattern '
 - **`ahkpWorld.h` / `TESShout.h` 等"没人 include"的头**：类型经 `RTTI.h` 的
   `extern template struct RttiLocator<T>` 与 `RTTI.cpp` 的显式实例化使用。
   **按文件名 grep 会误判成孤儿**——这类头必须按符号再查一遍，别用文件名判断。
-- **`ActorSpawnedEvent`**：有前向声明、无 sink。属于"定义了没接线"的未实现项，
-  但删掉会丢失设计意图且风险不明，**保留并记入 §16**。
+- ~~**`ActorSpawnedEvent`**：有前向声明、无 sink~~ → **已删**（v1.0.39，`3bf0294a`，见 §9）：
+  复核确认全仓 0 生产者、0 消费者，随 §16 的每帧开销一起移除。本条是**过期记录**。
 - **`PlaceActorInWorld`**：唯一调用点被注释掉了（`//PlaceActorInWorld();`）。
   是 F8 的调试功能，属于"未实现"而非"冗余"。保留。
 - **`#if 0` 块（22 处）**：多数是上游留下的调试开关（如 Discord 日志钩子），
@@ -821,7 +822,8 @@ Get-ChildItem -Recurse -Path Code\client,Code\server -Include *.cpp |
 
 1. **`Code/tests/` 从不执行**：CI 只构建不跑测试（`.github/workflows/windows.yml` 里没有
    `xmake run`）。要接上得先确认 catch2 目标能在 CI 跑通，属于独立改动。
-2. **`ActorSpawnedEvent` 定义了但没接线**：需要先确定它该被谁 dispatch、谁消费。
+2. ~~**`ActorSpawnedEvent` 定义了但没接线**~~ → **已关闭**：该文件已在 v1.0.39（`3bf0294a`）删除，
+   无需再定 dispatch/消费方。已在本轮（2026-09-25）核对：`Code/client/Events/` 下无此文件。
 3. **`PlaceActorInWorld`（F8）**：调用点被注释，恢复需要实机验证会不会崩。
 4. **其余语言的缺键**：`cs/de/ja/ko/no/ru/tr` 仍缺 5~11 条（本次只点名了五个语言），
    缺的是同一批键，补法照 §14.2 抄。
@@ -1072,7 +1074,13 @@ MO2 的 C++ 安装器里**硬编码**了三个路径（`installer_fomod.dll` 的
 
 ---
 
-## 19. v1.0.42 自部署的假失败与定时器分辨率（2026-09-23 场次）
+## 19. v1.1.0 自部署的假失败与定时器分辨率（2026-09-23 场次）
+
+> **版本归属（2026-09-25 更正）**：本节原题为 "v1.0.42"，但**该版本从未打 tag**。
+> 本节三条修复与定时器量化全部由 `03cf2cbb`（tag **v1.1.0**）落地——可用
+> `git log -S'SameContents' --all` 验证：全仓只有这一个提交。
+> v1.0.41 里 `DeleteFileW(old.c_str())` **仍在**，即那条被本节判为 bug 的清理
+> 在 v1.0.41 上**尚未修**；照 "v1.0.42" 去找 tag 会落空。
 
 本轮日志：`D:\sktest\new`（1.5.97 + MO2 + 整合包，673 行，一场 5 分钟会话，
 `authentication accepted` 且跑满全程无崩溃）。§12.6 的复核项**全绿**：

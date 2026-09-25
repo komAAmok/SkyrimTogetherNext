@@ -112,11 +112,23 @@ jobs:
         shell: pwsh
         run: |
           $vcpkg = Join-Path $env:GITHUB_WORKSPACE '.vcpkg'
-          if (Test-Path $vcpkg) {
+          # The cache restores .vcpkg/downloads, so this directory can exist
+          # without being a checkout - and it did: testing the directory made a
+          # cache hit skip the clone, so bootstrap-vcpkg.bat was never there and
+          # the step died on the line below it. The checkout is what this guard
+          # has to test for, not the directory.
+          if (Test-Path (Join-Path $vcpkg 'bootstrap-vcpkg.bat')) {
             Write-Host "vcpkg restored from cache: $vcpkg"
           } else {
-            git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkg
+            # Cloned to a scratch directory and merged in, because git clone
+            # refuses a destination that already holds the restored downloads -
+            # and keeping those downloads is the entire point of the cache.
+            $scratch = Join-Path $env:RUNNER_TEMP 'vcpkg-clone'
+            if (Test-Path $scratch) { Remove-Item -Recurse -Force $scratch }
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $scratch
             if ($LASTEXITCODE -ne 0) { throw 'vcpkg clone failed' }
+            New-Item -ItemType Directory -Force -Path $vcpkg | Out-Null
+            Get-ChildItem -Force -LiteralPath $scratch | Move-Item -Destination $vcpkg -Force
           }
           & "$vcpkg/bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }

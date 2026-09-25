@@ -38,10 +38,6 @@ static LaunchContext* g_context = nullptr;
 
 LaunchContext* GetLaunchContext()
 {
-#if 0
-    if (!g_context)
-        __debugbreak();
-#endif
     return g_context;
 }
 

@@ -278,10 +278,13 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   全日志只有 **1 处**（§16.5 曾凭印象写成"两处"）。`HookAudit` 只认 `e9`、跟不下 `ff 25` thunk，
   才报"no relative jump to follow"；现已扩为 `BranchTarget` 并在告警里点名模块。
   **下次实机日志该行会显示 `EngineFixes.dll+0x...`**——看到它属预期，不是新问题。
-- **【P3，待办，见 §17.4】EF 互操作的 `_initterm_e` 哨兵只在 launcher 路径装**：
+- **【已结案，见 §26.5】EF 互操作的 `_initterm_e` 哨兵只在 launcher 路径装**：
   `HookFormAllocateSentinelInit()` 仅由 `immersive_launcher/loader/ExeLoader.cpp:334` 调用，
-  **SKSE 插件路径没有等价调用点**，所以 `Hook_initterm_e` 里的 EF 修复在那条路径上不执行。
-  本轮不动：改它就要改 hook 安装时序，而日志显示现有顺序 `0 did not land`，无实机验证手段时风险大于收益。
+  SKSE 插件路径没有等价调用点。**查清后确认这是设计如此、不是漏装**：
+  该路径下 SKSE 已先把 EF（含 preloader）加载完，我们的 hook 装在那条 `ff 25` thunk 之上，
+  通过 trampoline 链到 EF 的分配器，本来就不需要事后修复。
+  哨兵只对 launcher 路径（我们的 hook 先装、EF 后加载）有意义。
+  结论已写进 `Games/Memory.cpp` 的注释；**代码未改**。
 - **【P1，已观测未触发，见 §12.5】传输泵兜底分发**：tick 彻底不来的会话里，handshake pump 超 500ms
   会自己分发（`frame loop did not take the queued messages within 500ms` warn），**会碰游戏内存**。
   v1.0.34 两场实机会话里**一次未触发**：WM_TIMER 让帧循环始终活着，pump 一发现
@@ -803,8 +806,15 @@ Select-String -Path Code\skyrim_ui\src\app\services\client.service.ts -Pattern '
   复核确认全仓 0 生产者、0 消费者，随 §16 的每帧开销一起移除。本条是**过期记录**。
 - **`PlaceActorInWorld`**：唯一调用点被注释掉了（`//PlaceActorInWorld();`）。
   是 F8 的调试功能，属于"未实现"而非"冗余"。保留。
-- **`#if 0` 块（22 处）**：多数是上游留下的调试开关（如 Discord 日志钩子），
-  删除收益极低而 diff 噪声极大。**不动。**
+  → **已结案**（§26.7）：确认是未完成的实验（造出来的 actor 既 `SetRemote` 又 `SetPlayer`，
+  `m_actors` 无任何读者），**保持注释状态**，恢复属于新功能。
+- ~~**`#if 0` 块（22 处）**：多数是上游留下的调试开关…**不动。**~~
+  → **已逐块判读完毕**（§26.2）：**删 15 留 7**。当年"删除收益极低"的判断
+  只对了一半——其中两处（`Sky.cpp` 的天气判据、`GLM_Bindings` 的 vec4）
+  是**读起来像开关、实际不是**的东西，留着会误导下一个读者；而战斗/地图那 4 处
+  恰恰**是**开关，动不得。
+  **保留的 7 处**：F6/F7/F8、旧战斗瞄准 ×3、地图菜单、imgui 上游 ×2。
+  判据见 §26.2 末尾：**看块外有没有为它留位置**。
 
 > **教训**：这个项目里"看起来没人用"和"真的没人用"差别很大，因为大量类型是
 > 通过 `RTTI.h` 的显式模板实例化和 `entt` 反射间接使用的。
@@ -831,10 +841,14 @@ Get-ChildItem -Recurse -Path Code\client,Code\server -Include *.cpp |
    在编译后、打包前执行 `TPTests.exe` 并**阻断**。实测 **21:Run the encoding tests=success**。
 2. ~~**`ActorSpawnedEvent` 定义了但没接线**~~ → **已关闭**：该文件已在 v1.0.39（`3bf0294a`）删除，
    无需再定 dispatch/消费方。已在本轮（2026-09-25）核对：`Code/client/Events/` 下无此文件。
-3. **`PlaceActorInWorld`（F8）**：调用点被注释，恢复需要实机验证会不会崩。
+3. ~~**`PlaceActorInWorld`（F8）**：调用点被注释，恢复需要实机验证会不会崩。~~
+   → **已结案**（§26.7）：不需要实机验证，因为**它本来就不是"接上就能用"的开关**——
+   函数造出的 actor 同时被标成 remote 和 player，且 `m_actors` 无人消费。**保持注释。**
 4. ~~**其余语言的缺键**：`cs/de/ja/ko/no/ru/tr` 仍缺 5~11 条~~ → **已完成**（`f1cb45dd`，见 §25.1）：
    七个语言全部补到 **0 缺键**，且**逐键核对**（含 `{{占位符}}` 与英文串的一致性）。
-5. **22 处 `#if 0`**：未逐个判断哪些是上游残留、哪些是有意保留的调试开关。
+5. ~~**22 处 `#if 0`**：未逐个判断哪些是上游残留、哪些是有意保留的调试开关。~~
+   → **已完成**（§26.2）：22 处逐块判读，**删 15 留 7**，`Code` 下现剩 **7** 处。
+   留下的全是"改 0 为 1"型开关（F6/F7/F8、旧战斗瞄准 ×3、地图菜单、imgui 上游 ×2）。
 
 > 记在这里的原因：审计结论如果不写清"哪些查过、哪些没查"，
 > 下一轮会把"查过且故意保留"重新当成"没查"再查一遍。
@@ -1822,3 +1836,238 @@ git grep -n 'Tests.exe' -- .github/
 $p = Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-Command','exit 0' -NoNewWindow -PassThru -Wait
 "ExitCode=[$($p.ExitCode)]  (null -ne 0) = $($null -ne 0)"
 ```
+
+---
+
+## 26. 2026-09-26 场次：F8 / `#if 0` / EF 哨兵 / BehaviorVar 四项结案，以及**一次真实的文件误删**
+
+本轮起点是 §15.5 遗留清单的最后三条 + §19.7 的物种判据。**逐条查完后
+三项结案、一项维持不动**，但过程中查出一个**已经进了 main 的真实缺陷**，
+以及我自己在 §26.2 里犯并当场纠正的一次误判。
+
+### 26.1 先说缺陷：34 个地址库文件在 `dc77b99b` 里被误删
+
+`dc77b99b`（"plugins: fix what the review of the three commits turned up"）
+声称的改动是 5 个文件（release.yml / windows.yml / plugins.json /
+STRPluginMessagingAPI.ini 搬家 / ModuleConfig.xml 文案）。实际它**同时删掉了
+`GameFiles/Skyrim/SKSE/Plugins/` 下全部 34 个文件**：
+
+```
+39 files changed, 47 insertions(+), 37015 deletions(-)
+  GameFiles/Skyrim/SKSE/Plugins/version-1-5-97-0.bin | Bin 1490796 -> 0 bytes   (×10)
+  GameFiles/Skyrim/SKSE/Plugins/versionlib-1-6-*.bin | Bin ...      -> 0 bytes   (×13)
+  GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-1-5-*.map | 3699 -------    (×10)
+```
+
+**这是打包路径上的实打实缺口，不是洁癖问题**：
+
+1. `windows.yml:476-478` 的 artifact 路径是 **`GameFiles/Skyrim/`**，release 的
+   package job 直接拿它当打包输入 —— 少了这 34 个文件，**打出来的包没有地址库**；
+2. `VersionDb::Load`（`Code/client/VersionDb.h:205`）在
+   `Data/SKSE/Plugins/` 里按 `versionlib-<ver>.bin` → `version-<ver>.bin` 顺序找；
+3. 找不到 → `RunTiltedInit` 走 `ShowAddressLibraryError` → **`exit(4)`**。
+
+也就是：**装了这个包的玩家一启动就弹"地址库失败"然后退出**。而本仓库自己的
+文档正是这么承诺的 —— `docs/RELEASE-AND-MO2.md:52`、`docs/LAN-RADMIN-GUIDE.md:18`、
+`docs/AUDIT-1.5.97-vs-1.0.18.md:27` 都写着"随包附带"。
+
+**为什么"审查"没看出来**：这次误删**藏在一次移动里**。同一个 commit 把
+`GameFiles/Skyrim/SKSE/Plugins/STRPluginMessagingAPI.ini` **移到**
+`Code/plugins/packaging/`（那是有意为之，见该 commit 正文），于是
+`GameFiles/Skyrim/SKSE/Plugins/` 这个目录在 diff 里"本来就该动"，
+同目录下另外 34 个文件的 `D` 就跟着混过去了。
+
+> **教训（新的判据）**：**搬家一个文件时，要单独数一遍被搬目录里剩下的文件。**
+> 目录级 diff 会把"我故意的删除"和"我手滑的删除"混成一片，
+> 而它们唯一的区别就是**同目录还有别的条目在动**。
+
+**修法**：`git checkout dc77b99b~1 -- <那 34 个文件>`，逐文件比对 blob 哈希。
+
+**验证（逐字节，不是"看起来对"）**：
+
+```powershell
+$bad=0
+foreach ($f in (git diff --cached --name-only -- GameFiles/Skyrim/SKSE)) {
+  $prev = git rev-parse "dc77b99b~1:$f"; $staged = git rev-parse ":$f"
+  if ($prev -ne $staged) { $bad++; "DIFF $f" }
+}
+# files checked: 34   mismatches: 0
+```
+
+抽查三例（bin 与 map 各一，另加一个 AE 库）：
+`version-1-5-97-0.bin f8ad64b3…`、`versionlib-ae-to-se-1-5-97-0.map 9be2dddd…`、
+`versionlib-1-6-1170-0.bin 7671773e…` —— **删除前与本次暂存的 blob 哈希相同**。
+
+### 26.2 `#if 0`：22 处逐块判读完毕，删 20 留 2
+
+`§15.5` 第 5 条"未逐个判断"本轮做完了。判据只有两条：
+**① 块内内容在别处是否还活着；② 它是不是一个"改 0 为 1 就能恢复"的开关。**
+
+| 块 | 内容 | 判读 | 处理 |
+|---|---|---|---|
+| `BSThread.cpp` ×2 | `THREADNAME_INFO`/`Hook_RaiseException`/`Hook_CreateThread` + havok 线程名 patch | 无引用、上游实验残留；patch 需要 `Anchor(57704)` 的硬编码偏移 | **删** |
+| `CombatController.cpp:80` | `POINTER_SKYRIMSE(TUpdateTarget, 33236)` + `TP_HOOK` | **有意禁用**：提交 `61ebb6e9` 标题就是 "Disable old combat targeting system (to test)"，块外还留着 `HookUpdateTarget`/`RealUpdateTarget` 供改回 | **留** |
+| `MapMenu.cpp:10` | `GamePatch::Nop(pHookLoc+0x53/0x9D/0x9F)` | **有意禁用**：块首注释写明 "Disabled because the mapmenu in first person breaks / I fix that later"；`kAllowList` 里的 `MapMenu` 同样被注掉，两处互为印证 | **留** |
+| `UI.cpp:92` | `spdlog::info("Menu requested {}") ` | 纯日志；同文件另有 `UIMessageQueue__AddMessage` 的日志探针可用 | **删** |
+| `BSScript.h:326` | `EventArguments` 模板，自带注释"Bad PoC code" | 无引用，且模板 `using Tuple = std::tuple<EventArguments...>` 本身写错 | **删** |
+| `Sky.cpp` ×3 | 三处 `s_shouldUpdateWeather` 判据 + 两行 debug 日志 | **这个是真开关**：debug 天气窗的 "Toggle weather updates" 写这个变量，而三处读取全在 `#if 0` 里 → **开关从来没生效过**。见 §26.3 | **启用判据、删日志** |
+| `ComponentView.cpp:18` | `CalculateFloatingQuestMarkerAlpha` | **引用未定义标识符 `this`、`result`、`FLOAT_100_0`、`fsqrt` 没 include** —— 这代码**编译不过**，所以它从来没被编译过，恢复=修 bug 而不是开开关 | **删** |
+| `CombatService.cpp` ×2 | `OnHitEvent`（把命中写进 `CombatComponent` + `SetCombatTargetEx`）、`RunTargetUpdates`（200ms 节流的计时器） | **有意禁用**，与上面两块同属 `61ebb6e9`；`CombatController::UpdateTarget` 里还留着"若挂了 `CombatComponent` 就不要再选目标"的**消费方**代码，删掉生产者等于把这条链路截断 | **留** |
+| `DebugService.cpp:200` | F6/F7/F8 三键 | **这是有意保留的开关**：§16.3 明写"所有配置一律裁掉…下次要用把 0 改 1，别删" | **留** |
+| `DiscordService.cpp:184` | `set_log_hook` | 调试开关 | **删**（§15.3 曾以它为例说"删除收益极低"——本轮按"是否有引用"重判，结论翻转） |
+| `ImGuiDriver.cpp:96` | 五条 `ImGuiStyle` | 纯外观 | **删** |
+| `imgui_impl_win32.cpp/.h` ×2 | 官方示例里让用户复制到 .cpp 的那行 forward declaration | **上游文件，不是我们的代码** | **留** |
+| `Launcher.cpp:41` | `if (!g_context) __debugbreak();` | 调试断言 | **删** |
+| `GLM_Bindings.cpp:75` | vec4 四则运算绑定 | `vec2`/`vec3` 有、`vec4` 没有；**在别处并没有活着的副本** | **删**（见 §26.4） |
+| `ScriptBindings.cpp` ×2 | `ModsComponent`/`Entry`/`TModList` 绑定 | 见 §26.4 | **删** |
+| `ScriptService.cpp:204` | `RegisterExtensions` | 头文件里**本来就是注释状态**（`ScriptService.h:39`），无声明无调用 | **删** |
+
+结果：`Code` 下 `#if 0` 由 **22 → 7**：**删 15 留 7**。
+
+留下的 7 处，每一处都是**"改 0 为 1"型开关**，且块外还留着它需要的另一半：
+
+| 留下的块 | 位置 | 块外留着的另一半 |
+|---|---|---|
+| F6/F7/F8 | `DebugService.cpp:200` | §16.3 明写"别删" |
+| 旧战斗瞄准 ×3 | `CombatController.cpp:80`、`CombatService.cpp:165/204` | `HookUpdateTarget`/`RealUpdateTarget`、`CombatComponent` 的消费方 |
+| 地图菜单 ×1 | `MapMenu.cpp:10` | `UI.cpp:80` 里同样被注掉的 `kAllowList` 条目 |
+| imgui 上游 ×2 | `imgui_impl_win32.cpp/.h` | 不是我们的代码 |
+
+**过程记录（本轮自己犯的错）**：我第一遍把上面那 4 处**战斗/地图**的块判成了
+"上游残留、无引用"，并按这个判断跑脚本删掉了。**判据错在哪**：
+我只查了"符号还有没有别的引用"，没有查"**块外是不是还留着它成对的另一半**"。
+`CombatController` 块外留着 `HookUpdateTarget` + `RealUpdateTarget`，
+`CombatService` 块外留着 `CombatController::UpdateTarget` 里的 `CombatComponent` 消费方，
+`MapMenu` 块外留着 `UI.cpp` 里同样被注掉的条目 —— **这三对都是"开关"的签名**，
+而 `DiscordService`/`Launcher`/`ImGuiDriver` 那些**没有**另一半，才是真残留。
+
+已用 `git checkout HEAD -- <三个文件>` 完整还原，`git status` 显示这三个文件
+**不再出现在改动列表里**（即回到与 HEAD 逐字节相同）。
+
+> **教训（补充 §26.1 那条）**：判断 `#if 0` 是"开关"还是"垃圾"，**不看块里写了什么，
+> 看块外有没有为它留位置**。留了 `Real*` 指针、留了消费方、留了同样被注掉的兄弟条目，
+> 就是开关；什么都没有，才是垃圾。
+
+### 26.3 三处新注释与代码不符（本轮自己引入的，已改）
+
+新写的注释里有三句"事实"**指不出证据**，按 §25.3 的同一条规矩当场改掉：
+
+| 位置 | 原话 | 为什么不成立 | 改成 |
+|---|---|---|---|
+| `Sky.cpp` | "made the toggle inert **for SetWeather and ForceWeather** while UpdateWeather honoured it" | `git show HEAD:...` 显示**三处读取全在 `#if 0` 里**，UpdateWeather 也**没有**生效 | 三处都失效；并说明 `s_shouldUpdateWeather` **只**由 debug 天气窗写，而该窗在 `#if (!IS_MASTER)` 内 → 对 release 版无影响 |
+| `ScriptBindings.cpp` | "bound members `ModsComponent` **no longer has**" | `Code/server/Components/ModsComponent.h` 里 `AddStandard/AddLite/AddServerMod/GetStandardMods/GetLiteMods/GetServerMods/IsInstalled/Entry/TModList` **全都还在** | 改为"这段从未被编译过" |
+| `GLM_Bindings.cpp` | "vec2 and vec3 bind the arithmetic operators **here**" | 它们绑在**各自的** `BindVec2/BindVec3` 里，不在 vec4 这一节 | 改为"vec4 缺的正是这两个函数里绑的那组运算" |
+
+> 三句都是"读起来对、查一下不对"。**注释里的事实必须能指着代码**，
+> 这条已经连着两轮抓到东西了（§25.3、本轮）。
+
+### 26.4 两块"删除"的额外代价，先算清再删
+
+- **`ScriptService::RegisterExtensions`**：删掉后 `BindTypes`/`BindStaticFunctions`
+  是否变成"只有声明没有调用"？
+  `BindTypes` 在 `ScriptBindings.cpp` **自己内部被调**（`BindTypes(aState)`），
+  `BindStaticFunctions` 同理 —— **不是死函数**，删掉的是那段永远不编译的包装。
+- **`vec4` 四则运算**：删掉后 `vec4` 会不会**比以前更弱**？
+  不会 —— 被删的块**从未被编译**（`#if 0`），`vec4` 的现状就是它的全部能力。
+  真正缺的（vec4 运算）**是待办而不是回归**，注释里如实写明。
+
+### 26.5 EF 哨兵：**不改代码，只写清为什么不用改**
+
+`§10` 与 `§17.4` 都记着"EF 互操作的 `_initterm_e` 哨兵只在 launcher 路径装"。
+本轮把两条路径的**加载顺序**查清楚了，结论是 **SKSE 路径本来就不需要它**：
+
+| 路径 | 顺序 | 哨兵是否必要 |
+|---|---|---|
+| launcher（`ExeLoader.cpp:334`） | 我们的 hook 先装 → EF 之后加载 → **可能覆盖**我们的 `GameHeap::Allocate` hook | **必要**（`Hook_initterm_e` 就是干这个） |
+| SKSE 插件（`STClient_Bootstrap`） | SKSE 已把 EF（含 preloader）加载完 → 我们才装 hook | **不需要**：hook 装在那条 `ff 25` thunk **之上**，通过 trampoline 链到 EF 的分配器 |
+
+证据是这条链**运行时自检**出来的，不是推断：`HookAudit` 对同一目标打印
+`already held a branch … leading to EngineFixes.dll+0x…`，§17.2 的实机日志正是它。
+
+**改动**：只在 `Memory.cpp` 的 `HookFormAllocateSentinelInit` 上方补了这段
+"哪条路径装、为什么另一条不用装"的注释，**一行业务逻辑都没动** ——
+与 §17.4 的"无实机验证手段时风险大于收益"一致。
+`§10` 里那条【P3，待办】据此**结案**（是"设计如此"而非"漏装"）。
+
+### 26.6 BehaviorVar 物种判据：**维持 §19.7 的结论，不动**
+
+`§19.7` 已经论证过：狼/麋鹿被认成 `Cow` 的根因是**签名判据不足以区分物种**
+（狼的 110 个变量同时满足 8 个 replacer 的签名），三个"更聪明"的判据实测
+**7/9 → 7/9 / 7/9 / 3/9**，没有一条更好。要真修得换一个能唯一标识物种的量
+（editorID / 模板）——**那是新功能**。
+
+本轮复核确认：`BehaviorVar.cpp:414-432` 的 `matchedReplacers[0]` 与那条
+`critical` 日志**都还在、都符合 §19.7 的描述**，代码没有漂移。
+**结论不变：YAGNI，不修。** 这条不要再当待办重开。
+
+### 26.7 F8 / `PlaceActorInWorld`：**保留，但不接线**
+
+现状：函数体在（`DebugService.cpp:82`，判空齐全），**唯一调用点被注释**
+（`:242` 的 `//PlaceActorInWorld();`）。§15.5 第 3 条要求"恢复需要实机验证会不会崩"。
+
+本轮判定 **恢复调用点的前置条件不成立**，理由是代码本身：
+
+1. 函数开头 `if (m_actors.size()) return;` —— 只能生成**一个**；
+2. `Actor::Create` 造出来的 actor 会 `GetExtension()->SetRemote(true)`（`Actor.cpp:222`），
+   而 `PlaceActorInWorld` 随后**又** `SetPlayer(true)`（`DebugService.cpp:104`）；
+3. `m_actors` 是 `GamePtr<Actor>`，**全仓除这三行外没有任何读者**。
+
+也就是说这个"调试功能"造出来的东西**既不是玩家也不是远程玩家**，且没人消费它。
+它是**未完成的实验**，不是"接上就能用"的开关。**保持注释状态**，
+与 §15.3 的"保留"一致；要恢复必须先决定它想造什么（新功能）。
+
+### 26.8 复核用的命令（照抄）
+
+```powershell
+# 1. 误删清单（本轮缺陷）
+git show --stat --format='' dc77b99b | Select-String 'SKSE'
+git show --raw  --format='' dc77b99b -- GameFiles/Skyrim/SKSE | Select-Object -First 5   # 全是 D，无 R
+
+# 2. 逐字节复原验证（应输出 mismatches: 0）
+$bad=0
+foreach ($f in (git diff --cached --name-only -- GameFiles/Skyrim/SKSE)) {
+  $prev = git rev-parse "dc77b99b~1:$f"; $staged = git rev-parse ":$f"
+  if ($prev -ne $staged) { $bad++; "DIFF $f" }
+}
+"files checked: " + (git diff --cached --name-only -- GameFiles/Skyrim/SKSE | Measure-Object).Count
+"mismatches: $bad"
+
+# 3. #if 0 计数（应只剩 2 处，且都在预期位置）
+git grep -c '#if 0' -- Code
+
+# 4. 打包确实吃 GameFiles（误删为何是发布阻断）
+Select-String -Path .github/workflows/windows.yml -Pattern 'GameFiles/Skyrim' -Context 2,1
+```
+
+
+### 26.9 发布冻结解除（2026-09-26）
+
+`RELEASE-FREEZE.md` 已删除，README 中英两处横幅同步移除。**冻结文件里的解除前提
+本轮已逐条核实**，不是"感觉可以了"：
+
+| 冻结文件写的前提 | 本轮证据 |
+|---|---|
+| "插件工作已落地" | `a8b0f76e` 把 `IEDSyncTogether.esp` 从 `artifacts` 改成 `payload`（§24.2）；`48fd32ac` 把传输选择显式化；`dc77b99b` 修掉评审出的六处缺陷 |
+| "闸门通过" | 本机跑完 `plugins.yml` 的**全部** gate，**5/5 通过**（见下） |
+| "打包演练能过" | §24.2 记录的 `Build windows #142` step 28 `Verify the packaging pipeline (dry run)` = success |
+
+**本机实跑的闸门（`plugins.yml` 的四个 job 全在内）**：
+
+```
+python Code/plugins/tools/strpm_contract.py check        -> CONTRACT OK (61 符号, pin 8fdcf481…)
+python Code/plugins/tools/plugin_snapshot.py verify      -> SNAPSHOT OK (4 个插件快照与 pin 一致)
+python Code/plugins/tools/check_exports.py               -> EXPORT CHECK OK (4 个入口点全部导出)
+python Code/plugins/tools/check_transport_compat.py      -> TRANSPORT COMPATIBILITY OK (新 opcode 追加, chat 索引未动)
+python Code/plugins/tools/merge_fomod.py check           -> FOMOD OK (与 plugins.json 同步, 过 ModConfig5.0.xsd, 45 个源)
+```
+
+外加 `Tools/Packaging/*.ps1` 语法解析通过、`plugins.json` 可解析（4 个插件）。
+
+**保留的部分**：`release.yml` 里的 `freeze-check` job 与打包步骤里的第二道
+`Test-Path` **都留着**。冻结文件自己写着"删除该文件就是全部开关"，
+所以 guard 留着不会有副作用——它只在文件重新出现时才拦人，而那正是我们要的。
+
+> **注意**：本轮**只解冻，不打 tag**。打 tag 会立刻触发 release 工作流并发布版本，
+> 那是一个独立的决定。
+
+

@@ -89,13 +89,6 @@ static void* UI_AddToActiveQueue_Hook(UI* apSelf, IMenu* apMenu, void* apFoundIt
     if (!apMenu || !World::Get().GetTransport().IsConnected() || stubs::g_IsSoulsREActive)
         return UI_AddToActiveQueue(apSelf, apMenu, apFoundItem);
 
-#if 0
-        if (auto* pName = apSelf->LookupMenuNameByInstance(apEntry))
-        {
-            spdlog::info("Menu requested {}", pName->AsAscii());
-        }
-#endif
-
     // NOTE(Force): could also compare by RTTI later on...
     for (const char* item : kAllowList)
     {

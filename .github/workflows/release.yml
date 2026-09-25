@@ -11,8 +11,10 @@ name: Release build
 # uploaded as workflow artifacts instead.
 #
 # RELEASE FREEZE: while RELEASE-FREEZE.md exists at the repository root this
-# workflow refuses to run. That file is the single switch - delete it to allow
-# releases again. See it for the reasoning.
+# workflow refuses to run. The freeze was lifted on 2026-09-26 (the file is
+# gone), but the guard stays: it costs one ubuntu job and it is the only thing
+# standing between a stray tag push and a version nobody meant to publish.
+# Re-create the file to freeze releases again - that is the whole switch.
 
 on:
   push:

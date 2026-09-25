@@ -321,33 +321,6 @@ struct BSScript
 
         bool MarshallAndDispatch(Variable* apBaseVar, IVirtualMachine* apVm, uint32_t aStackID, Variable* apResult, StackFrame* apStackFrame) override;
     };
-
-    // Bad PoC code
-#if 0
-    template <class... T> struct EventArguments : IFunctionArguments
-    {
-        using Tuple = std::tuple<EventArguments...>;
-
-        EventArguments(T... args)
-            : args(std::forward<T>(args)...)
-        {
-        }
-
-        virtual ~EventArguments(){};
-
-        virtual void Prepare(IFunctionArguments::Statement* apStatement) noexcept
-        {
-            apStatement->SetSize(std::tuple_size_v<std::remove_reference_t<Tuple>>);
-
-            PrepareImplementation(apStatement, std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
-        }
-
-    private:
-        template <std::size_t... Is> void PrepareImplementation(IFunctionArguments::Statement* apStatement, std::index_sequence<Is...>) noexcept { ((apStatement->vars[Is].Set(std::get<Is>(args))), ...); }
-
-        Tuple args;
-    };
-#endif
 };
 
 template <> void BSScript::Variable::Set(int32_t aValue) noexcept;

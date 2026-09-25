@@ -25,8 +25,6 @@
 - **局域网联机开箱即用**:网络层为纯 UDP/GameNetworkingSockets,不依赖 Steam,支持局域网、Radmin LAN、Hamachi、公网 VPS/Docker 等任意组网方式;
 - **Release 自动构建**:推送 tag 即在 GitHub 云端完成 Windows 构建并发布两个包——`SkyrimTogetherNextMod-<版本>`(客户端 mod)与 `SkyrimTogetherNextServer-<版本>`(专用服务器)。
 
-> ⚠️ **当前处于发布冻结期**:仓库根目录存在 `RELEASE-FREEZE.md` 期间,**禁止发布新版本**——推送 `v*` tag 或手动发布 Release 都会被 release 工作流直接拒绝。推送普通提交、跑 CI、本地打包演练均不受影响。解除方式见该文件。
-
 ## 🚀 快速开始(玩家)
 
 1. 从本仓库 [Releases](../../releases) 下载两个 zip(版本号相同的 Mod 包与 Server 包);

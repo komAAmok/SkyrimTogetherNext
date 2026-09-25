@@ -181,12 +181,6 @@ bool DiscordService::Init()
         return false;
     }
 
-#if 0
-    m_pCore->set_log_hook(m_pCore, EDiscordLogLevel::DiscordLogLevel_Debug, this,
-        [](void *, EDiscordLogLevel, const char *msg) { std::printf("NEW DISCORD MSG : %s\n", msg);
-                          });
-#endif
-
     m_pUserMgr = m_pCore->get_user_manager(m_pCore);
     m_pActivity = m_pCore->get_activity_manager(m_pCore);
     m_pAppMgr = m_pCore->get_application_manager(m_pCore);

@@ -78,7 +78,17 @@ Artifacts/logs**
 **/obj/**
 /Setup.bat
 
-Package/
+# Anchored to the repository root on purpose. Unanchored, git matches this
+# case-insensitively on Windows and silently swallows every lowercase
+# 'package/' directory in the plugin trees - which is where the .ini and .esp
+# files the packaging stages actually live. That is how a backup ends up
+# quietly missing 22 files.
+/Package/
+
+# The snapshots are a durability copy of third-party sources. Nothing in this
+# file may exclude them, whatever the rule was written for.
+!/snapshots/
+!/snapshots/**
 
 distrib/
 distrib_debug/

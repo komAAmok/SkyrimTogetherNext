@@ -178,11 +178,34 @@ jobs:
             }
 
             $toolchain = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-            cmake -S $spec.Dir -B "$($spec.Dir)/build" -A x64 -DCMAKE_TOOLCHAIN_FILE=$toolchain
-            if ($LASTEXITCODE -ne 0) { $failed += "$($spec.Id) (configure)"; Write-Host "::endgroup::"; continue }
 
-            cmake --build "$($spec.Dir)/build" --config Release --parallel
-            if ($LASTEXITCODE -ne 0) { $failed += "$($spec.Id) (build)" }
+            # The configure output is captured so a failure can be reported as a
+            # GitHub annotation. Annotations are readable without signing in,
+            # and the step log is not, so a bare "configure failed" would leave
+            # the actual reason visible only to whoever has an account.
+            $configureLog = & cmake -S $spec.Dir -B "$($spec.Dir)/build" -A x64 -DCMAKE_TOOLCHAIN_FILE=$toolchain 2>&1
+            $configureCode = $LASTEXITCODE
+            $configureLog | ForEach-Object { Write-Host $_ }
+            if ($configureCode -ne 0) {
+              $tail = ($configureLog | Where-Object { $_ -match 'error|Error|CMake Error|not found|Could not|Unable' } | Select-Object -Last 6)
+              if (-not $tail) { $tail = ($configureLog | Select-Object -Last 6) }
+              $detail = ($tail -join ' | ') -replace '%', '%25' -replace '\r', '' -replace '\n', '%0A'
+              Write-Host "::error title=$($spec.Id) configure failed::$detail"
+              $failed += "$($spec.Id) (configure)"
+              Write-Host "::endgroup::"
+              continue
+            }
+
+            $buildLog = & cmake --build "$($spec.Dir)/build" --config Release --parallel 2>&1
+            $buildCode = $LASTEXITCODE
+            $buildLog | ForEach-Object { Write-Host $_ }
+            if ($buildCode -ne 0) {
+              $tail = ($buildLog | Where-Object { $_ -match 'error|Error' } | Select-Object -Last 6)
+              if (-not $tail) { $tail = ($buildLog | Select-Object -Last 6) }
+              $detail = ($tail -join ' | ') -replace '%', '%25' -replace '\r', '' -replace '\n', '%0A'
+              Write-Host "::error title=$($spec.Id) build failed::$detail"
+              $failed += "$($spec.Id) (build)"
+            }
 
             Write-Host "::endgroup::"
           }

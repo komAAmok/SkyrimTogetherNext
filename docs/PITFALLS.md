@@ -1561,7 +1561,7 @@ if (!pPlayer) return nullptr;     // 提前返回 -> pActor 泄漏
 ### 24.1 vcpkg 缓存命中反而跳过自己的 checkout
 
 **现象**：`49378750`、`5afa14fb`、`85873946` 三次 push 全红，且都在
-**step 9 `Set up vcpkg`**、37~46 秒内死掉——**编译前**。而更早的失败都在
+**step 9 `Set up vcpkg`**、37 / 44 / 60 秒内死掉（三次实测）——**编译前**。而更早的失败都在
 step 11/19（真的在编译）。
 
 **根因**：`dc77b99b` 为了让冷缓存不必重编 commonlibsse-ng，把
@@ -1735,20 +1735,78 @@ playable-build 的 `Remove-Item ... *Tests.exe` 就是它存在的证据）。
 `Serialize`→`DeserializeRaw` 相等性）。**往返错了不是编译错误，是 desync。**
 
 **踩到的坑（值得记）**：我第一版用 `Start-Process -PassThru` 拿 `$proc.ExitCode`
-来判断成败，本机实测 **`.ExitCode` 返回空**，而 PowerShell 里
-**`$null -ne 0` 为 True** —— 于是**测试全过也会把这一步判失败**。
+来判断成败。**在本机 Windows PowerShell 5.1 上**，`.ExitCode` 对**成功和失败的子进程
+都返回空**，而 PowerShell 里 **`$null -ne 0` 为 True** —— 于是**测试全过也会把这一步判失败**。
 改用本文件已有的 `$log = & $exe 2>&1; $code = $LASTEXITCODE` 形式后正确
-（实测 exit 0 / exit 1 都如实反映）。
+（用真 exe 实测 exit 0 / exit 1 都如实反映）。
 
 > **教训**：**不要用 `Start-Process` 的 `.ExitCode` 做 CI 判据**，
-> 至少要先在本机确认它真的会填值；`$null` 参与数值比较是**静默**的错，
+> 至少要先确认它真的会填值；`$null` 参与数值比较是**静默**的错，
 > 不会报错、只会把结果判反。判"外部程序成败"用 `&` + `$LASTEXITCODE`。
+>
+> **这条的边界要说清**：本机只有 **PowerShell 5.1**，而 CI 用的是 **pwsh 7**
+> （`shell: pwsh`）。所以"runner 上 `.ExitCode` 也是空"**我没有验证过**，
+> 是**推断**。改动的依据不是"runner 会坏"，而是：**已确认 5.1 上它会坏，
+> 而 `&` + `$LASTEXITCODE` 是本文件其它步骤一直在用、且 CI 已实证可用的形式**——
+> 换成一个已证实可用的写法，成本为零，没有理由留着未证实的那个。
 
 **验证**：`Build windows #143` = **Success 13m 50s**，其中
 **step 21 `Run the encoding tests` = success**、**step 29 打包演练 = success**。
 即：测试**确实跑了，而且全过**——这是这条遗留项从"只编译"变成"真跑"的实证。
 
-### 25.3 复核用的命令（照抄）
+**复核时发现的第二个坑（同一处，已修）**：第一版只判 `$LASTEXITCODE`，
+但**退出码 0 本身不证明跑过任何测试**——catch2 在**没有任何用例匹配**时
+打印 `No tests ran`（源码 `catch_reporter_console.cpp`：`totals.testCases.total() == 0`）
+**并且退出 0**。于是"用例被清空 / 目标没编进去 / 过滤器匹配到零个"
+和"全部通过"**长得一模一样**，而**"从不运行的测试"正是这一步要防的那件事**。
+现在补了一条：`$code -eq 0` 且输出里**没有** `All tests passed` 即判失败。
+四种真实输出形态都验过：
+
+| 输出 | 退出码 | 判定 |
+|---|---|---|
+| `All tests passed (N assertions in M test cases)` | 0 | PASS |
+| `No tests ran` | 0 | **BLOCKED: 无结果** |
+| 空输出 | 0 | **BLOCKED: 无结果** |
+| `test cases: 1 \| 0 passed \| 1 failed` | 1 | BLOCKED: 失败 |
+
+> 表中 `N` 是**占位**：真实断言数由 catch2 在运行时算出，本机没有 Windows
+> 构建环境、跑不了这个二进制，所以**没有实测值**。判据只匹配
+> `All tests passed` 这个前缀，与 N 无关，因此不需要那个数字。
+
+> **教训**：**"进程成功退出" ≠ "做了它该做的事"。**
+> 判一个闸门有没有真的跑起来，要看**它自己的成功标志**（这里 `All tests passed`），
+> 不能只看退出码。凡是"零工作量也返回成功"的工具（catch2、多数测试框架、
+> `grep` 无匹配、`for` 空集合），这条都成立。
+
+### 25.3 本轮改动自身的复核结论（2026-09-25 晚，逐项重审）
+
+按"重审一遍"的要求把本轮**自己的改动**又过了一遍，结论如下（有问题的已当场修）：
+
+| 项 | 复核方法 | 结论 |
+|---|---|---|
+| i18n 七个文件 | `git show f1cb45dd~1:<f>` 与现状**逐键比对**（缺/删/改三类分开报） | **纯增**：0 删除、0 改值；各语言多出 5~11 个键（cs/ko 11、de 10、ja/no 9、ru/tr 5）✅ |
+| i18n 长文案 | 解码后比对**换行结构**（行数 + 空行位置），并检查值内**无裸 CR** | 7 个文件与 en 结构一致；pl/zh-CN 的 14 行是**上游既有**且**本次未动** ✅ |
+| `.esp` 逐字节 | 抽出插件 `Write-MinimalPlugin` 原样执行后比对 | 110 B / `9811c7bd…` **两侧一致** ✅ |
+| `.esp` 入包 | 按 CI 真实产物集跑打包 + 解 zip 校验 | 落地 `OptionalPlugins/IEDSyncTogether/IEDSyncTogether.esp`，字节正确 ✅ |
+| 清单改动 | 双向核对：`../` 源可解析、payload/artifact 目标**无重叠**、dest **未变** | 全部通过；esp 已不在 artifact 列表 ✅ |
+| `release.yml` 稀疏检出 | 本地建仓复现 `sparse-checkout --no-cone` 三路径 | `Code/plugins/**` **覆盖** `Code/plugins/packaging/`，esp 可见 ✅ |
+| vcpkg 修法 | 重查 60 次 run：**只有 3 次**死在 step 9，最早一次 `12:43:52Z` | 全部在缓存写入（`12:18:05Z`）**之后**，与根因判断一致 ✅ |
+| 测试步骤 | 四种输出形态喂给新判据 | 通过/无结果/失败三态**都能正确区分** ✅ |
+
+**复核中改掉的两处（都是我自己的）**：
+
+1. **§25.2 与 windows.yml 里写了"runner 上 `.ExitCode` 也是空"——这是未验证的推断。**
+   本机只有 **PowerShell 5.1**，CI 用的是 **pwsh 7**。已改成如实表述：
+   只声称"5.1 上实测为空"，并说明换写法的真正理由是
+   **`&` + `$LASTEXITCODE` 是本文件既有、且 CI 已实证可用的形式**。
+2. **测试闸门漏掉"零用例也算通过"**（见 §25.2 末），已补 `All tests passed` 判据。
+
+> **教训**：**写进账本/注释的每一句"事实"都要能指着证据。**
+> 这次两处措辞都是**顺手把本机结论外推到了 runner**——它不影响正确性，
+> 但会让下一个读者以为有实机证据。账本的价值全在"可追溯"，
+> 一句无法追溯的断言就足以让它整体贬值。
+
+### 25.4 复核用的命令（照抄）
 
 ```powershell
 # 1. i18n 缺键（应输出 none）

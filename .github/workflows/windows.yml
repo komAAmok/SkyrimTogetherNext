@@ -391,12 +391,28 @@ jobs:
           Write-Host "running $exe"
 
           # Captured with & and read from $LASTEXITCODE, like the xmake step
-          # above. Deliberately not Start-Process: its .ExitCode comes back
-          # empty on this runner, and "empty -ne 0" is true in PowerShell, so
-          # the check would fail the step even when every test passed.
+          # above. Deliberately not Start-Process: I could only characterise its
+          # .ExitCode on Windows PowerShell 5.1, where it came back empty for
+          # both a passing and a failing child - and "empty -ne 0" is true in
+          # PowerShell, so that form would have failed the step even when every
+          # test passed. $LASTEXITCODE is the form this file already trusts.
           $log = & $exe 2>&1
           $code = $LASTEXITCODE
           $log | ForEach-Object { Write-Host $_ }
+
+          # An exit code of 0 is not by itself evidence that anything ran: catch2
+          # exits 0 and prints "No tests ran" when no test case matches, so a
+          # suite that was emptied, mis-built or filtered to nothing looks exactly
+          # like one that passed. The success line is the only thing that
+          # distinguishes them, and a gate that cannot tell those apart is the
+          # very failure this step exists to prevent.
+          $joined = $log -join "`n"
+          if ($code -eq 0 -and $joined -notmatch 'All tests passed') {
+            $summary = @('## encoding tests produced no result', '', '```', ($log | Select-Object -First 60), '```') -join "`n"
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Write-Host '::error title=encoding tests produced no result::the binary exited 0 but never reported "All tests passed"; catch2 prints "No tests ran" when nothing matched'
+            exit 1
+          }
 
           # The step log needs a signed-in account; an annotation does not.
           # Report the assertion lines, not a bare exit code, so a failure is

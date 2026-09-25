@@ -53,6 +53,13 @@ public:
     [[nodiscard]] STRPM::Result GetLocalConnectionId(STRPM::ConnectionID* apOutConnectionId) noexcept;
     [[nodiscard]] STRPM::Result SetLocalDisplayName(const char* acpDisplayName) noexcept;
 
+    // Resolves a peer to the local actor that represents them. A plugin that
+    // synchronises scene state needs the remote player's proxy FormID to act on
+    // it, and this is the only place that mapping exists.
+    [[nodiscard]] STRPM::Result ResolveProxy(STRPM::ConnectionID aConnectionId, STRPM::ProxyFormID* apOutFormId) noexcept;
+    [[nodiscard]] STRPM::Result RegisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept;
+    [[nodiscard]] STRPM::Result UnregisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept;
+
     void SetLogCallback(STRPM::LogCallback aCallback, void* apUserData) noexcept;
 
     // ---- framework side -----------------------------------------------------
@@ -90,6 +97,16 @@ private:
 
     STRPM::LogCallback m_logCallback{ nullptr };
     void* m_logUserData{ nullptr };
+
+    // Plugins that want to be told when a peer's proxy appears or disappears,
+    // rather than polling for it on every payload.
+    struct MappingListener
+    {
+        STRPM::ProxyMappingCallback Callback{ nullptr };
+        void* UserData{ nullptr };
+    };
+
+    TiltedPhoques::Vector<MappingListener> m_mappingListeners;
 
     World* m_pWorld{ nullptr };
     std::uint64_t m_nextHandle{ 1 };

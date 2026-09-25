@@ -45,10 +45,27 @@ STRPM::Result STRPM_CALL QueryProxyResolver(std::uint32_t aRequestedVersion, con
     if (!appOutInterface)
         return STRPM::Result::kInvalidArgument;
 
-    // The native transport resolves peers by connection id, which the server
-    // authenticates, so there is no FormID proxy table to consult. Reporting the
-    // absence honestly lets a plugin fall back instead of reading a stale mapping.
-    return STRPM::Result::kNotAvailable;
+    if (aRequestedVersion != STRPM::kProxyResolverVersion)
+        return STRPM::Result::kUnsupportedVersion;
+
+    // The framework already knows which local entity represents which peer, so
+    // this is answered from its own components rather than from a proxy table
+    // the bridge used to maintain.
+    static const STRPM::ProxyResolverInterface s_resolver{
+        STRPM::kProxyResolverVersion,
+        [](STRPM::ConnectionID aConnectionId, STRPM::ProxyFormID* apOutFormId) noexcept {
+            return PluginMessagingService::Get().ResolveProxy(aConnectionId, apOutFormId);
+        },
+        [](STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept {
+            return PluginMessagingService::Get().RegisterProxyMappingListener(aCallback, apUserData);
+        },
+        [](STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept {
+            return PluginMessagingService::Get().UnregisterProxyMappingListener(aCallback, apUserData);
+        },
+    };
+
+    *appOutInterface = &s_resolver;
+    return STRPM::Result::kOk;
 }
 } // namespace
 

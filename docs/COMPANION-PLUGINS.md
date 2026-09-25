@@ -16,6 +16,7 @@ A companion plugin moves bytes between players in one of two ways.
 | Requires a matching server | yes: this framework's server | no: works on an unmodified Skyrim Together Reborn server with the relay resource installed |
 | Payload ceiling | 24 KiB per message | 24 KiB split into chat-sized fragments |
 | How it finds the host | it *is* the host | scans the running process for a private logging anchor |
+| Peer to local actor mapping | from the framework's own entity components | from a proxy table the bridge maintains |
 | Survives a framework update | yes, it is compiled against it | no, it is bound to one exact official build |
 
 The native transport is the default and the supported path. The bridge exists
@@ -92,9 +93,12 @@ still running the bridge stays compatible.
 3. **A rate-limited sender is dropped, not queued.** The server charges per
    byte with a burst allowance, so a plugin sending large snapshots in a tight
    loop will lose payloads while ordinary traffic is unaffected.
-4. **ProxyResolver reports kNotAvailable under the native transport.** There is
-   no FormID proxy table to consult, because peers are addressed by PlayerId. A
-   plugin must treat that as "no mapping" rather than retrying.
+4. **ProxyResolver answers from the framework's own components.** A peer is
+   resolved to the local entity that represents them, and `kTargetNotFound` is a
+   normal answer rather than an error: a player who has not been assigned a
+   character yet, or who has just left, genuinely has no proxy. A plugin must
+   treat that as "no mapping right now" and may register a mapping listener
+   instead of polling.
 
 ## What this framework deliberately does not do
 

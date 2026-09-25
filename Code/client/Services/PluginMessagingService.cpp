@@ -5,6 +5,8 @@
 
 #include <Messages/PluginMessagingRequest.h>
 
+#include <Components.h>
+
 #include <spdlog/spdlog.h>
 
 #include <cstring>
@@ -36,6 +38,7 @@ void PluginMessagingService::Shutdown() noexcept
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_listeners.clear();
     m_channels.clear();
+    m_mappingListeners.clear();
     m_transportCallback = nullptr;
     m_transportUserData = nullptr;
     m_pWorld = nullptr;
@@ -198,6 +201,76 @@ void PluginMessagingService::SetLogCallback(STRPM::LogCallback aCallback, void* 
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_logCallback = aCallback;
     m_logUserData = apUserData;
+}
+
+
+STRPM::Result PluginMessagingService::ResolveProxy(STRPM::ConnectionID aConnectionId, STRPM::ProxyFormID* apOutFormId) noexcept
+{
+    if (!apOutFormId)
+        return STRPM::Result::kInvalidArgument;
+
+    if (aConnectionId == 0)
+        return STRPM::Result::kInvalidArgument;
+
+    if (!m_pWorld)
+        return STRPM::Result::kNotAvailable;
+
+    // A peer is addressed by the framework's PlayerId. The entity that carries
+    // that id is the remote player's local representation, and its FormIdComponent
+    // is the proxy a plugin has to act on.
+    const auto playerId = static_cast<std::uint32_t>(aConnectionId & 0xFFFFFFFFu);
+
+    auto view = m_pWorld->view<FormIdComponent, PlayerComponent>();
+    for (auto entity : view)
+    {
+        if (view.get<PlayerComponent>(entity).Id != playerId)
+            continue;
+
+        const auto formId = view.get<FormIdComponent>(entity).Id;
+        if (formId == 0)
+            break;
+
+        *apOutFormId = static_cast<STRPM::ProxyFormID>(formId);
+        return STRPM::Result::kOk;
+    }
+
+    // Not found is a normal state, not a failure: a peer that has not been
+    // assigned a character yet, or has just left, genuinely has no proxy.
+    *apOutFormId = STRPM::kInvalidProxyFormID;
+    return STRPM::Result::kTargetNotFound;
+}
+
+STRPM::Result PluginMessagingService::RegisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept
+{
+    if (!aCallback)
+        return STRPM::Result::kInvalidArgument;
+
+    std::scoped_lock lock(g_pluginMessagingMutex);
+
+    for (const auto& listener : m_mappingListeners)
+    {
+        if (listener.Callback == aCallback && listener.UserData == apUserData)
+            return STRPM::Result::kOk;
+    }
+
+    m_mappingListeners.push_back(MappingListener{ aCallback, apUserData });
+    return STRPM::Result::kOk;
+}
+
+STRPM::Result PluginMessagingService::UnregisterProxyMappingListener(STRPM::ProxyMappingCallback aCallback, void* apUserData) noexcept
+{
+    std::scoped_lock lock(g_pluginMessagingMutex);
+
+    for (auto listener = m_mappingListeners.begin(); listener != m_mappingListeners.end(); ++listener)
+    {
+        if (listener->Callback == aCallback && listener->UserData == apUserData)
+        {
+            m_mappingListeners.erase(listener);
+            return STRPM::Result::kOk;
+        }
+    }
+
+    return STRPM::Result::kInvalidArgument;
 }
 
 void PluginMessagingService::OnPluginMessage(const NotifyPluginMessaging& acMessage) noexcept

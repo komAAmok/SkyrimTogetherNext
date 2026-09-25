@@ -67,7 +67,6 @@ STRPM::Result STRPM_CALL QueryProxyResolver(std::uint32_t aRequestedVersion, con
     *appOutInterface = &s_resolver;
     return STRPM::Result::kOk;
 }
-} // namespace
 
 // Exported for the plugin-facing lookup. STRPM_EXPORT already expands to
 // extern "C" __declspec(dllexport), so it is not repeated here: writing both
@@ -143,7 +142,6 @@ STRPM::Result STRPM_CALL QueryTransport(std::uint32_t aRequestedVersion, const S
     *appOutInterface = &s_transport;
     return STRPM::Result::kOk;
 }
-} // namespace
 
 STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingDiagnostics(std::uint32_t aRequestedVersion, const STRPM::DiagnosticsInterface** appOutInterface) noexcept
 {
@@ -154,3 +152,4 @@ STRPM_EXPORT STRPM::Result STRPM_CALL STRPM_QueryTransportInterface(std::uint32_
 {
     return QueryTransport(aRequestedVersion, appOutInterface);
 }
+} // namespace

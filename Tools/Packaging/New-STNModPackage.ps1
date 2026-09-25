@@ -130,11 +130,18 @@ $holdBack = @(
     'STServer.dll',
     'SkyrimTogetherSKSE.dll'
 )
-Get-ChildItem -Path (Join-Path $buildPath '*') -File |
+# Directories are moved as well as files: the payload is not only dlls. cef
+# needs locales/ and its .pak resources, and the overlay needs UI/, none of
+# which match a file filter. An earlier version of this filtered with -File
+# and silently produced a client that started and never opened the
+# multiplayer menu.
+Get-ChildItem -Path (Join-Path $buildPath '*') |
     Where-Object {
-        $_.Name -notmatch '\.(pdb|lib|exp|ilk|sym)$' -and
-        $_.Name -notmatch 'Tests?\.exe$' -and
-        $holdBack -notcontains $_.Name
+        $_.PSIsContainer -or (
+            $_.Name -notmatch '\.(pdb|lib|exp|ilk|sym)$' -and
+            $_.Name -notmatch 'Tests?\.exe$' -and
+            $holdBack -notcontains $_.Name
+        )
     } |
     Move-Item -Destination (Join-Path $stagePath 'SkyrimTogetherRuntime/') -Force
 
@@ -149,17 +156,31 @@ foreach ($dll in 'SkyrimTogetherRuntime.dll', 'SkyrimTogetherRuntime_1_5.dll') {
     }
 }
 
+# The same set the playable-build workflow asserts, for the same reason: the
+# bootstrap deploys this directory into the game root, so anything missing
+# here is missing at runtime and the symptom is a game that starts and never
+# opens the multiplayer menu - which reads like a code fault, not a packaging
+# one.
+foreach ($item in 'libcef.dll', 'TPProcess.exe', 'icudtl.dat', 'resources.pak', 'locales', 'UI') {
+    if (-not (Test-Path -LiteralPath (Join-Path $stagePath "SkyrimTogetherRuntime/$item"))) {
+        throw "runtime payload is missing $item"
+    }
+}
+
 Write-Step 'Staging the companion plugins'
 $pluginArgs = @{ Stage = $Stage; RepoRoot = $RepoRoot }
 if ($ArtifactsRoot) { $pluginArgs['ArtifactsRoot'] = $ArtifactsRoot }
+# The script is invoked with &, so a failure surfaces as $? rather than as
+# $LASTEXITCODE, which would still hold the exit code of the last native command.
 & (Join-Path $RepoRoot 'Tools/Packaging/Add-PluginPayload.ps1') @pluginArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "companion plugin staging failed with exit code $LASTEXITCODE"
+if (-not $?) {
+    throw 'companion plugin staging failed; see the output above'
 }
 
 Write-Step 'Verifying the wizard against the assembled tree'
 $merge = Join-Path $RepoRoot 'Code/plugins/tools/merge_fomod.py'
 $stageForPython = (Resolve-Path -LiteralPath $stagePath).Path
+# python is a native command, so $LASTEXITCODE is correct here.
 & python $merge check --stage $stageForPython
 if ($LASTEXITCODE -ne 0) {
     throw "FOMOD wizard does not match the assembled tree (exit $LASTEXITCODE)"

@@ -433,15 +433,19 @@ jobs:
             if (!(Test-Path $path)) { throw "build output missing before packaging: $needed" }
           }
 
-          $args = @{
+          # Not $args: that is a reserved automatic variable in PowerShell.
+          # And not $LASTEXITCODE: the script is invoked with &, so a script
+          # failure is reported through $? rather than the exit code of the
+          # last native command.
+          $packArgs = @{
             Stage = 'mod-pack-dryrun'
             Dist = 'dist-dryrun'
             BuildDir = $env:STR_BUILD_DIR
             Version = 'v0.0.0-dryrun'
           }
-          if (Test-Path 'plugin-artifacts') { $args['ArtifactsRoot'] = 'plugin-artifacts' }
-          & Tools/Packaging/New-STNModPackage.ps1 @args
-          if ($LASTEXITCODE -ne 0) { throw "packaging dry run failed (exit $LASTEXITCODE)" }
+          if (Test-Path 'plugin-artifacts') { $packArgs['ArtifactsRoot'] = 'plugin-artifacts' }
+          & Tools/Packaging/New-STNModPackage.ps1 @packArgs
+          if (-not $?) { throw 'packaging dry run failed; see the output above' }
 
           # The archive is the deliverable; prove it exists and is not empty.
           $zip = Get-ChildItem 'dist-dryrun' -Filter '*.zip' | Select-Object -First 1

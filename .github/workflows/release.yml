@@ -92,15 +92,17 @@ jobs:
           # be dry-run locally; it also verifies the wizard against the staged tree
           # before zipping, so a wizard entry pointing at nothing fails the build.
           $ver = "${{ needs.build-windows.outputs.str-version }}"
-          $args = @{
+          # Not $args (reserved in PowerShell) and not $LASTEXITCODE (the script
+          # is invoked with &, so failure arrives through $?).
+          $packArgs = @{
             Stage = 'mod-pack'
             Dist = '.'
             BuildDir = 'build/windows/x64/release'
             Version = $ver
           }
-          if (Test-Path 'plugin-artifacts') { $args['ArtifactsRoot'] = 'plugin-artifacts' }
-          & Tools/Packaging/New-STNModPackage.ps1 @args
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path 'plugin-artifacts') { $packArgs['ArtifactsRoot'] = 'plugin-artifacts' }
+          & Tools/Packaging/New-STNModPackage.ps1 @packArgs
+          if (-not $?) { exit 1 }
 
       - name: Assemble the server package
         shell: pwsh

@@ -374,6 +374,45 @@ jobs:
             Write-Host "$dll $((Get-Item $path).Length) bytes"
           }
 
+      # The encoding tests have been built on every run since they were written
+      # and executed on none: the build job only ever compiled them, and the
+      # playable-build workflow deliberately strips *Tests.exe from the payload.
+      # A test that never runs is a test that is already broken, so run it here -
+      # after the last C++ compile, before anything is packaged.
+      #
+      # Blocking on purpose. A gate that only warns is the same as no gate, and
+      # these cover the serialisation the whole protocol depends on: a message
+      # that round-trips wrong is a desync, not a compile error.
+      - name: Run the encoding tests
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:STR_BUILD_DIR 'TPTests.exe'
+          if (!(Test-Path $exe)) { throw "test binary not built: $exe" }
+          Write-Host "running $exe"
+
+          # Captured with & and read from $LASTEXITCODE, like the xmake step
+          # above. Deliberately not Start-Process: its .ExitCode comes back
+          # empty on this runner, and "empty -ne 0" is true in PowerShell, so
+          # the check would fail the step even when every test passed.
+          $log = & $exe 2>&1
+          $code = $LASTEXITCODE
+          $log | ForEach-Object { Write-Host $_ }
+
+          # The step log needs a signed-in account; an annotation does not.
+          # Report the assertion lines, not a bare exit code, so a failure is
+          # readable from outside GitHub - the same reason the xmake step above
+          # annotates rather than just exiting.
+          if ($code -ne 0) {
+            $fails = @($log | Where-Object { $_ -match 'FAILED|failed|error:|unexpected exception' })
+            if ($fails.Count -eq 0) { $fails = @($log | Select-Object -Last 25) }
+            $summary = @('## encoding tests failed', '', '```', ($fails | Select-Object -First 100), '```') -join "`n"
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            $detail = (($fails | Select-Object -First 6) -join ' || ') -replace '%', '%25' -replace '`r', '' -replace '`n', '%0A'
+            Write-Host "::error title=encoding tests failed (exit $code)::$detail"
+            exit 1
+          }
+          Write-Host 'encoding tests passed'
+
       # Create distrib
       - name: Output distrib binaries via xmake
         run: |

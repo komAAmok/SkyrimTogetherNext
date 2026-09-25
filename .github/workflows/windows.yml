@@ -202,6 +202,25 @@ jobs:
               continue
             }
 
+            # add_commonlibsse_plugin generates __<Project>Plugin.cpp during
+            # configure, and that file uses "..."sv literals without bringing
+            # std::literals into scope, so it fails with C3688 as soon as the
+            # compiler reaches line 4. Every plugin repository works around this
+            # in its own build script by prepending the using-directive between
+            # configure and build. Building through CMake directly skips that,
+            # which is why this step exists rather than being left to them.
+            $generated = Get-ChildItem -Path "$($spec.Dir)/build" -Filter '__*Plugin.cpp' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($generated) {
+              $content = Get-Content -LiteralPath $generated.FullName -Raw
+              if ($content -notmatch 'using namespace std::literals') {
+                [System.IO.File]::WriteAllText($generated.FullName, "using namespace std::literals;`r`n" + $content)
+                Write-Host "applied CommonLibSSE generated-file workaround: $($generated.Name)"
+              }
+            }
+            else {
+              Write-Host 'note: no __*Plugin.cpp generated for this project'
+            }
+
             $buildLog = & cmake --build "$($spec.Dir)/build" --config Release --parallel 2>&1
             $buildCode = $LASTEXITCODE
             $buildLog | ForEach-Object { Write-Host $_ }

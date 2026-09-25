@@ -111,3 +111,10 @@ packaged/*
 
 # python bytecode from Tools/Scripts and Code/plugins/STRPM/tools
 __pycache__/
+
+# Scratch trees used to exercise the packaging scripts locally.
+# They leaked into a commit once; listing them is cheaper than remembering.
+.pv/
+.rx/
+mod-pack*/
+dist-dryrun/

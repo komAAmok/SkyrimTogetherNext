@@ -1,6 +1,0 @@
-rightRace
-StepdodgeStaminaFixEnabled
-registered
-Counted
-changedone
-CrouchSlideMod_Installed

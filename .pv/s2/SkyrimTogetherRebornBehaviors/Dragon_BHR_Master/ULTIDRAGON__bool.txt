@@ -1,7 +1,0 @@
-IsStaggering
-IsUDAnimation
-IsDying
-bTailTurnOneMore
-bNoStagger
-IsRight
-IsEnraging

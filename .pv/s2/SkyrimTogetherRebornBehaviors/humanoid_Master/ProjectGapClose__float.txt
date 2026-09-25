@@ -1,2 +1,0 @@
-fPGC_Update_time_required
-fPGC_Update_time_counter

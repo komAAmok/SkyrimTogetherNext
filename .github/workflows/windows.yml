@@ -168,14 +168,22 @@ jobs:
           $failed = @()
           foreach ($spec in $specs) {
             Write-Host "::group::Build $($spec.Id)"
-            # A consumer that vendors its own copy of the interface header is
-            # compiled against the authoritative one instead. That is what
-            # makes the STRPM contract enforceable rather than advisory.
+            # The contract gate already verifies that each vendored header agrees
+            # with the authoritative one on every symbol the consumer uses and on
+            # every shared constant value. Overwriting the file here as well was a
+            # mistake: a consumer may legitimately vendor a header whose helper
+            # functions are defined inline rather than declared, because it does
+            # not link the STRPM client library. IEDSyncTogether does exactly
+            # that, and replacing its header with the declaration-only canonical
+            # copy turned a working build into LNK2019 on STRPM::ResultToString.
+            #
+            # So the header is left as the consumer ships it, and the gate is what
+            # keeps it honest.
             $vendored = Get-ChildItem -Path $spec.Dir -Recurse -Filter 'STRPluginMessagingAPI.h' -File -ErrorAction SilentlyContinue |
               Where-Object { $_.FullName -notmatch '\\build\\' } | Select-Object -First 1
             if ($vendored) {
-              Copy-Item 'Code/plugins/STRPM/include/STRPluginMessagingAPI/STRPluginMessagingAPI.h' $vendored.FullName -Force
-              Write-Host "pinned vendored header: $($vendored.FullName)"
+              $inline = Select-String -Path $vendored.FullName -Pattern 'inline const char\* ResultToString' -Quiet
+              Write-Host "vendored header: $($vendored.FullName) (helpers inline: $inline)"
             }
 
             # Quoted interpolation matters here: passed bare, CMake receives the

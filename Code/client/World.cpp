@@ -69,7 +69,10 @@ World::World()
 
 World::~World()
 {
-    m_pluginMessagingConnection.release();
+    // The dispatcher is a member of this object and is destroyed with it, so the
+    // subscription goes away on its own; the service is a singleton that outlives
+    // the world, so its registrations are cleared explicitly. That ordering
+    // matters: a plugin callback must never be reachable once the world is gone.
     PluginMessagingService::Get().Shutdown();
 }
 

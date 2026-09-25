@@ -9,6 +9,8 @@ name: Plugin gates
 #             runtime on a player's machine
 #   wizard    the generated FOMOD must match the packaging manifest and stay
 #             valid against the published FOMOD 5.0 schema
+#   exports   the framework runtime must export the entry point names the
+#             contract advertises, because plugins look them up as strings
 
 on:
   push:
@@ -40,6 +42,12 @@ jobs:
       - name: Verify the STRPM consumer contract
         shell: pwsh
         run: python Code/plugins/tools/strpm_contract.py check
+
+      # A plugin resolves these entry points by name at runtime; a renamed or
+      # missing export is invisible until a user's plugin silently finds nothing.
+      - name: Verify the framework exports every contract entry point
+        shell: pwsh
+        run: python Code/plugins/tools/check_exports.py
 
   wizard:
     runs-on: windows-latest

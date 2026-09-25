@@ -8,7 +8,12 @@ target(name)
             add_defines(d)
         end
     end
-    add_includedirs(".","../../Libraries/")
+    add_includedirs(
+        ".",
+        "../../Libraries/",
+        -- the STRPM consumer contract: the client implements the transport that
+        -- companion plugins call through, so both compile against one header
+        "../plugins/STRPM/include")
     set_pcxxheader("TiltedOnlinePCH.h")
 
     -- exclude game specifc stuff

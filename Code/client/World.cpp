@@ -21,6 +21,9 @@
 #include <Services/CombatService.h>
 #include <Services/WeatherService.h>
 #include <Services/MapService.h>
+#include <Services/PluginMessagingService.h>
+
+#include <Messages/NotifyPluginMessaging.h>
 
 #include <Events/PreUpdateEvent.h>
 #include <Events/UpdateEvent.h>
@@ -55,10 +58,20 @@ World::World()
     ctx().emplace<WeatherService>(*this, m_transport, m_dispatcher);
     ctx().emplace<MapService>(*this, m_dispatcher, m_transport);
 
+    // Companion plugin transport. Incoming payloads are delivered to whichever
+    // plugin registered the channel; the contract tells plugins to marshal to
+    // the game thread before touching game state.
+    PluginMessagingService::Get().Initialize(*this);
+    m_pluginMessagingConnection = m_dispatcher.sink<NotifyPluginMessaging>().connect<&PluginMessagingService::OnPluginMessage>(&PluginMessagingService::Get());
+
     BehaviorVar::Get()->Init();
 }
 
-World::~World() = default;
+World::~World()
+{
+    m_pluginMessagingConnection.release();
+    PluginMessagingService::Get().Shutdown();
+}
 
 void World::Update() noexcept
 {

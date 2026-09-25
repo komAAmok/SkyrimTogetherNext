@@ -54,4 +54,8 @@ private:
 
     std::chrono::high_resolution_clock::time_point m_lastFrameTime;
     bool m_hasTicked{false};
+
+    // Keeps the companion-plugin transport subscribed for the lifetime of the
+    // world; the service itself outlives it so plugin callbacks stay valid.
+    entt::scoped_connection m_pluginMessagingConnection;
 };

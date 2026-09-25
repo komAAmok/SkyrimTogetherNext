@@ -54,6 +54,9 @@ enum ClientOpcode : unsigned char
     kRequestSetWaypoint,
     kRequestRemoveWaypoint,
     kSetTimeCommandRequest,
+    // Appended, never inserted. Companion plugins hook this table by index, so
+    // every existing opcode keeps its number; only new entries may be added.
+    kPluginMessagingRequest,
     kClientOpcodeMax
 };
 
@@ -114,5 +117,7 @@ enum ServerOpcode : unsigned char
     kNotifySetWaypoint,
     kNotifyRemoveWaypoint,
     kNotifySetTimeResult,
+    // Appended for the same reason as the client opcode above.
+    kNotifyPluginMessaging,
     kServerOpcodeMax
 };

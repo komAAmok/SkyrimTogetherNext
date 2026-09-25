@@ -27,10 +27,10 @@
       "required": true,
       "wizardSteps": false,
       "rationale": "Transport every companion plugin links against. Installed whenever any companion plugin is selected.",
-      "payloadNote": "The ini is owned by this repository rather than by the submodule. The plugin repositories are pinned submodules that this project does not push to, so an edit inside one would never reach CI or a release; the packaged file therefore comes from GameFiles and overrides the upstream copy.",
+      "payloadNote": "The ini is owned by this repository rather than by the submodule: the plugin repositories are pinned and this project does not push to them, so an edit inside one would never reach CI or a release. It also must not live under GameFiles/Skyrim, because two workflows copy that tree wholesale into the always-installed core - which would install an ini for a DLL the user may not have chosen.",
       "payload": [
         {
-          "source": "../../GameFiles/Skyrim/SKSE/Plugins/STRPluginMessagingAPI.ini",
+          "source": "../../Code/plugins/packaging/STRPluginMessagingAPI.ini",
           "dest": "SKSE/Plugins/STRPluginMessagingAPI.ini"
         }
       ],
@@ -58,22 +58,15 @@
           "dest": "."
         }
       ],
+      "artifactsNote": "OSKSE.pex and OStimTogetherNative.pex are compiled by compat/OStimUIConsent/compile-ui-consent.ps1, which needs PapyrusCompiler.exe from an installed Skyrim. A CI runner has no Skyrim, so those two scripts are not packaged here; OStimTogether's own release script builds them on a machine that does. The wizard description states the consequence.",
       "artifacts": [
         {
           "from": "OStimTogether.dll",
           "dest": "SKSE/Plugins/OStimTogether.dll"
-        },
-        {
-          "from": "OSKSE.pex",
-          "dest": "Scripts/OSKSE.pex"
-        },
-        {
-          "from": "OStimTogetherNative.pex",
-          "dest": "Scripts/OStimTogetherNative.pex"
         }
       ],
       "introduction": {
-        "zh": "让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。",
+        "zh": "让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。\n\n注意:本包只含 OStimTogether.dll。它的两个 Papyrus 脚本(OSKSE.pex / OStimTogetherNative.pex)需要在装有 Creation Kit 的机器上用 compat/OStimUIConsent/compile-ui-consent.ps1 编译,请从 OStimTogether 自己的发布包取得,或自行编译后放入 Data/Scripts/。",
         "en": "Keeps scene state, participant alignment, equipment locks and undress/appearance repair in sync between connected players. Every player must install the same version; leaving it unchecked changes nothing else about the framework."
       },
       "subOptions": [

@@ -56,7 +56,9 @@
                 <group name="联机核心已自动安装;以下插件按需选装,可随时重装调整" type="SelectAny">
                     <plugins order="Explicit">
                         <plugin name="OStim Together">
-                            <description>让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。</description>
+                            <description>让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。
+
+注意:本包只含 OStimTogether.dll。它的两个 Papyrus 脚本(OSKSE.pex / OStimTogetherNative.pex)需要在装有 Creation Kit 的机器上用 compat/OStimUIConsent/compile-ui-consent.ps1 编译,请从 OStimTogether 自己的发布包取得,或自行编译后放入 Data/Scripts/。</description>
                             <files>
                                 <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
                                 <folder source="OptionalPlugins/OStimTogether" destination="" priority="0" />

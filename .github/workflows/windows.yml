@@ -86,19 +86,40 @@ jobs:
             "present=true" >> $env:GITHUB_OUTPUT
           }
 
-      # vcpkg buildtrees are the difference between a few minutes and most of an
-      # hour: commonlibsse-ng comes from a third-party registry and is compiled
-      # from source on a cold cache.
-      - name: Cache vcpkg downloads
+      # vcpkg is not installed on the runner and the plugin projects need it, so
+      # it is checked out here rather than assumed. The cache key covers the
+      # bootstrap commit and the manifests: commonlibsse-ng comes from a
+      # third-party registry and is compiled from source on a cold cache, which
+      # is the difference between a few minutes and most of an hour.
+      - name: Cache vcpkg
         if: steps.plugins.outputs.present == 'true'
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/.vcpkg-cache/downloads
+            ${{ github.workspace }}/.vcpkg/downloads
             ${{ github.workspace }}/.vcpkg-cache/binary
           key: ${{ runner.os }}-vcpkg-${{ hashFiles('plugins/*/vcpkg.json', 'plugins/*/vcpkg-configuration.json') }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-
+
+      - name: Set up vcpkg
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $vcpkg = Join-Path $env:GITHUB_WORKSPACE '.vcpkg'
+          if (Test-Path $vcpkg) {
+            Write-Host "vcpkg restored from cache: $vcpkg"
+          } else {
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkg
+            if ($LASTEXITCODE -ne 0) { throw 'vcpkg clone failed' }
+          }
+          & "$vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
+          if (!(Test-Path "$vcpkg/scripts/buildsystems/vcpkg.cmake")) {
+            throw "vcpkg toolchain missing at $vcpkg/scripts/buildsystems/vcpkg.cmake"
+          }
+          "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
+          Write-Host "VCPKG_ROOT=$vcpkg"
 
       # STRPM is built first: it is small, it fails fast if the interface header
       # and the bridge do not compile, and the consumers below link against the
@@ -120,7 +141,7 @@ jobs:
         if: steps.plugins.outputs.present == 'true'
         shell: pwsh
         env:
-          VCPKG_ROOT: ${{ github.workspace }}/.vcpkg
+          # VCPKG_ROOT comes from the setup step through GITHUB_ENV.
           VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-cache/binary
         run: |
           $specs = @(

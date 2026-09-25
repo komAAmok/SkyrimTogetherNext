@@ -29,6 +29,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The packaging script, the plugin manifest and the wizard generator all
+      # live in the repository, and this job runs on a fresh runner. Submodules
+      # are not needed: the plugin build already happened in the build job and
+      # arrives as an artifact.
+      - name: Checkout packaging inputs
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            Tools/Packaging
+            Code/plugins
+            GameFiles/Skyrim/fomod
+          sparse-checkout-cone-mode: false
+
       - name: Download build and game files
         uses: actions/download-artifact@v5
         with:

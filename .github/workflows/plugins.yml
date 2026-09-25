@@ -13,6 +13,8 @@ name: Plugin gates
 #             contract advertises, because plugins look them up as strings
 #   transport the plugin opcodes must stay appended and the chat opcode indices
 #             must not move, or the documented fallback stops being true
+#   snapshots the durable copy of each plugin's source must match the pinned
+#             commit, so a submodule re-pin cannot silently outrun its backup
 
 on:
   push:
@@ -44,6 +46,14 @@ jobs:
       - name: Verify the STRPM consumer contract
         shell: pwsh
         run: python Code/plugins/tools/strpm_contract.py check
+
+      # The plugins are submodules pointing at repositories this project does
+      # not control. If one disappears, a pointer to a commit nobody hosts is
+      # not a backup, so a durable copy is kept in snapshots/ and must match
+      # the pinned commit. Re-pinning without refreshing it fails here.
+      - name: Verify the plugin source snapshots
+        shell: pwsh
+        run: python Code/plugins/tools/plugin_snapshot.py verify
 
       # A plugin resolves these entry points by name at runtime; a renamed or
       # missing export is invisible until a user's plugin silently finds nothing.

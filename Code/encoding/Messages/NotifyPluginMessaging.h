@@ -10,7 +10,7 @@ using TiltedPhoques::Vector;
 // A companion plugin payload delivered to this client, with the identity the
 // server authenticated for the sender attached.
 //
-// SenderConnectionId is filled in by the server from the connection the request
+// SenderPlayerId is filled in by the server from the connection the request
 // arrived on, never from the payload: a plugin must not be able to claim it
 // speaks for somebody else.
 struct NotifyPluginMessaging final : ServerMessage
@@ -33,7 +33,9 @@ struct NotifyPluginMessaging final : ServerMessage
 
     String Channel;
     String SenderDisplayName;
-    std::uint64_t SenderConnectionId{ 0 };
+    // The framework's PlayerId of the sender, filled in by the server from the
+    // authenticated connection. A plugin echoes it back to address that peer.
+    std::uint32_t SenderPlayerId{ 0 };
     bool SenderIsHost{ false };
     Vector<std::uint8_t> PluginData;
 };

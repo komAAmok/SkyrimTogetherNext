@@ -19,13 +19,13 @@ PluginMessagingService::PluginMessagingService(World& aWorld, entt::dispatcher& 
     m_pluginMessageConnection = aDispatcher.sink<PacketEvent<PluginMessagingRequest>>().connect<&PluginMessagingService::OnPluginMessage>(this);
 }
 
-bool PluginMessagingService::AllowMessage(std::uint64_t aConnectionId, std::uint32_t aBytes) noexcept
+bool PluginMessagingService::AllowMessage(std::uint32_t aPlayerId, std::uint32_t aBytes) noexcept
 {
     const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::steady_clock::now().time_since_epoch())
                          .count();
 
-    auto& bucket = m_buckets[aConnectionId];
+    auto& bucket = m_buckets[aPlayerId];
     if (bucket.LastRefillMs == 0)
         bucket.LastRefillMs = nowMs;
 
@@ -60,19 +60,20 @@ void PluginMessagingService::OnPluginMessage(const PacketEvent<PluginMessagingRe
     if (!pSender)
         return;
 
-    // The connection id is what plugins address peers by, and it is resolved
-    // from the authenticated player rather than from the payload.
-    const auto senderConnectionId = static_cast<std::uint64_t>(pSender->GetConnectionId());
-    if (!AllowMessage(senderConnectionId, static_cast<std::uint32_t>(request.PluginData.size())))
+    // The sender identity comes from the authenticated player, never from the
+    // payload. PlayerId is what a client can learn about its peers, so it is the
+    // only identity a plugin can address a reply to.
+    const auto senderPlayerId = pSender->GetId();
+    if (!AllowMessage(senderPlayerId, static_cast<std::uint32_t>(request.PluginData.size())))
     {
-        spdlog::warn("PluginMessaging: rate limited connection {} on channel {}", senderConnectionId, request.Channel.c_str());
+        spdlog::warn("PluginMessaging: rate limited player {} on channel {}", senderPlayerId, request.Channel.c_str());
         return;
     }
 
     NotifyPluginMessaging notify{};
     notify.Channel = request.Channel;
     notify.PluginData = request.PluginData;
-    notify.SenderConnectionId = senderConnectionId;
+    notify.SenderPlayerId = senderPlayerId;
     notify.SenderDisplayName = pSender->GetUsername();
     // There is no designated host in a dedicated-server session; the flag stays
     // false until the framework has a notion of one, rather than guessing.
@@ -85,10 +86,18 @@ void PluginMessagingService::OnPluginMessage(const PacketEvent<PluginMessagingRe
         break;
 
     case PluginMessagingRequest::Target::kPlayer:
-        // An unknown id is a normal race against a disconnect, not an error.
-        if (request.TargetConnectionId != 0)
-            GameServer::Get()->Send(static_cast<ConnectionId_t>(request.TargetConnectionId), notify);
+    {
+        // Resolved through the player table, because the request carries a
+        // PlayerId and the wire needs a connection handle. An unknown id is a
+        // normal race against a disconnect, not an error.
+        if (request.TargetPlayerId != 0)
+        {
+            const auto* pTarget = m_world.GetPlayerManager().GetById(request.TargetPlayerId);
+            if (pTarget)
+                GameServer::Get()->Send(pTarget->GetConnectionId(), notify);
+        }
         break;
+    }
 
     case PluginMessagingRequest::Target::kServer:
     case PluginMessagingRequest::Target::kHost:

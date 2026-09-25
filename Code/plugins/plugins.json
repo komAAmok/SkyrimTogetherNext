@@ -27,9 +27,10 @@
       "required": true,
       "wizardSteps": false,
       "rationale": "Transport every companion plugin links against. Installed whenever any companion plugin is selected.",
+      "payloadNote": "The ini is owned by this repository rather than by the submodule. The plugin repositories are pinned submodules that this project does not push to, so an edit inside one would never reach CI or a release; the packaged file therefore comes from GameFiles and overrides the upstream copy.",
       "payload": [
         {
-          "source": "package/Data/SKSE/Plugins/STRPluginMessagingAPI.ini",
+          "source": "../../GameFiles/Skyrim/SKSE/Plugins/STRPluginMessagingAPI.ini",
           "dest": "SKSE/Plugins/STRPluginMessagingAPI.ini"
         }
       ],

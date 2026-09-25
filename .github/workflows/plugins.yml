@@ -11,6 +11,8 @@ name: Plugin gates
 #             valid against the published FOMOD 5.0 schema
 #   exports   the framework runtime must export the entry point names the
 #             contract advertises, because plugins look them up as strings
+#   transport the plugin opcodes must stay appended and the chat opcode indices
+#             must not move, or the documented fallback stops being true
 
 on:
   push:
@@ -48,6 +50,13 @@ jobs:
       - name: Verify the framework exports every contract entry point
         shell: pwsh
         run: python Code/plugins/tools/check_exports.py
+
+      # The documented transport behaviour - new opcodes appended, chat opcode
+      # indices unchanged - is what a reader relies on when reasoning about a
+      # mixed-version session. Check it instead of trusting the prose.
+      - name: Verify plugin transport compatibility
+        shell: pwsh
+        run: python Code/plugins/tools/check_transport_compat.py
 
   wizard:
     runs-on: windows-latest

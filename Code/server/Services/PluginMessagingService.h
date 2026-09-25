@@ -40,7 +40,7 @@ private:
     static constexpr std::uint32_t kBurstCapacity = 256;
     static constexpr std::uint32_t kRefillPerSecond = 128;
 
-    [[nodiscard]] bool AllowMessage(std::uint64_t aConnectionId, std::uint32_t aBytes) noexcept;
+    [[nodiscard]] bool AllowMessage(std::uint32_t aPlayerId, std::uint32_t aBytes) noexcept;
 
     struct Bucket
     {
@@ -50,5 +50,5 @@ private:
 
     World& m_world;
     entt::scoped_connection m_pluginMessageConnection;
-    TiltedPhoques::Map<std::uint64_t, Bucket> m_buckets;
+    TiltedPhoques::Map<std::uint32_t, Bucket> m_buckets;
 };

@@ -8,7 +8,7 @@ void NotifyPluginMessaging::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter)
 {
     Serialization::WriteString(aWriter, Channel);
     Serialization::WriteString(aWriter, SenderDisplayName);
-    Serialization::WriteVarInt(aWriter, SenderConnectionId);
+    Serialization::WriteVarInt(aWriter, SenderPlayerId);
     Serialization::WriteBool(aWriter, SenderIsHost);
 
     const auto size = static_cast<std::uint32_t>(std::min<std::size_t>(PluginData.size(), kMaxPayloadBytes));
@@ -29,7 +29,7 @@ void NotifyPluginMessaging::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReade
     if (SenderDisplayName.size() > kMaxDisplayNameBytes)
         SenderDisplayName.resize(kMaxDisplayNameBytes);
 
-    SenderConnectionId = Serialization::ReadVarInt(aReader);
+    SenderPlayerId = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader) & 0xFFFFFFFFu);
     SenderIsHost = Serialization::ReadBool(aReader);
 
     const auto size = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader));

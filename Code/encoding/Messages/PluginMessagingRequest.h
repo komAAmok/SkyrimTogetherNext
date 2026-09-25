@@ -45,7 +45,10 @@ struct PluginMessagingRequest final : ClientMessage
 
     String Channel;
     Target TargetKind{ Target::kAllPlayers };
-    // Only meaningful for Target::kPlayer.
-    std::uint64_t TargetConnectionId{ 0 };
+    // Only meaningful for Target::kPlayer. This is the framework's PlayerId, the
+    // identity a client can actually learn about its peers, not the server's
+    // transport connection handle - which a client is never told and could not
+    // address with.
+    std::uint32_t TargetPlayerId{ 0 };
     Vector<std::uint8_t> PluginData;
 };

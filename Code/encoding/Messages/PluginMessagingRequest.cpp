@@ -8,7 +8,7 @@ void PluginMessagingRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter
 {
     Serialization::WriteString(aWriter, Channel);
     aWriter.WriteBits(static_cast<std::uint8_t>(TargetKind), 8);
-    Serialization::WriteVarInt(aWriter, TargetConnectionId);
+    Serialization::WriteVarInt(aWriter, TargetPlayerId);
 
     // Clamped, not asserted: a plugin that hands us an oversized payload gets a
     // truncated message rather than a corrupt stream that desynchronises every
@@ -31,7 +31,7 @@ void PluginMessagingRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRead
     aReader.ReadBits(target, 8);
     TargetKind = static_cast<Target>(target);
 
-    TargetConnectionId = Serialization::ReadVarInt(aReader);
+    TargetPlayerId = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader) & 0xFFFFFFFFu);
 
     const auto size = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader));
     // Never trust the wire length: a peer can claim more bytes than it sent.

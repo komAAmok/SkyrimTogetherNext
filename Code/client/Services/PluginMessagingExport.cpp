@@ -107,13 +107,13 @@ STRPM::Result STRPM_CALL QueryTransport(std::uint32_t aRequestedVersion, const S
     static const STRPM::TransportInterface s_transport{
         STRPM::kTransportInterfaceVersion,
         [](STRPM::ReceiveCallback aCallback, void* apUserData) noexcept -> STRPM::Result {
-            // The framework already owns the session, so a transport provider is
-            // not started here; it is announced as the one in use.
-            (void)aCallback;
-            (void)apUserData;
-            return STRPM::Result::kOk;
+            // The facade hands its dispatcher over here and expects to receive
+            // payloads through it, so the callback is retained rather than
+            // dropped - the framework already owns the session, but the facade
+            // still has to be given the bytes.
+            return PluginMessagingService::Get().StartTransport(aCallback, apUserData);
         },
-        []() noexcept -> STRPM::Result { return STRPM::Result::kOk; },
+        []() noexcept -> STRPM::Result { return PluginMessagingService::Get().StopTransport(); },
         [](const char* acpChannel, STRPM::Target aTarget, const void* apData, std::size_t aSize, std::uint32_t aFlags) noexcept {
             return PluginMessagingService::Get().Send(acpChannel, aTarget, apData, aSize, aFlags);
         },

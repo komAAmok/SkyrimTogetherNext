@@ -12,11 +12,11 @@
 
 namespace
 {
-// The registered channel list is touched from the game thread (plugin
-// callbacks) and from the network thread (incoming payloads), so every access
-// goes through this lock. Delivery happens on whichever thread received the
-// message; the contract tells plugins to marshal to the game thread before
-// touching game state, which is the same rule the framework follows internally.
+// The registry is touched from the game thread (plugin calls) and from the
+// network thread (incoming payloads), so every access is locked. Callbacks are
+// collected under the lock and invoked after it is released: a plugin that
+// sends from inside its own receive handler would otherwise deadlock on a
+// non-recursive mutex.
 std::mutex g_pluginMessagingMutex;
 }
 
@@ -35,15 +35,28 @@ void PluginMessagingService::Shutdown() noexcept
 {
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_listeners.clear();
+    m_channels.clear();
+    m_transportCallback = nullptr;
+    m_transportUserData = nullptr;
     m_pWorld = nullptr;
 }
 
-void PluginMessagingService::Log(const char* acpMessage) noexcept
+STRPM::Result PluginMessagingService::StartTransport(STRPM::ReceiveCallback aCallback, void* apUserData) noexcept
 {
-    if (m_logCallback)
-        m_logCallback(acpMessage, m_logUserData);
-    else
-        spdlog::info("STRPM: {}", acpMessage);
+    // The facade calls this with its own dispatcher and expects the callback to
+    // be retained until stop(), so the payload can be handed back to it.
+    std::scoped_lock lock(g_pluginMessagingMutex);
+    m_transportCallback = aCallback;
+    m_transportUserData = apUserData;
+    return STRPM::Result::kOk;
+}
+
+STRPM::Result PluginMessagingService::StopTransport() noexcept
+{
+    std::scoped_lock lock(g_pluginMessagingMutex);
+    m_transportCallback = nullptr;
+    m_transportUserData = nullptr;
+    return STRPM::Result::kOk;
 }
 
 STRPM::Result PluginMessagingService::RegisterChannel(const char* acpChannel, STRPM::ReceiveCallback aCallback, void* apUserData, STRPM::ListenerHandle* apOutHandle) noexcept
@@ -81,7 +94,7 @@ STRPM::Result PluginMessagingService::UnregisterChannel(STRPM::ListenerHandle aH
     if (it == m_channels.end())
         return STRPM::Result::kChannelNotRegistered;
 
-    const auto& channel = it->second;
+    const auto channel = it->second;
     for (auto listener = m_listeners.begin(); listener != m_listeners.end(); ++listener)
     {
         if (listener->Channel == channel)
@@ -127,7 +140,9 @@ STRPM::Result PluginMessagingService::Send(const char* acpChannel, STRPM::Target
         break;
     case STRPM::TargetKind::kPlayer:
         request.TargetKind = PluginMessagingRequest::Target::kPlayer;
-        request.TargetConnectionId = aTarget.connectionID;
+        // The plugin echoes back the identity it was handed for a sender, which
+        // is the framework's PlayerId.
+        request.TargetPlayerId = static_cast<std::uint32_t>(aTarget.connectionID & 0xFFFFFFFFu);
         break;
     case STRPM::TargetKind::kAllPlayers:
     default:
@@ -136,9 +151,12 @@ STRPM::Result PluginMessagingService::Send(const char* acpChannel, STRPM::Target
     }
 
     if (aSize > 0)
-        request.PluginData.assign(static_cast<const std::uint8_t*>(apData), static_cast<const std::uint8_t*>(apData) + aSize);
+    {
+        const auto* pBytes = static_cast<const std::uint8_t*>(apData);
+        request.PluginData.assign(pBytes, pBytes + aSize);
+    }
 
-    // The framework's own transport carries the payload; no separate socket and
+    // The framework's own transport carries the payload: no separate socket and
     // no chat envelope, so nothing here can surface as a chat line.
     if (!transport.Send(request))
         return STRPM::Result::kTransportError;
@@ -158,8 +176,9 @@ STRPM::Result PluginMessagingService::GetLocalConnectionId(STRPM::ConnectionID* 
     if (!transport.IsOnline())
         return STRPM::Result::kNotConnected;
 
-    // Plugins address peers by the identifier the server uses on the wire, so
-    // the local player id is the value they must hand back in a Target.
+    // Plugins address peers by echoing back the identity they were given for a
+    // sender, and receive their own the same way. That identity is the
+    // framework's PlayerId; the server's transport handle is never exposed.
     *apOutConnectionId = static_cast<STRPM::ConnectionID>(transport.GetLocalPlayerId());
     return STRPM::Result::kOk;
 }
@@ -183,10 +202,14 @@ void PluginMessagingService::SetLogCallback(STRPM::LogCallback aCallback, void* 
 
 void PluginMessagingService::OnPluginMessage(const NotifyPluginMessaging& acMessage) noexcept
 {
-    std::scoped_lock lock(g_pluginMessagingMutex);
+    if (acMessage.Channel.empty() || acMessage.Channel.size() > STRPM::kMaxChannelLength)
+        return;
+
+    if (acMessage.PluginData.size() > STRPM::kMaxPayloadBytes)
+        return;
 
     STRPM::Sender sender{};
-    sender.connectionID = acMessage.SenderConnectionId;
+    sender.connectionID = acMessage.SenderPlayerId;
     sender.displayName = acMessage.SenderDisplayName.c_str();
     sender.isHost = acMessage.SenderIsHost;
 
@@ -198,9 +221,23 @@ void PluginMessagingService::OnPluginMessage(const NotifyPluginMessaging& acMess
     message.flags = STRPM::kMessageNone;
     message.sequence = 0;
 
-    for (const auto& listener : m_listeners)
+    TiltedPhoques::Vector<Delivery> deliveries;
     {
-        if (listener.Channel == acMessage.Channel)
-            listener.Callback(&message, listener.UserData);
+        std::scoped_lock lock(g_pluginMessagingMutex);
+
+        // A message is offered to every registration for the channel. A plugin
+        // uses either the framework entry point or the facade, and only the path
+        // it chose holds a registration, so this cannot double-deliver to one.
+        for (const auto& listener : m_listeners)
+        {
+            if (listener.Channel == acMessage.Channel)
+                deliveries.push_back(Delivery{ listener.Callback, listener.UserData });
+        }
+
+        if (m_transportCallback)
+            deliveries.push_back(Delivery{ m_transportCallback, m_transportUserData });
     }
+
+    for (const auto& delivery : deliveries)
+        delivery.Callback(&message, delivery.UserData);
 }

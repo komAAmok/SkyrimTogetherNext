@@ -79,9 +79,18 @@ function Copy-PayloadItem {
         [string]$Dest
     )
 
-    $sourcePath = Join-Path $PluginRoot $Source
+    # A source beginning with ../ is repo-relative rather than submodule-relative:
+    # this repository owns a few packaged files (see payloadNote in the manifest)
+    # because the plugin repositories are pinned and are not pushed to from here.
+    $sourcePath = if ($Source.StartsWith('..')) {
+        [System.IO.Path]::GetFullPath((Join-Path $PluginRoot $Source))
+    }
+    else {
+        Join-Path $PluginRoot $Source
+    }
+
     if (-not (Test-Path -LiteralPath $sourcePath)) {
-        throw "payload source is missing: $Source (in $PluginRoot)"
+        throw "payload source is missing: $Source (resolved to $sourcePath)"
     }
 
     New-Item -ItemType Directory -Force -Path $StagingRoot | Out-Null

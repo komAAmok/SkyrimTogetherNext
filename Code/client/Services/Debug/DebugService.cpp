@@ -84,11 +84,21 @@ void __declspec(noinline) DebugService::PlaceActorInWorld() noexcept
     if (m_actors.size())
         return;
 
-    const auto pPlayerBaseForm = static_cast<TESNPC*>(PlayerCharacter::Get()->baseForm);
+    const auto* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
 
+    const auto pPlayerBaseForm = static_cast<TESNPC*>(pPlayer->baseForm);
+    if (!pPlayerBaseForm)
+        return;
+
+    // Create() has two ways to come back empty: no player anchor, or a
+    // base form that does not cast. Both are reachable from the debug menu.
     auto pActor = Actor::Create(pPlayerBaseForm);
+    if (!pActor)
+        return;
 
-    const Inventory inventory = PlayerCharacter::Get()->GetActorInventory();
+    const Inventory inventory = pPlayer->GetActorInventory();
     pActor->SetActorInventory(inventory);
 
     pActor->GetExtension()->SetPlayer(true);

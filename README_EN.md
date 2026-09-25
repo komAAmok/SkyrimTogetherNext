@@ -88,6 +88,7 @@ Please open an issue in the repo's "Issues" page, attaching reproducible steps, 
 
 | Version | Date | Highlights |
 | --- | --- | --- |
+| **1.1.1** | 2026-09-25 | Third audit round: fixed a chained dereference of a cell that is null for the whole of a load in `VisitInteriorCell`, three consecutive dereferences of the player in `Actor::Create`, and an unchecked `Actor::Create` result in `DebugService`; also corrected the guard order in `Actor::Create`, which leaked the actor it had already allocated |
 | **1.1.0** | 2026-09-25 | **Performance & sync**: interpolation switched to Catmull-Rom with bounded extrapolation (removes the polyline feel and the freeze-then-snap on packet loss); frame loop 16 to 8 ms, roughly doubling the update rate; movement updates drop from O(updates x entities) to linear; fixed an engine null dereference caused by spawning one remote player twice; repository-wide `GetById` dereference audit fixing 15 unguarded dereferences |
 | 1.0.41 | 2026-09-23 | Self-deploy false failures fixed: content comparison replaces the timestamp test, mtime now only a pre-filter; removed a `.str_old` cleanup for a file that is never created (it polluted the error code into `error 2`); timer quantisation measured (16 ms request is really 31.25 ms) |
 | 1.0.40 | 2026-09-23 | Follow `ff 25` thunks so a hook conflict names the mod that owns it |

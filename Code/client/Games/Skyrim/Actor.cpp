@@ -208,16 +208,18 @@ void Actor::QueueUpdate() noexcept
 
 GamePtr<Actor> Actor::Create(TESNPC* apBaseForm) noexcept
 {
+    // The player is the anchor every remote actor is spawned around, so a
+    // missing one has to fail closed - and it has to fail *before* the
+    // allocation below, otherwise the early return leaks the actor New()
+    // just built. Checked first for exactly that reason.
+    const auto pPlayer = static_cast<Actor*>(GetById(0x14));
+    if (!pPlayer)
+        return nullptr;
+
     auto pActor = New();
     // Prevent saving
     pActor->SetSkipSaveFlag(true);
     pActor->GetExtension()->SetRemote(true);
-
-    // The player is the anchor every remote actor is spawned around, so a
-    // missing one has to fail closed here rather than three dereferences later.
-    const auto pPlayer = static_cast<Actor*>(GetById(0x14));
-    if (!pPlayer)
-        return nullptr;
 
     auto pCell = pPlayer->parentCell;
     const auto pWorldSpace = pPlayer->GetWorldSpace();

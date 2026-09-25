@@ -1485,3 +1485,53 @@ update，于是这个热路径成了**平方复杂度**，而它每 100 ms 就�
 > `PlayerCharacter::Get() != nullptr` **不蕴含** `GetParentCellEx() != nullptr`。
 > 玩家对象在 load 全程存活，它的 cell 却在换——所有 `Get()->GetX()->`
 > 的写法都要按"load 中"来审。
+
+---
+
+## 23. v1.1.0 三次审计：容器迭代中改动、以及"审计本身引入的缺陷"
+
+### 23.1 新判据
+
+第三次换的判据是**容器生命周期与迭代**：
+
+| 判据 | 命中 | 真缺陷 |
+| --- | --- | --- |
+| `for (x : container)` 体内 `container.erase/clear/destroy` | 10 | 0 |
+| `m_world.get<T>(e)` 取引用后同类型 `emplace/remove<e>` | 13 | 0 |
+| `A()->B()->` 链式解引用 | 3 | 2（见 §22） |
+| `try_get<>` 直接 `->` | 0 | 0 |
+| `size()` 与负数比较 | 0 | 0 |
+
+**全部 10 处"迭代中改动"逐个核对后都是安全的**，因为都遵循了
+**先收集、后改动**（`toDestroy` / `readyEntities` 两个中间容器）或
+**在循环外 clear**。这说明代码库在这条判据上已经是干净的——
+**没有命中不等于没审，等于这条判据下确实没有缺陷**。
+
+### 23.2 审计自己引入的缺陷（重要）
+
+第二轮我给 `Actor::Create` 加了玩家判空，但**加在了 `auto pActor = New();` 之后**：
+
+```cpp
+auto pActor = New();              // 已经分配
+pActor->SetSkipSaveFlag(true);
+...
+if (!pPlayer) return nullptr;     // 提前返回 -> pActor 泄漏
+```
+
+`New()` 走 `GameHeap::Allocate` + `ActorExtension` 构造，**不是**无副作用的
+查询。把守卫插在分配之后就制造了一个**新缺陷**，而且它只在"玩家不存在"
+这条冷路径上泄漏——**正好是最难观察到的那条**。
+
+已改为**先判空、再分配**。同时发现 `DebugService` 里
+`Actor::Create()` 的返回值**从来没判过空**就连续三次解引用，
+且 `PlayerCharacter::Get()` 与 `baseForm` 也未判——一并补上。
+
+> **教训（本轮最重要的一条）**：**修 null 崩溃时，守卫必须放在副作用之前**。
+> "判空 + 提前返回"只在**该 return 之前没有任何已发生的副作用**时才等价于
+> "不做这件事"。看到 `New()` / `Create()` / `emplace` / `Open()` /
+> 任何 `allocate` 样式的调用，守卫要插在它**上面**。
+>
+> 附带一条：**"函数返回值可空"这个契约变了，所有调用点都要重审**。
+> `Actor::Create` 以前实际上不会返回 null（内部直接解引用玩家），
+> 我让它能返回 null 之后，23 个调用点里 `DebugService` 那一处就会崩。
+> **改契约和改实现是两件事，不能只做后者。**

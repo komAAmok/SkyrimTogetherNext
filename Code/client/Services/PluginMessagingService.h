@@ -9,11 +9,6 @@
 
 #include <TiltedCore/Stl.hpp>
 
-// Components.h brings the registry and the component types the proxy-mapping
-// observers are written against; the service is compiled into the client, where
-// that header is the normal way to reach them.
-#include <Components.h>
-
 #include <cstddef>
 #include <cstdint>
 
@@ -130,7 +125,7 @@ private:
 
     TiltedPhoques::Vector<MappingListener> m_mappingListeners;
 
-    // Kept so Shutdown() can disconnect them: the service is a singleton that
+    // Kept so Shutdown() can release them: the service is a singleton that
     // outlives the World whose registry they point at.
     entt::scoped_connection m_playerAddedConnection;
     entt::scoped_connection m_playerRemovedConnection;

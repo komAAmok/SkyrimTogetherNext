@@ -69,10 +69,14 @@ void PluginMessagingService::FireProxyMapping(STRPM::ProxyMappingEventType aType
     event.oldFormID = aOldFormId;
     event.newFormID = aNewFormId;
 
+    // Collected under the lock and invoked after it is dropped, the same way
+    // OnPluginMessage delivers to channel listeners.
     TiltedPhoques::Vector<MappingListener> listeners;
     {
         std::scoped_lock lock(g_pluginMessagingMutex);
-        listeners = m_mappingListeners;
+
+        for (const auto& listener : m_mappingListeners)
+            listeners.push_back(MappingListener{ listener.Callback, listener.UserData });
     }
 
     for (const auto& listener : listeners)
@@ -81,11 +85,13 @@ void PluginMessagingService::FireProxyMapping(STRPM::ProxyMappingEventType aType
 
 void PluginMessagingService::Shutdown() noexcept
 {
-    // Disconnected before the registry is touched: the World this points at is
+    // Released before the registry is touched: the World this points at is
     // being destroyed, and an observer that outlived it would be called through
-    // a dangling pointer.
-    m_playerAddedConnection.disconnect();
-    m_playerRemovedConnection.disconnect();
+    // a dangling pointer. entt spells this release(); the connection's own
+    // destructor does the same thing, but the singleton outlives the World, so
+    // it has to happen here rather than at static destruction.
+    m_playerAddedConnection.release();
+    m_playerRemovedConnection.release();
 
     std::scoped_lock lock(g_pluginMessagingMutex);
     m_listeners.clear();

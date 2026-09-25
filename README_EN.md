@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 > ## ⚠️ Recommended game version: **1.5.97**
-> ## 📦 Recommended mod version: **>= 1.0.41**
+> ## 📦 Recommended mod version: 1.1.1
 >
 > 1.5.97 is the version this framework is best validated against, and 1.0.41 fixes the
 > deployment and multiplayer crash issues. If you are on another game version or an older

@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 > ## ⚠️ 推荐游戏版本:**1.5.97**
-> ## 📦 推荐 Mod 版本:**>= 1.0.41**
+> ## 📦 推荐 Mod 版本: 1.1.1
 >
 > 1.5.97 是本框架验证最充分的版本,1.0.41 起修复了部署与联机崩溃问题。
 > 使用其它游戏版本或更旧的 Mod 版本出现的问题,请先升级到上述版本再反馈。

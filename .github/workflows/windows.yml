@@ -409,3 +409,41 @@ jobs:
           path: |
             ${{ env.STR_BUILD_DIR }}
             GameFiles/Skyrim/
+
+      # release.yml runs only on a tag, and releases are frozen, so without this
+      # the packaging pipeline would never be exercised - the first time it ran
+      # would be the release it was supposed to produce. That is the worst place
+      # to discover a staging bug, and this repository has already shipped one
+      # (a wizard entry pointing at a folder the build never staged).
+      #
+      # Deliberately last: the packaging script moves files out of the build
+      # directory, so the artifact for the next job must already be uploaded.
+      - name: Verify the packaging pipeline (dry run)
+        # Skipped, not failed, when the companion plugin submodules are absent: the
+        # packaging script stages them and would throw for a reason that has nothing
+        # to do with packaging. The job already warns about the missing submodules.
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          # A missing build output would make the packaging script throw, which is
+          # the point - but it must not read as a packaging bug when the real
+          # cause is an incomplete build.
+          foreach ($needed in 'SkyrimTogetherSKSE.dll','SkyrimTogetherRuntime.dll','SkyrimTogetherRuntime_1_5.dll') {
+            $path = Join-Path $env:STR_BUILD_DIR $needed
+            if (!(Test-Path $path)) { throw "build output missing before packaging: $needed" }
+          }
+
+          $args = @{
+            Stage = 'mod-pack-dryrun'
+            Dist = 'dist-dryrun'
+            BuildDir = $env:STR_BUILD_DIR
+            Version = 'v0.0.0-dryrun'
+          }
+          if (Test-Path 'plugin-artifacts') { $args['ArtifactsRoot'] = 'plugin-artifacts' }
+          & Tools/Packaging/New-STNModPackage.ps1 @args
+          if ($LASTEXITCODE -ne 0) { throw "packaging dry run failed (exit $LASTEXITCODE)" }
+
+          # The archive is the deliverable; prove it exists and is not empty.
+          $zip = Get-ChildItem 'dist-dryrun' -Filter '*.zip' | Select-Object -First 1
+          if (-not $zip) { throw 'packaging produced no archive' }
+          Write-Host "dry run produced $($zip.Name) ($([math]::Round($zip.Length/1MB,1)) MB)"

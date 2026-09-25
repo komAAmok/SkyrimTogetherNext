@@ -15,8 +15,11 @@ void PluginMessagingRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter
     // later message on the connection.
     const auto size = static_cast<std::uint32_t>(std::min<std::size_t>(PluginData.size(), kMaxPayloadBytes));
     Serialization::WriteVarInt(aWriter, size);
-    if (size > 0)
-        aWriter.WriteBits(PluginData.data(), size * 8);
+
+    // Written one byte at a time, matching how every other variable-length
+    // field in this codebase is serialised.
+    for (std::uint32_t i = 0; i < size; ++i)
+        aWriter.WriteBits(PluginData[i], 8);
 }
 
 void PluginMessagingRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -33,10 +36,14 @@ void PluginMessagingRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRead
 
     TargetPlayerId = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader) & 0xFFFFFFFFu);
 
-    const auto size = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader));
     // Never trust the wire length: a peer can claim more bytes than it sent.
+    const auto size = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader));
     const auto bounded = std::min<std::uint32_t>(size, kMaxPayloadBytes);
     PluginData.resize(bounded);
-    if (bounded > 0)
-        aReader.ReadBits(PluginData.data(), bounded * 8);
+    for (std::uint32_t i = 0; i < bounded; ++i)
+    {
+        std::uint64_t byte = 0;
+        aReader.ReadBits(byte, 8);
+        PluginData[i] = static_cast<std::uint8_t>(byte & 0xFF);
+    }
 }

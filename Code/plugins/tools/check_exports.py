@@ -16,7 +16,10 @@ header = (ROOT / HEADER_REL).read_text(encoding='utf-8', errors='replace')
 impl = (ROOT / IMPL_REL).read_text(encoding='utf-8', errors='replace')
 
 named = dict(re.findall(r'(kQuery\w*ExportName)\[\]\s*=\s*"([^"]+)"', header))
-exported = set(re.findall(r'extern\s+"C"\s+STRPM_EXPORT[^;]*?\b(STR_\w+|STRPM_\w+)\s*\(', impl))
+# Accepts either spelling: STRPM_EXPORT on its own (it already expands to
+# extern "C" __declspec(dllexport)) or an explicit extern "C" prefix. What
+# matters is that a definition exists whose name is unmangled.
+exported = set(re.findall(r'(?:extern\s+"C"\s+)?STRPM_EXPORT[^;{}]*?\b(STR_\w+|STRPM_\w+)\s*\(', impl))
 
 print('contract names  :', ', '.join(sorted(named.values())) or '(none found)')
 print('exported symbols:', ', '.join(sorted(exported)) or '(none found)')

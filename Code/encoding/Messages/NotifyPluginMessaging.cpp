@@ -13,8 +13,8 @@ void NotifyPluginMessaging::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter)
 
     const auto size = static_cast<std::uint32_t>(std::min<std::size_t>(PluginData.size(), kMaxPayloadBytes));
     Serialization::WriteVarInt(aWriter, size);
-    if (size > 0)
-        aWriter.WriteBits(PluginData.data(), size * 8);
+    for (std::uint32_t i = 0; i < size; ++i)
+        aWriter.WriteBits(PluginData[i], 8);
 }
 
 void NotifyPluginMessaging::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -35,6 +35,10 @@ void NotifyPluginMessaging::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReade
     const auto size = static_cast<std::uint32_t>(Serialization::ReadVarInt(aReader));
     const auto bounded = std::min<std::uint32_t>(size, kMaxPayloadBytes);
     PluginData.resize(bounded);
-    if (bounded > 0)
-        aReader.ReadBits(PluginData.data(), bounded * 8);
+    for (std::uint32_t i = 0; i < bounded; ++i)
+    {
+        std::uint64_t byte = 0;
+        aReader.ReadBits(byte, 8);
+        PluginData[i] = static_cast<std::uint8_t>(byte & 0xFF);
+    }
 }

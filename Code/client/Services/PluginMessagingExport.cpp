@@ -52,14 +52,16 @@ STRPM::Result STRPM_CALL QueryProxyResolver(std::uint32_t aRequestedVersion, con
 }
 } // namespace
 
-// Exported for the plugin-facing lookup. extern "C" keeps the names unmangled so
-// GetProcAddress finds them regardless of the caller's toolchain.
-extern "C" STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingInterface(std::uint32_t aRequestedVersion, const STRPM::Interface** appOutInterface) noexcept
+// Exported for the plugin-facing lookup. STRPM_EXPORT already expands to
+// extern "C" __declspec(dllexport), so it is not repeated here: writing both
+// yields a doubled linkage specifier and diverges from the pattern every other
+// STRPM export uses.
+STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingInterface(std::uint32_t aRequestedVersion, const STRPM::Interface** appOutInterface) noexcept
 {
     return QueryInterface(aRequestedVersion, appOutInterface);
 }
 
-extern "C" STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingProxyResolver(std::uint32_t aRequestedVersion, const STRPM::ProxyResolverInterface** appOutInterface) noexcept
+STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingProxyResolver(std::uint32_t aRequestedVersion, const STRPM::ProxyResolverInterface** appOutInterface) noexcept
 {
     return QueryProxyResolver(aRequestedVersion, appOutInterface);
 }
@@ -126,12 +128,12 @@ STRPM::Result STRPM_CALL QueryTransport(std::uint32_t aRequestedVersion, const S
 }
 } // namespace
 
-extern "C" STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingDiagnostics(std::uint32_t aRequestedVersion, const STRPM::DiagnosticsInterface** appOutInterface) noexcept
+STRPM_EXPORT STRPM::Result STRPM_CALL STR_QueryPluginMessagingDiagnostics(std::uint32_t aRequestedVersion, const STRPM::DiagnosticsInterface** appOutInterface) noexcept
 {
     return QueryDiagnostics(aRequestedVersion, appOutInterface);
 }
 
-extern "C" STRPM_EXPORT STRPM::Result STRPM_CALL STRPM_QueryTransportInterface(std::uint32_t aRequestedVersion, const STRPM::TransportInterface** appOutInterface) noexcept
+STRPM_EXPORT STRPM::Result STRPM_CALL STRPM_QueryTransportInterface(std::uint32_t aRequestedVersion, const STRPM::TransportInterface** appOutInterface) noexcept
 {
     return QueryTransport(aRequestedVersion, appOutInterface);
 }

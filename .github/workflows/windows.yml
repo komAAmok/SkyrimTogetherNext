@@ -325,9 +325,22 @@ jobs:
 
       # Build the client
       - name: Build with xmake
+        shell: pwsh
         run: |
-          xmake -y
-          echo "STR_BUILD_DIR=build/windows/${{ matrix.arch }}/${{ inputs.build-mode }}/" >> $env:GITHUB_ENV
+          # The step log needs a signed-in account to read; an annotation does
+          # not. Capturing the output lets a compile failure name its own cause
+          # to anyone who can see the run, instead of a bare exit code.
+          $log = & xmake -y 2>&1
+          $code = $LASTEXITCODE
+          $log | ForEach-Object { Write-Host $_ }
+          if ($code -ne 0) {
+            $errors = $log | Where-Object { $_ -match 'error [A-Z]+\d+|error:|fatal error' } | Select-Object -First 8
+            if (-not $errors) { $errors = $log | Select-Object -Last 8 }
+            $detail = ($errors -join ' || ') -replace '%', '%25' -replace '\r', '' -replace '\n', '%0A'
+            Write-Host "::error title=xmake build failed::$detail"
+            exit 1
+          }
+          "STR_BUILD_DIR=build/windows/${{ matrix.arch }}/${{ inputs.build-mode }}/" >> $env:GITHUB_ENV
 
       # The 1.5.x runtime is a second client DLL built from the same sources
       # with the legacy struct layouts. It is built explicitly (Build.bat does

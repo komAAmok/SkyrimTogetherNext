@@ -23,6 +23,10 @@
         "CONNECTION": "Belirtilen sunucuya bağlanılamadı. Lütfen doğru adresi girdiğinize ve bağlantı sorununuzun olmadığına emin olun.",
         "VERSION_MISMATCH": "Sunucuya bağlanamazsınız çünkü aynı Skyrim Together versiyonlarına sahip değilsiniz.",
         "INVALID_ADDRESS": "Adres geçersiz formatta."
+      },
+      "SUCCESS": {
+        "TITLE": "Bağlandı",
+        "MESSAGE": "{{address}} sunucusuna bağlandınız. Bu menüyü ve sohbeti açmak için istediğiniz zaman F2'ye basın."
       }
     },
     "DISCONNECT": {
@@ -85,7 +89,12 @@
       "RECONNECT": "Geri Bağlan",
       "PLAYER_MANAGER": "Oyuncu Yöneticisi",
       "SETTINGS": "Ayarlar",
-      "CONNECTION_IN_PROGRESS": "Bağlanılıyor..."
+      "CONNECTION_IN_PROGRESS": "Bağlanılıyor...",
+      "STATUS": {
+        "OFFLINE": "Bağlı değil",
+        "CONNECTING": "Bağlanıyor...",
+        "ONLINE": "{{address}} sunucusuna bağlı"
+      }
     },
     "SERVER_LIST": {
       "SEARCH": "Ara...",

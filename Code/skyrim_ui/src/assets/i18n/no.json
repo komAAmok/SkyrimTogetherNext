@@ -3,7 +3,9 @@
     "CHAT": {
       "SEND": "Send",
       "MESSAGE": "Melding",
-      "MESSAGE_TOO_LONG": "Meldingen din er for lang. Den må være under {{chatMessageLengthLimit}} karakterer."
+      "MESSAGE_TOO_LONG": "Meldingen din er for lang. Den må være under {{chatMessageLengthLimit}} karakterer.",
+      "SET_TIME_ARGUMENT_COUNT": "Feil argumenter, bruk: /settime TT MM, eksempel: /settime 15 32.",
+      "SET_TIME_INVALID_ARGUMENTS": "Timene må være mellom 0 og 23, og minuttene mellom 0 og 59."
     },
     "CONNECT": {
       "INFO": {
@@ -21,6 +23,10 @@
         "CONNECTION": "Kunne ikke koble til den valgte serveren. Forsikre deg om at du har skrevet inn den rette nettaddressen og at du har netttilgang.",
         "VERSION_MISMATCH": "Du kan kun koble til servere som kjører samme version av Skyrim Together som deg.",
         "INVALID_ADDRESS": "Addressen er ikke riktig formatert."
+      },
+      "SUCCESS": {
+        "TITLE": "Tilkoblet",
+        "MESSAGE": "Du er nå koblet til {{address}}. Trykk F2 når som helst for å åpne denne menyen og chatten."
       }
     },
     "DISCONNECT": {
@@ -79,10 +85,16 @@
     "ROOT": {
       "CONNECT": "Koblte til",
       "DISCONNECT": "Koble fra",
+      "REVEAL_PLAYERS": "Vis spillere",
       "RECONNECT": "Koble til på nytt",
       "PLAYER_MANAGER": "Spillerliste",
       "SETTINGS": "Innstillinger",
-      "CONNECTION_IN_PROGRESS": "Kobler til..."
+      "CONNECTION_IN_PROGRESS": "Kobler til...",
+      "STATUS": {
+        "OFFLINE": "Ikke tilkoblet",
+        "CONNECTING": "Kobler til...",
+        "ONLINE": "Koblet til {{address}}"
+      }
     },
     "SERVER_LIST": {
       "SEARCH": "Søk...",
@@ -148,7 +160,8 @@
     },
     "COMMANDS": {
       "AVAILABLE_COMMANDS": "tilgjengelige chat kommandoer: {{cmds}}",
-      "COMMAND_NOT_FOUND": "'{{cmd}}' er ikke gjenkjent som en kommando."
+      "COMMAND_NOT_FOUND": "'{{cmd}}' er ikke gjenkjent som en kommando.",
+      "NOT_ADMIN": "Du må være administrator for å bruke den kommandoen."
     },
     "GROUP": {
       "LEVEL_UP": "{{name}} har nådd level {{level}}.",

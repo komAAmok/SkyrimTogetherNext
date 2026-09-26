@@ -295,6 +295,24 @@ jobs:
             "failed=false" >> $env:GITHUB_OUTPUT
           }
 
+      # The two OStim consent scripts are Papyrus, not C++, so CMake never builds
+      # them, and the plugin's own compile-ui-consent.ps1 needs PapyrusCompiler.exe
+      # from an installed Skyrim, which no runner has. This uses the open-source
+      # russo-2025/papyrus-compiler instead and writes into the plugin's build
+      # tree, which is what the collection step below already scans - so the two
+      # scripts ride the existing artifact path to the packaging manifest.
+      #
+      # Deliberately after the plugin builds: it shares plugins/OStimTogether/build
+      # with CMake, and running it last means nothing can clean it away afterwards.
+      - name: Compile the OStim Papyrus consent scripts
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          $out = 'plugins/OStimTogether/build/papyrus'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & Code/plugins/papyrus/Compile-OStimConsentScripts.ps1 -OutputDir $out
+          if ($LASTEXITCODE -ne 0) { throw 'Papyrus compilation failed' }
+
       # Flattens each plugin's own build tree into <out>/<pluginId>/ so the
       # packaging script finds artifacts without knowing each project's output
       # directory convention.

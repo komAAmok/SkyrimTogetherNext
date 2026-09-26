@@ -321,7 +321,9 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 - **【已查，不修，见 §19.7】`BehaviorVar` 的"multiple behavior replacers"与选错物种**：
   日志里狼/麋鹿被认成 Cow，看着像 bug，但**逐条验证后决定不动**（换了三种"更聪明"的
   判据都**没有变好**，其中两种更差），原因与判据见 §19.7。
-- **【P3，待办，等一次外部编译】OStimTogether 的 Add Actor 同意门控缺两个 `.pex`**：
+- **【已结案，见 §30】OStimTogether 的 Add Actor 同意门控缺两个 `.pex`** —— 已用开源编译器
+  在 CI 里编译并打包（`Code/plugins/papyrus/` + `windows.yml` 的编译步骤）。
+  下面这段保留作历史记录：
   包内只有 `OStimTogether.dll`；`OSKSE.pex` / `OStimTogetherNative.pex` 不在包里。
   **影响面只有这一个功能**：DLL 照常注册 native（`main.cpp:255`），OStim 用回自己的原版
   `OSKSE.psc` 正常工作，只是**没有 Add Actor 同意门控**——优雅降级，不是坏包。
@@ -2493,5 +2495,101 @@ python Code/plugins/tools/check_transport_compat.py
 #    注意本机是 Windows PowerShell 5.1，没有 pwsh，直接 & 调脚本
 
 # 4. 清单里每条 payload 源是否真的存在（应输出 missing: 0）
+```
+
+---
+
+## 30. 2026-09-26 场次：用开源编译器在 CI 里补上 OStim 的两个 Papyrus 脚本
+
+§29 结案时留的最后一个洞——`OSKSE.pex` / `OStimTogetherNative.pex` 编不出来——
+本轮解决。结论：**完全可以在 GitHub CI 里编，不需要 Skyrim、不需要 CK、不分发 Bethesda 任何东西。**
+
+### 30.1 方案：russo-2025/papyrus-compiler（不是 Caprica 那条死路）
+
+| | Caprica（§29 评估过，否决） | russo-2025/papyrus-compiler（采用） |
+| --- | --- | --- |
+| 语言 / 年代 | C++ / FO4 时代，MSVC2015-only | V / 2025 起活跃维护 |
+| 目标 | Fallout 4 反编译产物 | **Skyrim SE/AE**，README 明写 |
+| 发布 | 无 release，需自己编 | **有正式 Windows release** |
+| 本机可跑 | 否（无 MSVC） | **是**，单文件 `papyrus.exe` |
+
+pin 在 `Code/plugins/papyrus/Compile-OStimConsentScripts.ps1` 顶部：
+`2026.03.15`（V 0.0.4），SHA-256 `67b44c77d00a5cda986bec6af5c228a56abe6ec1fadcb4cfea5c858e6941140e`。
+脚本会**校验归档哈希**，所以 pin 是有意义的而不是装饰。
+
+### 30.2 真正的难点不是编译器，是 header 解析
+
+编译器 `-h` **每个目录一次、不递归**，所以每个目录只能补前面没声明的东西。最终顺序：
+
+```text
+Data/Scripts/Source          被编译的两个脚本
+Dependencies/Source          插件自带的 OStim/UIExtensions stub（故意遮蔽 OStim 原脚本）
+Code/plugins/papyrus/stubs   基础类型：Actor/Form/ModEvent/NiOverride...（本仓库自有）
+```
+
+**为什么最后一层必须放在本仓库而不是子模块**：`plugins/OStimTogether` 是 gitlink
+（`git ls-files -s` 只有一行 `160000`），往里加文件**父仓库看不见也提交不了**。
+而 `Dependencies/Source` 只有 7 个 OStim stub，**一个基础类型都没有** ——
+`Actor`、`Form`、`ModEvent`、`Utility`、`Game`、`GlobalVariable`、`Topic`、`VoiceType`、
+`ObjectReference`、`Quest`、`Debug`、`NiOverride` 全缺。
+
+> `NiOverride` 是 §29 就点名的那个缺口。它的 6 个签名**逐字抄自 RaceMenu 的 NiOverride**，
+> 不是猜的：`HasNodeTransformScale` / `GetNodeTransformScale` /
+> `RemoveNodeTransformPosition` / `AddNodeTransformPosition` / `UpdateNodeTransform` /
+> `ApplyNodeOverrides`。签名写错不会编译失败，只会在运行时调错原生函数——所以必须抄准。
+
+### 30.3 接线方式（复用既有通路，没有新机制）
+
+1. `Code/plugins/papyrus/Compile-OStimConsentScripts.ps1` 编译到
+   `plugins/OStimTogether/compat/OStimUIConsent/package/Data/Scripts/`（**默认值**，
+   正好是插件自己 `build-vortex.ps1:101` / `build-fomod.ps1:59` 期望的路径）；
+2. CI 里用 `-OutputDir plugins/OStimTogether/build/papyrus` 覆盖，写进**插件构建树**；
+3. `windows.yml` 的 artifact 收集本来就扫 `plugins/$id/build` 的 `*.pex`，**自动带走**；
+4. `plugins.json` 里把两个 `.pex` 声明成 **artifacts**（不是 payload）→ 落 `scripts/`。
+
+步骤位置**故意排在插件构建之后**：它和 CMake 共用 `plugins/OStimTogether/build`，
+放最后就不会被任何后续清理动作抹掉。
+
+### 30.4 验证（对着真实产物，不是"应该能行"）
+
+1. **真的编出来了**：`OSKSE.pex` 3894 B / `OStimTogetherNative.pex` 719 B，exit 0。
+2. **是合法字节码**：magic `FA 57 C0 DE`、major 3 / minor 2、`game_id: skyrim` ——
+   与仓库既有 `SkyrimTogetherUtils.pex` 头部一致。
+3. **反汇编证明逻辑在**：`OSKSE.pex` 里能看到
+   `callstatic OStimTogetherNative.BeginAddActorConsent`、
+   `callstatic OStimTogetherNative.PollAddActorConsent`、
+   字符串 `Waiting for consent` / `Scene request declined`；
+   `OStimTogetherNative.pex` 里两个函数带 `flags(0x03): [Global, Native]` ——
+   这正是 DLL 侧 `RegisterFunction("BeginAddActorConsent", "OStimTogetherNative")` 要对上的东西。
+4. **走通打包全流程**：跑真实 `Add-PluginPayload.ps1`，输出
+   `PLUGIN STAGING OK / payload 19 / artifacts 10 / plugins 7`，
+   staged 树里 `OptionalPlugins/OStimTogether/scripts/` 下两个 `.pex` 就位、magic 正确。
+5. **没有名字冲突**：本仓库 12 个 stub 与 `Dependencies/Source` 的 7 个、与两个编译目标，
+   大小写不敏感地全无重名（Windows 文件系统大小写不敏感，这条必须查）。
+
+### 30.5 两个已知的、不影响正确性的细节
+
+- **产物里带编译机信息**：debug info 含 `user_name` / `machine_name` / `compilation_time`。
+  上游 README 写了 `-no-debug-info`，但**这个 release 的二进制不认这个参数**（传了直接
+  `Missing or incorrect argument`）。所以 CI 产物会带 runner 的用户名。
+  功能无影响；如果将来要可复现构建，得等上游把该 flag 发出来。
+- **`-original` 参数**能改用 Bethesda 原始编译器（zip 里附了 `Original Compiler/`），
+  但那条路要分发 Bethesda 的 `PapyrusCompiler.exe` + `TESV_Papyrus_Flags.flg`，
+  正是本轮要避免的事。**不要用。**
+
+### 30.6 复核用的命令（照抄）
+
+```powershell
+# 1. 本机编译（无需网络，用已解包的编译器）
+Code/plugins/papyrus/Compile-OStimConsentScripts.ps1 -CompilerPath <path-to>/papyrus.exe -OutputDir .px/out
+
+# 2. 产物是不是合法 PEX（期望 FA 57 C0 DE）
+#    读头部 4 字节，或用编译器自身 read
+
+# 3. 同意门控逻辑是否真的进了字节码
+#    papyrus.exe read <pex> | Select-String "BeginAddActorConsent|PollAddActorConsent"
+
+# 4. 打包全流程（应输出 artifacts 10 / plugins 7）
+Tools/Packaging/Add-PluginPayload.ps1 -Stage <stage> -ArtifactsRoot <artifacts>
 ```
 

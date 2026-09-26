@@ -116,5 +116,11 @@ __pycache__/
 # They leaked into a commit once; listing them is cheaper than remembering.
 .pv/
 .rx/
+.px/
 mod-pack*/
 dist-dryrun/
+
+# The Papyrus compiler the compile script downloads and unpacks. A build
+# input that is fetched, not committed: the script pins the release tag and
+# verifies the archive hash.
+.papyrus-tool/

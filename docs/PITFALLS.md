@@ -2193,3 +2193,124 @@ python Code/plugins/tools/check_transport_compat.py
 python Code/plugins/tools/merge_fomod.py check
 ```
 
+
+---
+
+## 28. 2026-09-26 第三轮：v1.1.2 首发失败的两处修复
+
+打了 `v1.1.2` 之后 CI 红了两次，**两次都修在这里**。记下来是因为两条都属于
+"本地怎么测都测不出来、只有 tag 跑才暴露"的类型。
+
+### 28.1 编译错：`entt::scoped_connection` 没有 `disconnect()`
+
+```
+Code\client\Services\PluginMessagingService.cpp(87): error C2039: 'disconnect': is not a member of 'entt::scoped_connection'
+Code\client\Services\PluginMessagingService.cpp(88): error C2039: 'disconnect': is not a member of 'entt::scoped_connection'
+```
+
+§27.2 给 observer 加的清理调用写成了 `disconnect()`。**entt 3.10 的
+`scoped_connection` 只有 `release()`**（`signal/sigh.hpp:334`：
+`void release() { conn.release(); }`），`disconnect` 在 `sink` 上而不是在连接对象上。
+
+**为什么本机没抓到**：项目规定不在本地编译（§1），而这一处的 API 名字我**没有
+对照真实头文件**就写了。全仓唯一一次同类调用就是我自己写的这两行——
+`git grep -n '\.disconnect()' -- Code` 在客户端只有它们，所以"跟现有写法保持一致"
+这条经验在这里失效了。
+
+**修法**：`release()`。
+
+> **教训**：`release()` vs `disconnect()` 这种"两个近义名字"的 API，
+> **必须去读第三方头文件**再写，不能靠印象。本轮为此把 entt 3.10 的
+> `sigh.hpp` 拉下来逐行核对过，顺手确认了另外三件事（见 §28.3）。
+
+### 28.2 打包阻断：`package` job 少检出了 submodule
+
+编译修好后，tag 跑到 **`Assemble the mod package`** 又失败：
+
+```
+PLUGIN STAGING FAILED (4)
+  - submodule not checked out: plugins/STRPluginMessagingAPI
+  - submodule not checked out: plugins/OStimTogether
+  - submodule not checked out: plugins/MorphSyncTogether
+  - submodule not checked out: plugins/IEDSyncTogether
+```
+
+**根因**：`release.yml` 的 `package` job 用的是 **sparse-checkout 且不开 submodule**，
+注释还写着理由——"插件已经在上一个 job 编好了，artifact 里都有"。**这句话只对了一半**：
+
+| 打包输入 | 来自哪 |
+|---|---|
+| `*.dll` 等**编译产物** | `plugin-artifacts`（上一个 job 传的）✅ |
+| 每个插件的 **payload**（OStim/Morph 的 `package/Data` 树、IED 的 ini） | **submodule 里的仓库内容** ❌ 没检出 |
+
+`Add-PluginPayload.ps1` 对每个插件先查 `plugins/<id>` 在不在，不在就记一条
+`submodule not checked out`，四条全中 → 打包中断。
+
+**验证**（不是推断）：按脚本自己的解析规则把 manifest 里 **17 条 payload 源**
+逐条 `Test-Path` 一遍——**17/17 全部存在**，也就是说这些文件本来就在仓库里，
+只是那个 job 没把它们检出来。
+
+**修法**：那个 job 改成**完整检出 + `submodules: true`**，并把注释里那句错的理由改掉。
+
+**试过但否决的另一条路**：保留 sparse 模式、把 `plugins` 加进 pattern 列表。否决理由
+是实测出来的：**非 cone 模式的 sparse-checkout 会把 `.gitmodules` 一起排除掉**
+（本机用临时仓库复现过），文件没了以后 `submodules: true` 会**静默地什么都不检出**。
+这个 job 每个 tag 只跑一次，多花几分钟换掉这个失败模式是划算的。
+
+### 28.3 顺手核对的三件事（都对着 entt 3.10 源码）
+
+| 用法 | 结论 |
+|---|---|
+| `on_construct<T>()` / `on_destroy<T>()` | 存在，`registry` 上的模板成员 |
+| `connect<&Class::Method>(this)` | 存在，两个重载之一（`connect<Candidate>(value_or_instance)`） |
+| observer 回调签名 `(entt::registry&, entt::entity)` | 与仓内既有先例一致（`ActorValueService`/`OverlayService`/`WeatherService`） |
+| `emplace_or_replace<T>` 的语义 | **组件已存在时走 `patch`（只触发 `on_update`），不存在时才 `emplace`（触发 `on_construct`）** |
+
+最后一条对本轮的功能有实际影响，单独记在下面。
+
+### 28.4 `kAdded` 事件的可达性（对着上一条核过）
+
+§27.2 用 `on_construct<PlayerComponent>` 触发 `kAdded`。因为
+`emplace_or_replace` 只在组件**原本不存在**时才触发 `on_construct`，
+所以 `kAdded` 恰好对应"这个 peer 第一次拿到 proxy"，语义是对的。
+
+三个调用点（`CharacterService.cpp:422`、`:605`、`:1626`）都在
+`FormIdComponent` 已经存在之后才 `emplace_or_replace<PlayerComponent>`，
+所以 handler 里 `try_get<FormIdComponent>` 一定拿得到——这也是 handler 里
+那两层判空仍然保留的原因（另一个线程/时序下不保证，判空是免费的）。
+
+### 28.5 本轮踩到的一个自己的坑（记下来免得再犯）
+
+为了验证 sparse-checkout 的 pattern 语义，我在**本仓库目录里**直接跑了
+`git sparse-checkout set ...`。它会写 `core.sparseCheckout=true` 并给
+**1672 个文件**打上 skip-worktree 位、把它们从工作区删掉——包括 `docs/`。
+`git status` 当时只显示一处修改，**看起来什么都没发生**，很容易就这么提交了。
+
+已用 `git sparse-checkout disable` 复原（skip-worktree 归零、`docs/` 回来），
+工作区现在只有预期的 `release.yml` 一处改动。
+
+> **教训**：验证 sparse-checkout 语义要在 `git clone` 出来的**临时仓库**里做，
+> 不能在工作仓库里跑。这个命令改的是 `$GIT_DIR/info/sparse-checkout` 与索引标志，
+> 不是"只影响一次命令"。
+
+### 28.6 复核用的命令（照抄）
+
+```powershell
+# 1. 编译错本身（应只剩 release()，没有 disconnect()）
+git grep -n '\.disconnect()' -- Code
+git grep -n '\.release()'     -- Code/client/Services/PluginMessagingService.cpp
+
+# 2. package job 到底检出了什么
+Select-String -Path .github/workflows/release.yml -Pattern 'submodules|sparse-checkout' -Context 0,3
+
+# 3. manifest 里每条 payload 源是否真的存在（应输出 missing: 0）
+#    核心是按 Add-PluginPayload.ps1 的规则解析 ../ 前缀后 Test-Path
+
+# 4. 工作区有没有被 sparse-checkout 动过（应输出 0）
+(git ls-files -t | Where-Object { $_ -match '^S ' } | Measure-Object).Count
+
+# 5. 读 CI 失败原因（本机 curl 不通，python 通）
+#    api.github.com/repos/<o>/<r>/actions/runs -> jobs -> jobs/<id>/logs
+#    （logs 会 302 到 blob，重定向后不要再带 Authorization）
+```
+

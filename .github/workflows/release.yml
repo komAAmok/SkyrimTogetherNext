@@ -55,18 +55,28 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The packaging script, the plugin manifest and the wizard generator all
-      # live in the repository, and this job runs on a fresh runner. Submodules
-      # are not needed: the plugin build already happened in the build job and
-      # arrives as an artifact.
+      # A full checkout with submodules, deliberately.
+      #
+      # This job used to check out sparsely - Tools/Packaging, Code/plugins and
+      # GameFiles/Skyrim/fomod - on the stated grounds that "submodules are not
+      # needed: the plugin build already happened in the build job and arrives as
+      # an artifact". That reasoning only covers half of what gets staged. The
+      # artifact carries each plugin's *compiled* output; every plugin's payload
+      # is repository content inside its submodule - OStimTogether's and
+      # MorphSyncTogether's package/Data trees, IEDSyncTogether's ini. Without
+      # the submodules Add-PluginPayload.ps1 reports "submodule not checked out"
+      # for all four, and that is exactly how the v1.1.2 tag run died at
+      # "Assemble the mod package".
+      #
+      # Keeping the sparse patterns and adding the submodule paths was the other
+      # option and was rejected: a non-cone sparse checkout drops .gitmodules
+      # unless it is listed, and with it gone "submodules: true" quietly checks
+      # out nothing. This job runs once per tag, so the minutes a full checkout
+      # costs are worth not having that failure mode.
       - name: Checkout packaging inputs
         uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            Tools/Packaging
-            Code/plugins
-            GameFiles/Skyrim/fomod
-          sparse-checkout-cone-mode: false
+          submodules: true
 
       - name: Download build and game files
         uses: actions/download-artifact@v5

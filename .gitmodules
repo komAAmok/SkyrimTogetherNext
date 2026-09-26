@@ -22,3 +22,12 @@
 [submodule "plugins/IEDSyncTogether"]
 	path = plugins/IEDSyncTogether
 	url = https://github.com/Caelvanost/IEDSyncTogether.git
+[submodule "plugins/AnimSyncTogether"]
+	path = plugins/AnimSyncTogether
+	url = https://github.com/Caelvanost/AnimSyncTogether.git
+[submodule "plugins/DAVSyncTogether"]
+	path = plugins/DAVSyncTogether
+	url = https://github.com/Caelvanost/DAVSyncTogether.git
+[submodule "plugins/TradeTogether"]
+	path = plugins/TradeTogether
+	url = https://github.com/Caelvanost/TradeTogether.git

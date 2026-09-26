@@ -158,7 +158,7 @@ jobs:
           cmake --build plugins/STRPluginMessagingAPI/build --config Release --parallel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # The three consumers share the vcpkg toolchain and the STRPM headers.
+      # The six consumers share the vcpkg toolchain and the STRPM headers.
       # They are otherwise independent: one failing consumer must not hide the
       # state of the others, so each is built and reported, and the job fails
       # once at the end if any of them did not build.
@@ -175,7 +175,10 @@ jobs:
           $specs = @(
             @{ Id = 'OStimTogether';     Dir = 'plugins/OStimTogether' },
             @{ Id = 'MorphSyncTogether'; Dir = 'plugins/MorphSyncTogether' },
-            @{ Id = 'IEDSyncTogether';   Dir = 'plugins/IEDSyncTogether' }
+            @{ Id = 'IEDSyncTogether';   Dir = 'plugins/IEDSyncTogether' },
+            @{ Id = 'AnimSyncTogether';  Dir = 'plugins/AnimSyncTogether' },
+            @{ Id = 'DAVSyncTogether';   Dir = 'plugins/DAVSyncTogether' },
+            @{ Id = 'TradeTogether';     Dir = 'plugins/TradeTogether' }
           )
           $failed = @()
           foreach ($spec in $specs) {

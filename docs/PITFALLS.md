@@ -347,6 +347,17 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   在 `plugins.json` 的 OStimTogether `payload` 加一条 `dest: "scripts/"`。
   ⚠️ **顺序不能颠倒**：`Add-PluginPayload.ps1` 对缺失的 payload 源是 `throw`，
   先接线再补文件会**直接把 CI 构建打挂**。
+- **【观察项，等一次 CI 真机验证】本轮新并入的三个插件尚未经过一次真实 CI 构建**：
+  `AnimSyncTogether` / `DAVSyncTogether` / `TradeTogether` 的源码、契约、payload 与快照
+  都已就位（§29），但**本机没有 MSVC/vcpkg，编不了**，`windows.yml` 的六个 consumer
+  只有 CI 能验证。首次 push 后重点看 `Build companion plugins` 那一步：
+  ① `DAVSyncTogether` 多一个 `nlohmann_json` 依赖；
+  ② `TradeTogether` 的 `vcpkg.json` 带 `builtin-baseline`，而 CI 是 `git clone --depth 1`
+  取 vcpkg（`windows.yml` 的 setup 步骤）——baseline 已确认可从 GitHub 取到
+  （`ef3a5a82e39424b7f5740c4576f027c3173767f4`），但 `--depth 1` 与 pinned baseline
+  是否会在 CI 里打架，**只有真机跑一次才知道**；
+  ③ `AnimSyncTogether` 用 `commonlibsse-ng-flatrim`，与另外几个的 `commonlibsse-ng` 不同包，
+  首次会把该包也编一遍（缓存冷启动更慢，属预期不是故障）。
 
 ---
 
@@ -2338,5 +2349,103 @@ Select-String -Path .github/workflows/release.yml -Pattern 'submodules|sparse-ch
 # 5. 读 CI 失败原因（本机 curl 不通，python 通）
 #    api.github.com/repos/<o>/<r>/actions/runs -> jobs -> jobs/<id>/logs
 #    （logs 会 302 到 blob，重定向后不要再带 Authorization）
+```
+
+---
+
+## 29. 2026-09-26 场次：把 `D:\sktest` 剩下三个插件并入（4 → 7 个插件仓库）
+
+`D:\sktest` 下有 7 个插件仓库，本项目原先只整合了 4 个。本轮把剩下的三个按
+**同一条既有配方**并入：`AnimSyncTogether`、`DAVSyncTogether`、`TradeTogether`。
+
+### 29.1 整合方式（照 §24/§27 的既有配方，不是新发明）
+
+| 环节 | 落点 |
+| --- | --- |
+| 子模块 | `.gitmodules` + 索引 gitlink（`160000`） |
+| 消费者契约 | `strpm_contract.py` 的 `CONSUMERS` + `contract.json`（`dump` 重生成） |
+| 打包清单 | `Code/plugins/plugins.json` 的 `plugins[]`（payload/artifacts/introduction） |
+| CI 构建 | `windows.yml` 的 `$specs` 列表 |
+| 耐久快照 | `snapshots/plugins/<id>/`（`plugin_snapshot.py snapshot`） |
+| 安装向导 | `merge_fomod.py generate` 重生成 `ModuleConfig.xml` |
+| 文档计数 | README.md / README_EN.md / PLUGIN-SOURCES.md / STRPM/README.md 的"四个/三个"改"六个/七个" |
+
+新增的 `flag`：`anim` / `dav` / `trade`（与既有 `strpm`/`ostim`/`morph`/`ied` 无冲突，已校验唯一）。
+
+### 29.2 三个插件各自的 payload 判断（都不是"想当然"）
+
+- **AnimSyncTogether**：`config/Rules/*.rules` 必须是 **payload**，不能算 artifact。
+  CMake 确实会把 `config/Rules` 拷进自己的 `build/package`，但 CI 的 artifact 收集
+  只抓 `*.dll,*.pex,*.esp`（`windows.yml`），**走 build/ 永远送不到用户手里**。
+  而规则文件不是装饰：它决定同步哪些图谱变量与动画事件，**没有它这个插件什么也不同步**。
+- **DAVSyncTogether**：**无 payload**，只有一个 DLL。它的变体规则来自 DAV 本体
+  （`DAVConfigIndex.cpp` 读 `Data/SKSE/Plugins/DynamicArmorVariants/*.json`），本包不带。
+  注意它的 vendored 头与权威头 **SHA-256 完全一致**（`8fdcf481...`），是唯一逐字节相同的一个。
+- **TradeTogether**：`package/Data` 是**已跟踪**内容（ini + 2 个 `.pex` + 1 个 `.esp`），
+  与 OStimTogether 同一形态，直接 `source: package/Data, dest: "."`。
+  它的 `UdpTransport.cpp` 是**遗留字段**不是活传输：`TradeTogether.ini` 明写
+  "uses STR Plugin Messaging exclusively"，`Config.h` 也注明 UDP 仅为兼容旧配置文件保留。
+
+### 29.3 本机环境的一个真实限制（`git submodule add` 用不了）
+
+`git submodule add` 在本机**必然失败**，与网络无关：
+
+```text
+      0 [main] sh (32020) D:\Git\usr\bin\sh.exe: *** fatal error -
+      CreateFileMapping ... Win32 error 5.  Terminating.
+```
+
+msys 的 `sh.exe` fork 被沙箱挡掉（`CreateFileMapping` 拒绝），而 `git submodule add`
+内部要起 shell。**`git clone` 不受影响**，所以本轮用等价的手工路径完成：
+
+```powershell
+# 1. 普通 clone
+git clone <url> plugins/<id>
+# 2. 把 .git 挪进子模块布局（与其他四个一致）
+Move-Item plugins/<id>/.git .git/modules/plugins/<id>
+git config --file .git/modules/plugins/<id>/config core.worktree "../../../../plugins/<id>"
+Set-Content plugins/<id>/.git -Value "gitdir: ../../.git/modules/plugins/<id>" -NoNewline -Encoding ascii
+# 3. 登记 .gitmodules 与索引
+git config --file .gitmodules submodule.plugins/<id>.path plugins/<id>
+git config --file .gitmodules submodule.plugins/<id>.url  <url>
+git add .gitmodules plugins/<id>
+```
+
+> **判据**：`git ls-files -s plugins/` 全部是 `160000`，且 `git -C plugins/<id> rev-parse HEAD`
+> 能解析——两点都成立才算真子模块，否则只是个"嵌进去的仓库"（git 会警告 embedded git repository）。
+
+### 29.4 验证（不是"闸门绿了"就算数）
+
+1. **契约闸门真的会拦**：往 `TradeTogether` 的 vendored 头注入 `kMaxChannelLength 96→128`，
+   `strpm_contract.py check` 立刻 `C4 [TradeTogether] constant value mismatch` 并 exit 1；
+   还原后回到 `CONTRACT OK`，且 `git -C plugins/TradeTogether status` 干净（逐字节还原）。
+2. **打包演练跑通全流程**：造出 CI 形态的 `<artifactsRoot>/<pluginId>/*.dll`，
+   `Add-PluginPayload.ps1` 输出 `PLUGIN STAGING OK / payload 19 / artifacts 8 / plugins 7`；
+   三个新插件的落地树分别是
+   `SKSE/Plugins/AnimSyncTogether.dll` + `AnimSyncTogether/Rules/HelmetToggle2.rules`、
+   `SKSE/Plugins/DAVSyncTogether.dll`、
+   `TradeTogetherMCM.esp` + `Scripts/*.pex` + `SKSE/Plugins/TradeTogether.ini` + DLL。
+3. **二进制没被 git 动过**：快照里的 `.pex`/`.esp` 与子模块内**逐字节相同**，
+   `.pex` magic 仍是 `FA 57 C0 DE`（`text: auto` 不碰二进制）。
+4. **`merge_fomod.py check --stage` 只剩 3 条**（`SkyrimTogetherRuntime` / `VerifyScript` / `launcher`），
+   这三个是**框架构建产物**、本机没有 `build/`，与插件无关——CI 里由 `release.yml` 先构建再打包。
+
+### 29.5 复核用的命令（照抄）
+
+```powershell
+# 1. 七个子模块都解析得动
+git ls-files -s plugins/            # 期望 7 行，全部 160000
+
+# 2. 五个闸门
+python Code/plugins/tools/merge_fomod.py check
+python Code/plugins/tools/strpm_contract.py check
+python Code/plugins/tools/plugin_snapshot.py verify
+python Code/plugins/tools/check_exports.py
+python Code/plugins/tools/check_transport_compat.py
+
+# 3. 打包演练（造桩 artifact 后应输出 plugins 7）
+#    注意本机是 Windows PowerShell 5.1，没有 pwsh，直接 & 调脚本
+
+# 4. 清单里每条 payload 源是否真的存在（应输出 missing: 0）
 ```
 

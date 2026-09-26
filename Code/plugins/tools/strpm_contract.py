@@ -68,6 +68,21 @@ CONSUMERS = {
         "sources": ["src"],
         "vendored": "src/STRPMCompat.h",
     },
+    "AnimSyncTogether": {
+        "root": "plugins/AnimSyncTogether",
+        "sources": ["src", "include"],
+        "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h",
+    },
+    "DAVSyncTogether": {
+        "root": "plugins/DAVSyncTogether",
+        "sources": ["src", "include"],
+        "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h",
+    },
+    "TradeTogether": {
+        "root": "plugins/TradeTogether",
+        "sources": ["src"],
+        "vendored": "src/STRPluginMessagingAPI/STRPluginMessagingAPI.h",
+    },
 }
 
 SOURCE_GLOBS = ("*.cpp", "*.h", "*.hpp")

@@ -2,7 +2,7 @@
 
 The STR Plugin Messaging API (STRPM) is the C ABI that lets an independent
 SKSE plugin move bytes over the Skyrim Together Next session. The plugin
-interfaces are consumed by four separate repositories, each pinned here as a
+interfaces are consumed by six separate repositories, each pinned here as a
 git submodule:
 
 | submodule | role |
@@ -11,6 +11,9 @@ git submodule:
 | `plugins/OStimTogether` | scene synchronisation consumer |
 | `plugins/MorphSyncTogether` | morph/overlay synchronisation consumer |
 | `plugins/IEDSyncTogether` | equipment display synchronisation consumer |
+| `plugins/AnimSyncTogether` | animation graph variable/event consumer |
+| `plugins/DAVSyncTogether` | Dynamic Armor Variants appearance consumer |
+| `plugins/TradeTogether` | item and gold trading consumer |
 
 ## Layout
 
@@ -78,7 +81,7 @@ survive review.
 
 ## Ownership note
 
-The four consumer repositories are read-only from this project: they are
+The consumer repositories are read-only from this project: they are
 cloned here, pinned, built, and packaged, but their remotes are not pushed to.
 Any header change that must reach them is produced as a patch by `sync` and
 applied upstream by whoever owns those repositories.

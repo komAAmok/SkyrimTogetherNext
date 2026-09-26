@@ -62,10 +62,11 @@ jobs:
       # needed: the plugin build already happened in the build job and arrives as
       # an artifact". That reasoning only covers half of what gets staged. The
       # artifact carries each plugin's *compiled* output; every plugin's payload
-      # is repository content inside its submodule - OStimTogether's and
-      # MorphSyncTogether's package/Data trees, IEDSyncTogether's ini. Without
-      # the submodules Add-PluginPayload.ps1 reports "submodule not checked out"
-      # for all four, and that is exactly how the v1.1.2 tag run died at
+      # is repository content inside its submodule - the package/Data trees of
+      # OStimTogether, MorphSyncTogether and TradeTogether, IEDSyncTogether's
+      # ini, AnimSyncTogether's rule profiles. Without the submodules
+      # Add-PluginPayload.ps1 reports "submodule not checked out" for every
+      # one of them, and that is exactly how the v1.1.2 tag run died at
       # "Assemble the mod package".
       #
       # Keeping the sparse patterns and adding the submodule paths was the other

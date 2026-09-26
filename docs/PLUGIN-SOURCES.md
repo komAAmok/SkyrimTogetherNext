@@ -1,6 +1,6 @@
 # Companion plugin sources: durability and updating
 
-The four companion plugins live in `plugins/` as git submodules pointing at
+The seven plugin repositories live in `plugins/` as git submodules pointing at
 repositories this project does not own and cannot push to. That arrangement is
 good for following upstream and bad for survival: a submodule records a commit
 hash, and if the repository hosting that commit disappears, the hash points at

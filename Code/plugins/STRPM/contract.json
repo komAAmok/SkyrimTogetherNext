@@ -43,6 +43,14 @@
     "TransportInterface"
   ],
   "consumers": {
+    "AnimSyncTogether": {
+      "root": "plugins/AnimSyncTogether",
+      "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h"
+    },
+    "DAVSyncTogether": {
+      "root": "plugins/DAVSyncTogether",
+      "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h"
+    },
     "IEDSyncTogether": {
       "root": "plugins/IEDSyncTogether",
       "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h"
@@ -58,6 +66,10 @@
     "STRPluginMessagingAPI": {
       "root": "plugins/STRPluginMessagingAPI",
       "vendored": "include/STRPluginMessagingAPI/STRPluginMessagingAPI.h"
+    },
+    "TradeTogether": {
+      "root": "plugins/TradeTogether",
+      "vendored": "src/STRPluginMessagingAPI/STRPluginMessagingAPI.h"
     }
   }
 }

@@ -19,8 +19,8 @@
 
 - **多游戏版本支持**:1.6.1170 / 1.6.640 等 1.6.x 全系、1.7.x 新版本(1.7.99/1.7.104)、以及**老版 1.5.x(含 1.5.97)**,地址库与 ID 映射表全部随包附带;
 - **MO2 + SKSE 无缝启动**:自带 SKSE 插件,通过 Mod Organizer 2 正常启动 `skse64_loader.exe` 即可加载本 mod,并带**自部署运行时**——首次启动自动把所需文件部署到游戏根目录,无需任何手动复制;
-- **图形化安装引导(中英双语)**:mod 包内置 FOMOD 安装向导(MO2 原生支持),第一步先选中文/English,后续步骤与文案随之切换;联机所需文件自动安装,只把真正需要你选择的东西交给你勾选——两个框架选项(1.6.x 的启动校验脚本、独立启动器),外加**三个可选插件**,每个都带一句说明,一个都不装也不影响联机;
-- **三个可选联机插件内置**:OStimTogether(动作场景同步)、MorphSyncTogether(体型与覆盖层同步)、IEDSyncTogether(装备展示同步)随同一个包分发,在安装向导里按需勾选,不需要单独下载、也不需要自己开放或转发端口;每个插件的附属项(OCum、PPA、体毛覆盖包等)同样在向导里展开;
+- **图形化安装引导(中英双语)**:mod 包内置 FOMOD 安装向导(MO2 原生支持),第一步先选中文/English,后续步骤与文案随之切换;联机所需文件自动安装,只把真正需要你选择的东西交给你勾选——两个框架选项(1.6.x 的启动校验脚本、独立启动器),外加**六个可选插件**,每个都带一句说明,一个都不装也不影响联机;
+- **六个可选联机插件内置**:OStimTogether(动作场景同步)、MorphSyncTogether(体型与覆盖层同步)、IEDSyncTogether(装备展示同步)、AnimSyncTogether(动画图谱变量与事件同步)、DAVSyncTogether(Dynamic Armor Variants 外观同步)、TradeTogether(玩家间物品与金币交易)随同一个包分发,在安装向导里按需勾选,不需要单独下载、也不需要自己开放或转发端口;每个插件的附属项(OCum、PPA、体毛覆盖包等)同样在向导里展开;
 - **服务器图形控制面板**:Windows 专用服务器带精简 GUI(状态/在线人数/日志/启停按钮),`--nogui` 可回到纯控制台模式;
 - **局域网联机开箱即用**:网络层为纯 UDP/GameNetworkingSockets,不依赖 Steam,支持局域网、Radmin LAN、Hamachi、公网 VPS/Docker 等任意组网方式;
 - **Release 自动构建**:推送 tag 即在 GitHub 云端完成 Windows 构建并发布两个包——`SkyrimTogetherNextMod-<版本>`(客户端 mod)与 `SkyrimTogetherNextServer-<版本>`(专用服务器)。
@@ -163,8 +163,11 @@
 | [OStimTogether](https://github.com/Caelvanost/OStimTogether) | Caelvanost | **可选联机插件**:动作场景状态、参与者对齐与装备锁同步。 |
 | [MorphSyncTogether](https://github.com/Caelvanost/MorphSyncTogether) | Caelvanost | **可选联机插件**:体型滑块与 RaceMenu 覆盖层同步。 |
 | [IEDSyncTogether](https://github.com/Caelvanost/IEDSyncTogether) | Caelvanost | **可选联机插件**:装备展示同步。 |
+| [AnimSyncTogether](https://github.com/Caelvanost/AnimSyncTogether) | Caelvanost | **可选联机插件**:动画图谱变量与动画事件同步(配合 OAR 等动画 Mod)。实验性。 |
+| [DAVSyncTogether](https://github.com/Caelvanost/DAVSyncTogether) | Caelvanost | **可选联机插件**:Dynamic Armor Variants(DAV)外观结果同步。 |
+| [TradeTogether](https://github.com/Caelvanost/TradeTogether) | Caelvanost | **可选联机插件**:玩家间物品与金币交易。 |
 
-> 三个可选插件与 STRPluginMessagingAPI 均以**固定提交的子模块**引入(`plugins/`),各自保留独立仓库、独立构建与独立发布节奏。本仓库只负责按需打包、接口一致性校验,以及为它们提供联机会话传输;它们的代码与版权归各自作者所有。
+> 六个可选插件与 STRPluginMessagingAPI 均以**固定提交的子模块**引入(`plugins/`),各自保留独立仓库、独立构建与独立发布节奏。本仓库只负责按需打包、接口一致性校验,以及为它们提供联机会话传输;它们的代码与版权归各自作者所有。
 
 ## 📄 许可证
 

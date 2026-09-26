@@ -94,6 +94,45 @@
                                 <type name="Optional" />
                             </typeDescriptor>
                         </plugin>
+                        <plugin name="AnimSyncTogether">
+                            <description>同步动画图谱变量与动画事件,让 Open Animation Replacer 之类的动画 Mod 在队友端选中同一套替换动画(例如 Helmet Toggle 2 的换装动作)。属于实验性功能,只在队友也装了对应规则时生效;需要所有玩家一起安装同一版本。</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/AnimSyncTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="anim">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="DAVSyncTogether">
+                            <description>同步 Dynamic Armor Variants(DAV)控制的装备外观结果,让队友看到你身上实际渲染的护甲变体,包括被隐藏的头盔。DAV 的规则文件由 DAV 自己提供,本包不带;需要所有客户端都装了 DAV,并且所有玩家一起安装同一版本。</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/DAVSyncTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="dav">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="TradeTogether">
+                            <description>玩家之间的物品与金币交易:对准队友按快捷键发起,双方各自在自己背包里出价,双方都确认后自动完成转移。任务物品会被拒绝;可单方赠送。走本框架的联机会话传输,不需要开放或转发任何端口。MCM 需要 SkyUI;需要所有玩家一起安装同一版本。</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/TradeTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="trade">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
                     </plugins>
                 </group>
             </optionalFileGroups>
@@ -316,6 +355,45 @@
                             </files>
                             <conditionFlags>
                                 <flag name="ied">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="AnimSyncTogether">
+                            <description>Synchronises animation graph variables and animation events, so Open Animation Replacer and similar mods select the same replacement animation on other players (Helmet Toggle 2's equip animations, for example). Experimental, and only effective for the mods a rule profile covers; every player must install the same version.</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/AnimSyncTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="anim">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="DAVSyncTogether">
+                            <description>Synchronises the visual result of Dynamic Armor Variants (DAV), so other players see the armour variant actually rendered on you, hidden helmets included. The variant rules come from DAV itself and are not bundled here; DAV is required on every client, and every player must install the same version.</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/DAVSyncTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="dav">on</flag>
+                            </conditionFlags>
+                            <typeDescriptor>
+                                <type name="Optional" />
+                            </typeDescriptor>
+                        </plugin>
+                        <plugin name="TradeTogether">
+                            <description>Player-to-player item and gold trading: target another player and press the trade key, both sides compose an offer from their own inventory, and the transfer happens automatically once both confirm. Quest items are rejected, and one-way gifts work. Rides the framework's own session transport, so it opens and forwards no ports. The MCM needs SkyUI; every player must install the same version.</description>
+                            <files>
+                                <folder source="OptionalPlugins/STRPluginMessagingAPI" destination="" priority="0" />
+                                <folder source="OptionalPlugins/TradeTogether" destination="" priority="0" />
+                            </files>
+                            <conditionFlags>
+                                <flag name="trade">on</flag>
                             </conditionFlags>
                             <typeDescriptor>
                                 <type name="Optional" />

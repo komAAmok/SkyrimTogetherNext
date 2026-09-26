@@ -4,7 +4,7 @@ name: Plugin gates
 # no toolchain, so they are worth blocking on for every change that touches the
 # interface header, a plugin submodule pin, or the installer wizard.
 #
-#   contract  the four repositories compile against one ABI; a consumer that
+#   contract  the consumer repositories compile against one ABI; a consumer that
 #             vendored an older copy of the header must fail here, not at
 #             runtime on a player's machine
 #   wizard    the generated FOMOD must match the packaging manifest and stay

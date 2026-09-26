@@ -313,6 +313,18 @@ jobs:
           & Code/plugins/papyrus/Compile-OStimConsentScripts.ps1 -OutputDir $out
           if ($LASTEXITCODE -ne 0) { throw 'Papyrus compilation failed' }
 
+      # The ten scripts under GameFiles/Skyrim/scripts/source ship as .pex and
+      # are staged into the package, but nothing used to compile them: the .pex
+      # were committed and the .psc were the only record of what they came from.
+      # This builds them with the same pinned compiler and writes to a scratch
+      # directory rather than over GameFiles, so the step proves the sources
+      # still compile without letting CI silently rewrite what ships.
+      - name: Compile the shipping Papyrus scripts
+        shell: pwsh
+        run: |
+          & Code/plugins/papyrus/Compile-ShippingScripts.ps1 -OutputDir "$env:RUNNER_TEMP/papyrus-shipping"
+          if ($LASTEXITCODE -ne 0) { throw 'shipping Papyrus compilation failed' }
+
       # Flattens each plugin's own build tree into <out>/<pluginId>/ so the
       # packaging script finds artifacts without knowing each project's output
       # directory convention.

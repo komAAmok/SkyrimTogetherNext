@@ -5,3 +5,4 @@ Scriptname Game Hidden
 
 Function FadeOutGame(bool abFadingOut, bool abBlackFade, float afSecsBeforeFade, float afFadeDuration) native global
 Form Function GetFormFromFile(int aiFormID, string asFilename) native global
+Actor Function GetPlayer() native global

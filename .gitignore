@@ -124,3 +124,11 @@ dist-dryrun/
 # input that is fetched, not committed: the script pins the release tag and
 # verifies the archive hash.
 .papyrus-tool/
+
+# The compiler's own cache directory. It is created relative to the process
+# working directory - not to any path it is given - so it appears at the
+# repository root whenever a compile script runs from there, which is what
+# Compile-ShippingScripts.ps1 and Compile-OStimConsentScripts.ps1 now do
+# deliberately. Unignored, it shows up as an unexplained untracked directory
+# after every local build.
+/.papyrus/

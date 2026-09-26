@@ -8,10 +8,12 @@ not C++, and the plugin's own compat/OStimUIConsent/compile-ui-consent.ps1 needs
 PapyrusCompiler.exe from an installed Skyrim, which no CI runner has.
 
 This script uses russo-2025/papyrus-compiler instead: open source, no game and no
-Creation Kit required, published as a Windows release. It downloads a pinned
-release, verifies its SHA-256, and compiles the two scripts into
-compat/OStimUIConsent/package/Data/Scripts/ so the plugin's own build scripts and
-the packaging manifest find them where they already expect them.
+Creation Kit required, published as a Windows release. The release tag and its
+SHA-256 live in Resolve-PapyrusCompiler.ps1, which this script dot-sources, so
+the pin is defined once for every compile script in this directory. It compiles
+the two scripts into compat/OStimUIConsent/package/Data/Scripts/ so the plugin's
+own build scripts and the packaging manifest find them where they already expect
+them.
 
 Header resolution is the whole difficulty. The compiler takes -h per directory and
 does not recurse, so each directory is passed explicitly and each one only
@@ -49,11 +51,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-# Pinned, not "latest": a compiler update must be a reviewed change, and the
-# hash is what makes the pin mean anything.
-$ReleaseTag = "2026.03.15"
-$AssetName = "papyrus-compiler-windows.zip"
-$AssetSha256 = "67b44c77d00a5cda986bec6af5c228a56abe6ec1fadcb4cfea5c858e6941140e"
+. (Join-Path $PSScriptRoot 'Resolve-PapyrusCompiler.ps1')
 
 $PluginRoot = Join-Path $RepoRoot "plugins/OStimTogether/compat/OStimUIConsent"
 $SourceDir = Join-Path $PluginRoot "Data/Scripts/Source"
@@ -67,38 +65,7 @@ foreach ($required in @($SourceDir, $StubDir, $BaseStubDir)) {
     }
 }
 
-if ($CompilerPath) {
-    if (-not (Test-Path -LiteralPath $CompilerPath)) {
-        throw "CompilerPath does not exist: $CompilerPath"
-    }
-    $Compiler = (Resolve-Path -LiteralPath $CompilerPath).Path
-}
-else {
-    if (-not $ToolRoot) { $ToolRoot = Join-Path $RepoRoot ".papyrus-tool" }
-    $Compiler = Join-Path $ToolRoot "papyrus-compiler/papyrus.exe"
-
-    if (-not (Test-Path -LiteralPath $Compiler)) {
-        New-Item -ItemType Directory -Force -Path $ToolRoot | Out-Null
-        $archive = Join-Path $ToolRoot $AssetName
-        $url = "https://github.com/russo-2025/papyrus-compiler/releases/download/$ReleaseTag/$AssetName"
-
-        if (-not (Test-Path -LiteralPath $archive)) {
-            Write-Host "downloading papyrus-compiler $ReleaseTag"
-            Invoke-WebRequest -Uri $url -OutFile $archive -UseBasicParsing
-        }
-
-        $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $AssetSha256) {
-            Remove-Item -LiteralPath $archive -Force
-            throw "papyrus-compiler archive hash mismatch: expected $AssetSha256 but got $actual"
-        }
-
-        Expand-Archive -LiteralPath $archive -DestinationPath $ToolRoot -Force
-        if (-not (Test-Path -LiteralPath $Compiler)) {
-            throw "papyrus.exe was not found in the archive at $Compiler"
-        }
-    }
-}
+$Compiler = Resolve-PapyrusCompiler -RepoRoot $RepoRoot -ToolRoot $ToolRoot -CompilerPath $CompilerPath
 
 Write-Host "compiler: $Compiler"
 & $Compiler version 2>&1 | Select-Object -First 1 | ForEach-Object { Write-Host "  $_" }
@@ -116,9 +83,20 @@ $arguments = @("compile", "-nocache")
 foreach ($header in $headers) { $arguments += @("-h", $header) }
 $arguments += @("-i", $SourceDir, "-o", $OutputDir)
 
-& $Compiler @arguments
-if ($LASTEXITCODE -ne 0) {
-    throw "Papyrus compilation failed for the Add Actor consent scripts (exit $LASTEXITCODE)."
+# The compiler creates its cache directory - ".papyrus" - relative to the
+# process working directory, not to any path it is given. Run from the repository
+# root, and restore the caller's location afterwards.
+$previousLocation = Get-Location
+try {
+    Set-Location -LiteralPath $RepoRoot
+    & $Compiler @arguments
+    $compilerExit = $LASTEXITCODE
+}
+finally {
+    Set-Location -LiteralPath $previousLocation
+}
+if ($compilerExit -ne 0) {
+    throw "Papyrus compilation failed for the Add Actor consent scripts (exit $compilerExit)."
 }
 
 foreach ($name in @("OSKSE.pex", "OStimTogetherNative.pex")) {

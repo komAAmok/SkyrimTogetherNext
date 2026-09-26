@@ -24,6 +24,7 @@ on:
       - 'plugins/**'
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
+      - 'Tools/Scripts/papyrus_archive.py'
       - '.github/workflows/plugins.yml'
       # The snapshot gate exists to protect snapshots/, so it has to run when
       # they change - and when .gitignore changes, because an ignore rule is
@@ -36,6 +37,7 @@ on:
       - 'plugins/**'
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
+      - 'Tools/Scripts/papyrus_archive.py'
       - '.github/workflows/plugins.yml'
       # The snapshot gate exists to protect snapshots/, so it has to run when
       # they change - and when .gitignore changes, because an ignore rule is
@@ -64,6 +66,14 @@ jobs:
       - name: Verify the plugin source snapshots
         shell: pwsh
         run: python Code/plugins/tools/plugin_snapshot.py verify
+
+      # The Papyrus compiler this project builds its scripts with is a pinned
+      # GitHub release asset, and the pin cannot compile one of the shipping
+      # scripts - the fix is unreleased. The archive under snapshots/tools is
+      # what keeps that recoverable, so it is checked like any other backup.
+      - name: Verify the Papyrus compiler source archive
+        shell: pwsh
+        run: python Tools/Scripts/papyrus_archive.py verify
 
       # A plugin resolves these entry points by name at runtime; a renamed or
       # missing export is invisible until a user's plugin silently finds nothing.

@@ -73,6 +73,35 @@ What "the documentation" means for a given change:
 | The plugin layer | `docs/COMPANION-PLUGINS.md`, `docs/PLUGIN-SOURCES.md` |
 | Packaging, FOMOD, or the install flow | `docs/RELEASE-AND-MO2.md` |
 
+### Where a fix is explained, and where it is not
+
+A bug fix is explained in **`CHANGELOG.md`** (the player-facing summary) and in
+**`docs/PITFALLS.md`** (the full write-up, with the evidence and the commands to
+re-check it). Those two are where the reasoning belongs, and they are where a
+reader goes when they want it.
+
+**`README.md` and `README_EN.md` are not a place for a fix narrative.** The READMEs
+answer "which build do I install, what works, and what do I do when it does not".
+A fixed bug is none of those: once the fix ships there is nothing for the reader to
+act on, so a "this used to be broken and here is why" block is read once and then
+sits in the file forever, pushing the parts a player actually needs further down.
+Worse, it ages into a claim about a build nobody runs any more.
+
+So when a fix is done, do not add a README section for it. Concretely:
+
+- a defect that is **fixed** - including one that was widely misreported, and
+  including one a user asked about by name - is recorded in `CHANGELOG.md`
+  and, when it is worth the detail, `docs/PITFALLS.md`;
+- the READMEs change only when the fix moves something a player must **act** on:
+  a version to install, a supported game version, a genuine remaining conflict, an
+  install step, or a log they should look at. A one-line note in the version table
+  row is the most a fixed defect gets there;
+- "do not enable this mod" lists are for conflicts that **still exist**. Remove an
+  entry when its fix ships rather than leaving it as history.
+
+The test to apply before writing: *after this fix ships, what does the reader do
+differently?* If the answer is "nothing", it belongs in the changelog, not here.
+
 Two rules that follow from this, and that reviewers should hold the line on:
 
 - **Numbers in prose must come from the tool that owns them, not from memory.** The

@@ -2865,7 +2865,8 @@ if (!g_transportInstance.load() || !g_receiveResolverReady.load())
 **已经导出了同样的四个入口点**，包括 `STRPM_QueryTransportInterface`）。但
 `STRBridgeModule` 只有**一个**键，而运行时按游戏版本有两个名字
 （`SkyrimTogetherRuntime.dll` / `SkyrimTogetherRuntime_1_5.dll`），
-门面的加载器又是**精确模块名**匹配。两条候选修法，**都需要实机验证，本轮不下结论**：
+门面的加载器又是**精确模块名**匹配。两条候选修法，**结论不同**——第一条本轮已能
+**证否**（下详），第二条需要实机验证：
 
 | 修法 | 影响面 | 为什么本轮没做 |
 | --- | --- | --- |

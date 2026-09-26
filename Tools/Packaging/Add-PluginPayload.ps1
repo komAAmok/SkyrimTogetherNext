@@ -204,10 +204,32 @@ foreach ($plugin in $Manifest.plugins) {
     foreach ($sub in (Get-ListProperty -Object $plugin -Name 'subOptions')) {
         $subStage = Resolve-PluginStagingRoot -PluginId $plugin.id -SubId $sub.id
 
+        # Sub-options may declare artifacts too, not just payload. The OCum
+        # Ascended option needs it: its quest esp names a Papyrus script in its
+        # VMAD, and that script is compiled rather than committed, so there is
+        # nothing for a payload rule to copy.
+        #
+        # Artifacts rather than payload on purpose. A payload rule copies
+        # whatever happens to be in the source tree, so a compile that never ran
+        # stages a directory that is merely smaller and says nothing; an artifact
+        # rule is checked against the build output and reports the missing file.
+        $subArtifactItems = Get-ListProperty -Object $sub -Name 'artifacts'
+
         if (-not $VerifyOnly) {
             foreach ($item in (Get-ListProperty -Object $sub -Name 'payload')) {
                 Copy-PayloadItem -PluginRoot $pluginRoot -StagingRoot $subStage -Source $item.source -Dest $item.dest
                 $staged++
+            }
+            foreach ($item in $subArtifactItems) {
+                Copy-Artifact -PluginId $plugin.id -StagingRoot $subStage -From $item.from -Dest $item.dest
+                $artifacts++
+            }
+        }
+
+        foreach ($item in $subArtifactItems) {
+            $expected = Join-Path $subStage $item.dest
+            if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
+                $problems += "missing staged artifact: ($StageRoot)/$($plugin.id)__$($sub.id)/$($item.dest)"
             }
         }
 

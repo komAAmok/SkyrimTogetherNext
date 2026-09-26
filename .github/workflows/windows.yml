@@ -313,6 +313,14 @@ jobs:
           & Code/plugins/papyrus/Compile-OStimConsentScripts.ps1 -OutputDir $out
           if ($LASTEXITCODE -ne 0) { throw 'Papyrus compilation failed' }
 
+          # The optional OCum Ascended option ships a quest esp whose VMAD names
+          # OStimTogetherOCum, so the esp is inert without its .pex. The plugin's
+          # own build-fomod.ps1 throws when it is missing, but this repository
+          # stages package/Data directly and never runs that script - which is how
+          # the esp came to ship without its script and nothing reported it.
+          & Code/plugins/papyrus/Compile-OCumIntegrationScript.ps1 -OutputDir $out
+          if ($LASTEXITCODE -ne 0) { throw 'OCum Papyrus compilation failed' }
+
       # The ten scripts under GameFiles/Skyrim/scripts/source ship as .pex and
       # are staged into the package, but nothing used to compile them: the .pex
       # were committed and the .psc were the only record of what they came from.

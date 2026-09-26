@@ -2593,3 +2593,101 @@ Code/plugins/papyrus/Compile-OStimConsentScripts.ps1 -CompilerPath <path-to>/pap
 Tools/Packaging/Add-PluginPayload.ps1 -Stage <stage> -ArtifactsRoot <artifacts>
 ```
 
+---
+
+## 31. 2026-09-26 场次：OCum 的 esp 出货却不带脚本（v1.1.3）
+
+### 31.1 现象：一个"引用了不存在脚本"的 esp
+
+`OStimTogether_OCum.esp`（250 字节，TES4 头）随 OCum 子选项出货，它的 VMAD 明确写着：
+
+```text
+QUST → EDID = OSTogetherOCumIntegrationQuest
+     → VMAD → OStimTogetherOCum      ← 它引用的脚本
+```
+
+**但 `OStimTogetherOCum.pex` 全仓库不存在**，只有 `.psc` 源码。后果：
+
+- Papyrus 找不到脚本 → `OnInit()` 永不执行 → `RegisterIntegration()` 永不执行；
+- DLL 侧 `main.cpp:89-95` 用 `DispatchMethodCall2(handle, "OStimTogetherOCum",
+  "RegisterIntegration", ...)` **按名字派发** → 必然失败，只有一行日志。
+
+### 31.2 根因：插件自己的检查被流水线绕过了
+
+插件仓库里**有两道**保护，**都没生效**：
+
+| 保护 | 位置 | 为什么没生效 |
+| --- | --- | --- |
+| 编译脚本 | `optional/OCumIntegration/compile-ocum-integration.ps1` | 要 `PapyrusCompiler.exe`，CI 没有 |
+| 缺文件即 throw | `build-fomod.ps1:42-43` | **本仓库不跑它**，只 `stages package/Data` |
+
+所以缺口**静默出货**：`Add-PluginPayload.ps1` 复制 payload 目录时，
+目录里有什么就发什么，**少了文件不报错**。
+
+> **教训**：payload 是"复制目录里现成的东西"，artifact 是"从构建产物里找指定文件"。
+> 一个**必须存在**的文件应该声明成 artifact —— 缺了会 `missing staged artifact` 直接失败；
+> 声明成 payload 则只会静默少发。这正是 OCum 漏掉的原因。
+
+### 31.3 第二个缺陷：打包脚本**忽略子选项的 artifacts**
+
+`Add-PluginPayload.ps1` 原来只在**插件级**处理 `artifacts`；子选项循环里**只读 `payload`**。
+所以就算在 `subOptions[].artifacts` 里声明了 `.pex`，也会被**静默忽略** ——
+声明了却什么都不发生，比不声明更危险。已修：子选项现在同样支持 `artifacts`，
+并做与插件级一致的 `missing staged artifact` 校验。
+
+### 31.4 第三个缺陷：4 个 `Form` + 1 个 `Game` stub 缺失
+
+`OStimTogetherOCum.psc` 用了 `UnregisterForModEvent` / `UnregisterForUpdate` /
+`IsPluginInstalled`，而 `Code/plugins/papyrus/stubs/` 里没有。补的签名
+**逐字取自游戏自己的 `Data/Scripts/Source/`**（本机 `D:\game\SkyrimSE\` 就有）：
+
+```papyrus
+Function RegisterForModEvent(string eventName, string callbackName) native
+Function UnregisterForModEvent(string eventName) native
+Function RegisterForUpdate(float afInterval) native
+Function UnregisterForUpdate() native
+bool Function IsPluginInstalled(string name) native global
+```
+
+> 注意 `IsPluginInstalled` **不在** Grimy 的 `Game.psc` 里（它是 SKSE 扩展的），
+> 只有游戏本体的源码有。抄签名要去**游戏本体**的 Source，不是第三方整合包。
+
+### 31.5 接线（复用 §30 的同一条通道）
+
+`Code/plugins/papyrus/Compile-OCumIntegrationScript.ps1`，形状与 `Compile-OStimConsentScripts.ps1`
+一致（同样 dot-source `Resolve-PapyrusCompiler.ps1`，同一 pin）：
+
+```text
+Data/Scripts/Source          被编译的脚本
+Dependencies/Source          插件自带的 OActor stub
+Code/plugins/papyrus/stubs   基础类型（Quest/Form/Game/Debug...）
+```
+
+CI 里紧跟同意门控那一步，输出到同一个 `plugins/OStimTogether/build/papyrus`；
+清单里声明为 **OCumAscended 子选项的 artifact** → `scripts/OStimTogetherOCum.pex`。
+
+### 31.6 验证（对着真实产物）
+
+1. **编出来了**：`OStimTogetherOCum.pex` 1018 B，exit 0，magic `FA 57 C0 DE`。
+2. **反汇编证明逻辑在**：`callmethod UnregisterForModEvent`（3 个事件名）、
+   `callmethod UnregisterForUpdate`、`callstatic Game.IsPluginInstalled "OCum.esp"`、
+   以及两行 `Debug.Trace` 字符串都在。
+3. **走通打包**：`PLUGIN STAGING OK / payload 19 / artifacts 11 / plugins 7`，
+   子选项落地树为 `OStimTogether_OCum.esp` + `scripts\OStimTogetherOCum.pex`，magic 正确。
+4. **新校验真的会拦**：删掉 staged 的 `.pex` 后 `-VerifyOnly` 报
+   `missing staged artifact: (OptionalPlugins)/OStimTogether__OCumAscended/scripts/OStimTogetherOCum.pex`
+   并 exit 1。
+
+### 31.7 复核用的命令（照抄）
+
+```powershell
+# 1. 编译（用已解包的编译器）
+Code/plugins/papyrus/Compile-OCumIntegrationScript.ps1 -CompilerPath <path>/papyrus.exe -OutputDir .pt/out
+
+# 2. 逻辑是否进字节码
+#    papyrus.exe read <pex> | Select-String "UnregisterForModEvent|IsPluginInstalled"
+
+# 3. 子选项 artifact 校验（删掉文件后应 exit 1）
+Tools/Packaging/Add-PluginPayload.ps1 -Stage <stage> -ArtifactsRoot <artifacts> -VerifyOnly
+```
+

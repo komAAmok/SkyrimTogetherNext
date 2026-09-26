@@ -92,6 +92,13 @@
               "dest": "."
             }
           ],
+          "artifactsNote": "OStimTogetherOCum.pex is compiled by Code/plugins/papyrus/Compile-OCumIntegrationScript.ps1 into plugins/OStimTogether/build/, which the artifact collection scans. The esp this option ships names that script in its VMAD, so without the .pex the quest has no code: OnInit never fires, RegisterIntegration never runs, and the native side that dispatches \"OStimTogetherOCum\"/\"RegisterIntegration\" by name has nothing to call. The plugin's own compile-ocum-integration.ps1 needs PapyrusCompiler.exe from an installed Skyrim, and its build-fomod.ps1 throws when the .pex is missing - but this repository stages package/Data directly, so the gap shipped silently.",
+          "artifacts": [
+            {
+              "from": "OStimTogetherOCum.pex",
+              "dest": "scripts/OStimTogetherOCum.pex"
+            }
+          ],
           "zh": {
             "name": "OCum Ascended 同步",
             "desc": "同步 OCum Ascended 的 RaceMenu CumOverlay。需要所有客户端都装了 OCum Ascended。"

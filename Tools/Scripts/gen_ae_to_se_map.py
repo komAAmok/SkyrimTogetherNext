@@ -203,10 +203,34 @@ def parse_overrides(path):
     return table
 
 
+def strip_comments(text):
+    """Drop // and /* */ comments, so commented-out code cannot inflate coverage.
+
+    Several files keep a retired call site commented out for reference (e.g.
+    TESActorBaseData.cpp's disabled hook), and counting those would report a
+    mapped id the build never actually uses.
+    """
+    out = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        elif c == "/" and i + 1 < n and text[i + 1] == "*":
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def collect_codebase_ids():
     """Collect all AE ids referenced by the client code base."""
     ids = set()
-    pattern = re.compile(r"POINTER_SKYRIMSE\s*\([^,]+,\s*[^,]+,\s*(\d+)\s*\)")
+    pattern = re.compile(r"POINTER_SKYRIMSE(?:_LEGACY)?\s*\(\s*[^,]+,\s*[^,]+,\s*(\d+)\s*\)")
     # e.g. "internal::RttiLocator<IFormFactory> registerRtti_IFormFactory(392214);"
     rtti_pattern = re.compile(r"RttiLocator(?:<[^>]*>)?\s*\w+\s*\(\s*(\d+)\s*\)")
     # ids reaching the address library outside a VersionDbPtr: byte-patch
@@ -214,11 +238,20 @@ def collect_codebase_ids():
     # VersionDbPtr directly. They count towards coverage just the same.
     anchor_pattern = re.compile(r"GamePatch::Anchor\s*\(\s*(\d+)")
     raw_pattern = re.compile(r"VersionDbPtr\s*<[^>]*>\s*\w+\s*\(\s*(\d+)")
-    for path in glob.glob(str(CLIENT_DIR / "**" / "*.[ch]pp"), recursive=True):
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-            for p in (pattern, rtti_pattern, anchor_pattern, raw_pattern):
-                ids.update(int(m) for m in p.findall(content))
+    # A site may also bypass VersionDbPtr on purpose to learn whether an id
+    # resolves at all (see GarbageCollector::Get, which must not be handed the
+    # unmapped-id stub). Those ids are referenced just the same.
+    find_pattern = re.compile(r"FindAddressById\s*\(\s*(\d+)\s*\)")
+    # "*.[ch]pp" matches .cpp and .hpp only - it never sees the 301 .h files,
+    # which is where 8 further ids live. Listing the extensions explicitly is
+    # what keeps this count honest.
+    patterns = (pattern, rtti_pattern, anchor_pattern, raw_pattern, find_pattern)
+    for ext in ("cpp", "hpp", "h"):
+        for path in glob.glob(str(CLIENT_DIR / "**" / ("*." + ext)), recursive=True):
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                content = strip_comments(f.read())
+                for p in patterns:
+                    ids.update(int(m) for m in p.findall(content))
     return ids
 
 

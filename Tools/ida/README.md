@@ -66,8 +66,9 @@ Feed the result into the map generator:
         --se-bins-dir /tmp/addrlib/SKSE/Plugins \
         --out GameFiles/Skyrim/SKSE/Plugins/versionlib-ae-to-se-1-5-97-0.map
 
-Status: 3033/3058 codebase ids mapped (99.2%); all 10 1.5.x maps regenerate
-and validate against version-1-5-97-0.bin (3667/3667).
+Status at the time of that run: 3033/3058 codebase ids mapped (99.2%), and all
+10 1.5.x maps regenerated and validated (3667/3667). Superseded - see the
+current status at the end of this file.
 
 ## Bracket-free recovery: `recover_1597.py` (no IDA required)
 
@@ -109,9 +110,12 @@ reports where each site moved to, refusing any result whose instruction
 mnemonic or length disagrees. Output: `st_patch_offsets_1597.tsv`, consumed by
 hand into the `GamePatch::Site` entries in the client.
 
-Status: 3066/3075 codebase ids mapped (99.7%), 3699/3699 offsets validated
-against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 9 that remain
-and what they cost are listed in Tools/missing_1_5_97_ids.txt.
+Status: 3069/3080 codebase ids mapped (99.6%), 3698/3698 offsets validated
+against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 11 that remain
+and what they cost are listed in Tools/missing_1_5_97_ids.txt. Counted by
+`gen_ae_to_se_map.py::collect_codebase_ids`; see that file for the two blind
+spots (a `*.[ch]pp` glob that skipped every `.h`, and commented-out calls
+counted as live) that were fixed when these numbers were last recomputed.
 
 Consumed by the client: the rows of `st_patch_offsets_1597.tsv` that report an
 aligned offset are wired into the `GamePatch::Site` entries in the client as

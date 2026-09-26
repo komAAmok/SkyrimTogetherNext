@@ -106,7 +106,7 @@ void RunTiltedInit(const std::filesystem::path& acGamePath, const String& aExeVe
 
     if (VersionDb::Get().IsLegacyFormat())
     {
-        // Legacy 1.5.x: 99.7% of the id references are mapped. The eight that
+        // Legacy 1.5.x: 99.6% of the id references are mapped. The eleven that
         // are not resolve to no-op stubs, RTTI lookups are null-guarded, and a
         // patch site with no 1.5.x offset is skipped rather than aimed at the
         // 1.6.x one (Games/GamePatch.h) - see Tools/missing_1_5_97_ids.txt for

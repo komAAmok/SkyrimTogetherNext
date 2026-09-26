@@ -130,6 +130,31 @@ jobs:
             New-Item -ItemType Directory -Force -Path $vcpkg | Out-Null
             Get-ChildItem -Force -LiteralPath $scratch | Move-Item -Destination $vcpkg -Force
           }
+
+          # vcpkg resolves a manifest's `builtin-baseline` by running
+          # `git show <sha>:versions/baseline.json` inside its own checkout. That
+          # path has no fetch fallback - unlike a git registry, which fetches the
+          # baseline on demand - so in the --depth 1 clone above a pinned baseline
+          # that is not the tip is simply absent, and every port lookup dies with
+          # 'failed to `git show` versions/baseline.json'.
+          #
+          # Derived from the plugin manifests rather than listed here, so a
+          # plugin that re-pins its baseline cannot leave this stale. Only the
+          # builtin registry needs it: a git registry (the colorglass ports) is
+          # fetched by vcpkg itself.
+          if (Test-Path (Join-Path $vcpkg '.git')) {
+            $baselines = @()
+            foreach ($manifest in Get-ChildItem 'plugins/*/vcpkg.json' -ErrorAction SilentlyContinue) {
+              $pinned = (Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json).PSObject.Properties['builtin-baseline']
+              if ($pinned -and $pinned.Value) { $baselines += $pinned.Value }
+            }
+            foreach ($sha in ($baselines | Sort-Object -Unique)) {
+              git -C $vcpkg fetch --quiet --depth 1 origin $sha
+              if ($LASTEXITCODE -ne 0) { throw "failed to fetch the vcpkg baseline pinned by a plugin manifest: $sha" }
+              Write-Host "fetched pinned vcpkg baseline $sha"
+            }
+          }
+
           & "$vcpkg/bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg bootstrap failed' }
           if (!(Test-Path "$vcpkg/scripts/buildsystems/vcpkg.cmake")) {

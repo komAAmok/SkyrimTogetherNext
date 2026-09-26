@@ -352,10 +352,9 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   都已就位（§29），但**本机没有 MSVC/vcpkg，编不了**，`windows.yml` 的六个 consumer
   只有 CI 能验证。首次 push 后重点看 `Build companion plugins` 那一步：
   ① `DAVSyncTogether` 多一个 `nlohmann_json` 依赖；
-  ② `TradeTogether` 的 `vcpkg.json` 带 `builtin-baseline`，而 CI 是 `git clone --depth 1`
-  取 vcpkg（`windows.yml` 的 setup 步骤）——baseline 已确认可从 GitHub 取到
-  （`ef3a5a82e39424b7f5740c4576f027c3173767f4`），但 `--depth 1` 与 pinned baseline
-  是否会在 CI 里打架，**只有真机跑一次才知道**；
+  ② ~~`TradeTogether` 的 `builtin-baseline` 可能与 `--depth 1` 打架~~ **已查实并已修**：
+  确实会炸（vcpkg 的 builtin registry 路径没有 fetch 回退），已在 `windows.yml` 的
+  setup 步骤按 manifest 反推 baseline 并逐个 fetch，详见 **§29.5**；
   ③ `AnimSyncTogether` 用 `commonlibsse-ng-flatrim`，与另外几个的 `commonlibsse-ng` 不同包，
   首次会把该包也编一遍（缓存冷启动更慢，属预期不是故障）。
 
@@ -2430,7 +2429,54 @@ git add .gitmodules plugins/<id>
 4. **`merge_fomod.py check --stage` 只剩 3 条**（`SkyrimTogetherRuntime` / `VerifyScript` / `launcher`），
    这三个是**框架构建产物**、本机没有 `build/`，与插件无关——CI 里由 `release.yml` 先构建再打包。
 
-### 29.5 复核用的命令（照抄）
+### 29.5 本轮**自己引入**的一个发布阻断：pinned `builtin-baseline` 在 CI 里取不到
+
+**现象**（本机用真 `vcpkg.exe` 复现，不是推测）：
+
+```text
+error: while checking out baseline from commit
+       'ef3a5a82e39424b7f5740c4576f027c3173767f4',
+       failed to `git show` versions/baseline.json.
+       This may be fixed by fetching commits with `git fetch`.
+```
+
+**根因**：vcpkg 解析 manifest 的 `builtin-baseline` 走的是
+`BuiltinGitRegistry` → `git_checkout_baseline()` → 只跑 `git show <sha>:versions/baseline.json`，
+**没有任何 fetch 回退**（`registries.cpp:455-511`）。而 CI 的 vcpkg 是
+`git clone --depth 1`（`windows.yml` 的 setup 步骤），**只有 1 个 commit**，
+所以只要 baseline 不是那个 tip，对象就不在本地。
+
+> 注意与 **git registry** 的区别：`GitRegistry` 有回退，
+> `git_show` 失败后会 `git_fetch` 再重试（`registries.cpp:791-804`）。
+> 所以 colorglass 那两个 baseline（`9eae9f03…` / `bbd09a56…`）**不需要管**，
+> vcpkg 自己会取——本机实测两个 SHA 都能 `git fetch` 成功。
+
+**为什么以前没炸**：原先四个插件（OStim/Morph/IED/STRPM）**只用 colorglass git registry**，
+那条路有回退。`AnimSyncTogether` 与 `TradeTogether` 是**第一批 pin `builtin-baseline` 的插件**
+（`AnimSyncTogether` 的 `vcpkg-configuration.json` default-registry + `TradeTogether` 的 `vcpkg.json`），
+所以这个雷是**本轮整合引入的**，push 后第一次 CI 必然红。
+
+**修法**（已落地，`windows.yml` 的 setup 步骤）：在 bootstrap 之前，
+**从各插件 manifest 反推** baseline 并逐个 fetch，而不是写死 SHA——
+插件以后改 baseline 不会让这段失效：
+
+```powershell
+if (Test-Path (Join-Path $vcpkg '.git')) {
+  $baselines = @()
+  foreach ($manifest in Get-ChildItem 'plugins/*/vcpkg.json' -ErrorAction SilentlyContinue) {
+    $pinned = (Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json).PSObject.Properties['builtin-baseline']
+    if ($pinned -and $pinned.Value) { $baselines += $pinned.Value }
+  }
+  foreach ($sha in ($baselines | Sort-Object -Unique)) {
+    git -C $vcpkg fetch --quiet --depth 1 origin $sha
+    if ($LASTEXITCODE -ne 0) { throw "failed to fetch the vcpkg baseline pinned by a plugin manifest: $sha" }
+  }
+}
+```
+
+**验证**：对一个真 `--depth 1` 克隆跑上面这段 → `git show` 从 exit 128 变为 exit 0。
+
+### 29.6 复核用的命令（照抄）
 
 ```powershell
 # 1. 七个子模块都解析得动

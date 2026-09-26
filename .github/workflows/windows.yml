@@ -187,6 +187,19 @@ jobs:
       # They are otherwise independent: one failing consumer must not hide the
       # state of the others, so each is built and reported, and the job fails
       # once at the end if any of them did not build.
+      # Several companion plugins have bugs this project has to fix but cannot
+      # fix upstream: the submodules point at repositories it does not own and
+      # cannot push to, and the checkout above runs with --force, so a fix left
+      # in the working tree is discarded before anything is built. The fixes
+      # live in Code/plugins/patches/ instead and are applied here, immediately
+      # before the plugins are configured and built, so they reach the package.
+      - name: Apply this repository's plugin patches
+        if: steps.plugins.outputs.present == 'true'
+        shell: pwsh
+        run: |
+          python Code/plugins/tools/plugin_patches.py apply
+          if ($LASTEXITCODE -ne 0) { throw 'a plugin patch did not apply; the submodule pin probably moved' }
+
       - name: Build companion plugins
         id: companion
         if: steps.plugins.outputs.present == 'true'

@@ -62,6 +62,34 @@ Two things to do afterwards, because restoring is only half the job:
 2. **Record the fork point.** The snapshot is of one commit, not of the
    project's future. Anyone continuing the work is starting from that commit.
 
+## Fixing a bug in plugin source
+
+The submodules cannot be pushed to (see above), and CI checks them out with
+`--force`, which discards every local change before anything is built. Editing
+`plugins/<id>/src/` therefore produces a fix that never reaches a package.
+
+Fixes live in `Code/plugins/patches/<plugin>/` instead, as ordinary content of
+this repository, and `Code/plugins/tools/plugin_patches.py` applies them to the
+submodule working tree immediately before the plugin is configured and built.
+
+```text
+python Code/plugins/tools/plugin_patches.py apply     # CI: before the plugin build
+python Code/plugins/tools/plugin_patches.py verify    # CI gate: patches still apply
+python Code/plugins/tools/plugin_patches.py check     # local: are they applied?
+python Code/plugins/tools/plugin_patches.py revert    # local: back to the pin
+```
+
+`apply` is idempotent, so a re-run is a no-op rather than a failure. `verify`
+checks each patch against the **index** (`git apply --check --cached`), which
+holds the pinned content even when the patch is already applied to the working
+tree - so a patch that has stopped matching the pin is caught rather than
+masked.
+
+The rule to remember when re-pinning a plugin: **if a patch stops applying, the
+pin moved and the patch has to be rewritten in the same commit.** `verify` fails
+until it is. `plugin_snapshot.py` reads the pin through git for the same reason,
+so an applied patch is not mistaken for snapshot drift.
+
 ## What is deliberately not in the snapshot
 
 Only tracked files. Build output, `dist/`, `build/`, `release-fomod/` and

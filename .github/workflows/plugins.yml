@@ -67,6 +67,13 @@ jobs:
         shell: pwsh
         run: python Code/plugins/tools/plugin_snapshot.py verify
 
+      # A plugin patch that no longer applies is worse than a missing patch: the
+      # fix silently stops reaching the build. This gate is why the pin cannot
+      # move without the patches being rewritten in the same commit.
+      - name: Verify the plugin patches still apply
+        shell: pwsh
+        run: python Code/plugins/tools/plugin_patches.py verify
+
       # The Papyrus compiler this project builds its scripts with is a pinned
       # GitHub release asset, and the pin cannot compile one of the shipping
       # scripts - the fix is unreleased. The archive under snapshots/tools is

@@ -28,5 +28,14 @@ Code/plugins/STRPM/contract.json text eol=lf
 Code/plugins/plugins.json text eol=lf
 GameFiles/Skyrim/fomod/ModuleConfig.xml text eol=lf
 
+# Patches are applied to the submodule working tree with 'git apply', which
+# compares context lines byte for byte. A Windows checkout (text=auto +
+# core.autocrlf) turns every line into CRLF and the context stops matching, so
+# the patch becomes unappliable on exactly the platform CI runs on - measured,
+# not assumed: with a CRLF copy, 'verify' failed while 'apply' silently
+# succeeded, which is the worst possible split. Pinned to LF for the same
+# reason as the two files above.
+Code/plugins/patches/**/*.patch text eol=lf
+
 # Batch files must stay CRLF for cmd.exe
 *.bat text eol=crlf

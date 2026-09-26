@@ -2921,3 +2921,135 @@ DLL（`SKYRIM_TARGET_LEGACY=1` 才切布局，见 `main.cpp:57-60`）。
 > （散文说 A、ini 是 B）能存活，就是因为没有任何检查同时读这两个文件。
 > 凡是"文档向读者承诺一个可观测行为"的地方，都值得一条这样的断言。
 
+## 33. 2026-09-27 场次：把"不可推送的子模块"从"修不了"变成"能修"
+
+### 33.1 上一轮为什么停手
+
+§32 把两处插件缺陷记成"确认存在但不可修"，理由是插件仓库是钉死的子模块、
+本仓库不推送。本轮先把这条理由**验证**了一遍，而不是继续假设：
+
+```text
+$ git push --dry-run https://github.com/Caelvanost/DAVSyncTogether.git HEAD:refs/heads/__probe
+remote: Permission to Caelvanost/DAVSyncTogether.git denied to komAAmok.
+fatal: unable to access ...: The requested URL returned error: 403
+```
+
+确实没有推送权限。但"没有推送权限"**不等于**"这个缺陷修不了"——
+它只否掉了**一条**修法。同一轮里另外两个事实才是关键：
+
+| 事实 | 命令 | 结果 |
+| --- | --- | --- |
+| 上游没有比 pin 更新的提交 | `git ls-remote <url> HEAD` | `cd4ec0ec…` == 当前 pin |
+| CI 会丢弃工作树里的一切改动 | `windows.yml:46` | `git submodule update --init --force --recursive --depth=1` |
+
+第一条否掉了"等上游修"。第二条解释了**为什么"直接在子模块里改一行"是一种幻觉**：
+改动在 CI 上会被 `--force` 抹掉，在本地则是一次永远进不了包的编辑。
+
+### 33.2 修法：补丁作为本仓库的普通内容
+
+新增 `Code/plugins/patches/<plugin>/*.patch` 与
+`Code/plugins/tools/plugin_patches.py`。补丁是本仓库的**普通文件**，
+照常 review、照常进历史、照常随发布走；由 CI 在插件被 configure/build
+**之前**应用到子模块工作树上。
+
+| 命令 | 用途 | 位置 |
+| --- | --- | --- |
+| `apply` | 应用全部补丁（**幂等**） | `windows.yml`，checkout 之后、build 之前 |
+| `verify` | 每个补丁都必须仍能打到 pin 上 | `plugins.yml`，与其它门禁并列 |
+| `check` / `revert` | 本地查看 / 回到 pin | 本地 |
+
+关键设计是 `verify` 用 `git apply --check --cached`——对**索引**而不是工作树。
+索引里始终是 pin 的内容，所以"补丁已经应用了"**掩盖不了**"这个补丁已经配不上新的
+pin"。这正是重新 pin 插件时最容易犯、也最难发现的错。
+
+### 33.3 用这套机制修掉的第一处缺陷：DAV 启动期崩溃
+
+`DAVConfigIndex::Load()`（`DAVConfigIndex.cpp:95`）里
+`recursive_directory_iterator` 的构造在**循环内的 `try` 之外**，
+而 `Load()` 由 `main.cpp:55` 从 `OnSKSEMessage(kDataLoaded)` 直接调用，
+`main.cpp` 又没有 handler ⇒ `filesystem_error` 逃出 SKSE 消息回调即 `std::terminate`。
+
+触发条件很平常：`Data/SKSE/Plugins/DynamicArmorVariants` **存在但不是目录**
+（残留的同名文件、权限问题、符号链接环）。注意 `:87` 的 `exists()` 拦不住它——
+`exists()` 对文件同样返回 true。
+
+**本机实测**（g++ 13, `-std=c++20`，把该循环原样抄成最小复现）：
+
+```text
+=== run UNPATCHED (the shipped shape) ===
+  exit=-1073741795        # 0xC000041D，未捕获异常穿过回调
+=== run PATCHED ===
+  iteration unavailable: Not a directory
+  exit=0
+```
+
+修法：改用 `error_code` 重载（`skip_permission_denied`），构造失败与枚举中断
+都只记一行日志。三种情形都实测过：root 是文件 → 记 `error` 并返回；
+root 是正常目录 → 照常索引；root 不存在 → 走原有分支。
+
+### 33.4 第二处：删掉一个"勾了也没用"的选项
+
+`IEDSyncTogether` 的 `RelayHost` 子选项唯一作用是打开旧 UDP 传输。
+但该传输**根本没被编译**：`CMakeLists.txt` 的 SOURCES 里没有
+`UdpTransport.cpp` / `StrTransport.cpp` / `SyncService.cpp` / `Config.cpp`。
+于是随包的 `IEDSyncTogether.ini` 与这个子选项都是**惰性的**。
+
+处理方式分两种，按"读者会不会被骗"来定：
+
+- **删掉子选项**。它是一次安装时的**选择**，而那个选择**不可能生效**；
+  留着就是让人以为自己在配置什么。
+- **保留 ini，但把"它现在是惰性的"写进清单 `payloadNote`**。
+  ini 是上游文件，上游一旦把 `Config.cpp` 加进构建它就会生效，
+  删掉反而会在那时变成一个缺失的 bug。写清楚比删掉好。
+
+### 33.5 连带修好的一处门禁自伤
+
+补丁一应用，`plugin_snapshot.py verify` 就报
+`snapshot differs in 1 file(s)`。原因是它比对的是**工作树**，
+而补丁让工作树**合法地**不等于 pin。
+
+改成用 `git show <pin>:<path>` 读**pin 那个提交**的内容。它量的仍然是
+"备份是否还等于被构建的那个提交"，而不是"工作树是否干净"。两种状态
+（已打/未打）都实测 `exit 0`，篡改快照仍然被抓住（`exit 1`）。
+
+> **教训**：一个门禁如果断言的是"工作树必须等于 X"，那么任何"合法地改变工作树"
+> 的新机制都会把它变成假警报。要断言的是**被测对象之间的关系**，
+> 不是某个实现细节的当前状态。
+
+### 33.6 教训
+
+> **"没有权限"只否掉一条路，不否掉目标。** 上一轮把"推不了子模块"直接推成了
+> "修不了缺陷"，跳过了"那这个修复能不能作为**本仓库的内容**存在"。
+> 遇到"外部依赖改不了"时，正确的问题是"**修复本身**能不能换个地方住"，
+> 而不是"那个地方让不让我改"。
+
+> **子模块里的一行改动不是修复，是一次会消失的编辑。** 判断一个改动是否真实，
+> 要看它能不能活到 CI 上、活到包里。`--force` 的 checkout 会把幻觉照出来。
+
+### 33.7 新机制自己踩的坑：补丁必须钉成 LF
+
+补丁是 `*.patch`，而 `.gitattributes` 开头就是 `* text=auto`。于是
+Windows 检出（`core.autocrlf=true`）会把补丁的每一行变成 CRLF，
+而 `git apply` 是**逐字节**比对上下文行的——补丁在**恰好是 CI 运行的那个平台**上
+变成打不上的。实测（把补丁转成 CRLF 后）：
+
+```text
+verify with CRLF patch: exit=1     # 门禁失败
+apply  with CRLF patch: exit=0     # 但 apply 竟然"成功"了
+```
+
+这个组合是最坏的一种：**门禁红、构建绿**。人看到红会去改门禁，而不是去查编码。
+
+修法与既有三个文件同款，在 `.gitattributes` 里钉死：
+
+```text
+Code/plugins/patches/**/*.patch text eol=lf
+```
+
+验证方式不是"看一眼属性"，而是**让 git 真的重新检出一次**再数字节：
+`git checkout -- <patch>` 之后 `CRLF=0 bareLF=47`。
+
+> **教训**：本仓库是 Windows 优先、而 `git apply` 是逐字节的，
+> 所以**任何新引入的、会被 `git apply` 读的文本文件**都必须显式钉 LF。
+> `* text=auto` 的默认值在 Linux 上无害，在这里是定时炸弹。
+

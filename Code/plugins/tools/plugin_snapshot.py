@@ -71,13 +71,32 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def normalized(path: Path) -> bytes:
+def normalized(data: bytes) -> bytes:
     """Content with line endings forced to LF.
 
     The same commit checks out as CRLF or LF depending on the machine's git
     settings, so a byte comparison would report drift that is not drift.
     """
-    return path.read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+    return data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+
+
+def pinned_blob(plugin_id: str, rel: str) -> bytes | None:
+    """A file's content at the commit this repository pins, not in the working tree.
+
+    The working tree is not the pinned commit: plugin_patches.py applies this
+    repository's own fixes to it before a build, and those fixes are repository
+    content rather than drift. Reading the pin through git keeps this gate
+    measuring what it exists to measure - that the durable copy still matches the
+    commit being built - and stops it from failing on every patched build.
+    """
+    sha = pinned_sha(plugin_id)
+    if not sha:
+        return None
+    result = subprocess.run(
+        ['git', '-C', str(ROOT / 'plugins' / plugin_id), 'show', f'{sha}:{rel}'],
+        capture_output=True,
+    )
+    return result.stdout if result.returncode == 0 else None
 
 
 def snapshot_one(plugin: dict) -> dict:
@@ -97,12 +116,20 @@ def snapshot_one(plugin: dict) -> dict:
         source = submodule / rel
         if not source.is_file():
             continue
+        # Written from the pinned commit, not from the working tree. The working
+        # tree can carry this repository's own patches, and a backup that stored
+        # patched content while recording the pin's hash would fail the very gate
+        # that exists to check it - which is exactly what happened before this
+        # was corrected.
+        content = pinned_blob(plugin_id, rel)
+        if content is None:
+            content = source.read_bytes()
         destination = target / rel
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
+        destination.write_bytes(content)
         digest.update(rel.encode('utf-8'))
         digest.update(b'\0')
-        digest.update(normalized(source))
+        digest.update(normalized(content))
         digest.update(b'\0')
         copied += 1
 
@@ -167,11 +194,15 @@ def cmd_verify(_args) -> int:
             if not copy.is_file():
                 missing.append(rel)
                 continue
-            if normalized(source) != normalized(copy):
+            pinned = pinned_blob(plugin_id, rel)
+            if pinned is None:
+                failures.append(f"{plugin_id}: cannot read {rel} at the pinned commit")
+                continue
+            if normalized(pinned) != normalized(copy.read_bytes()):
                 differing.append(rel)
             digest.update(rel.encode('utf-8'))
             digest.update(b'\0')
-            digest.update(normalized(source))
+            digest.update(normalized(pinned))
             digest.update(b'\0')
 
         if missing:

@@ -260,27 +260,6 @@
                 </group>
             </optionalFileGroups>
         </installStep>
-        <installStep name="IEDSyncTogether · 附属项">
-            <visible>
-                <flagDependency flag="lang" value="zh" />
-                <flagDependency flag="ied" value="on" />
-            </visible>
-            <optionalFileGroups order="Explicit">
-                <group name="按需勾选,没有对应 Mod 就不要勾" type="SelectAny">
-                    <plugins order="Explicit">
-                        <plugin name="旧版 UDP 中继主机配置">
-                            <description>只在你明确想用旧 UDP 传输并已转发 UDP 38471 时才勾选。默认传输不需要它。</description>
-                            <files>
-                                <folder source="OptionalPlugins/IEDSyncTogether__RelayHost" destination="" priority="0" />
-                            </files>
-                            <typeDescriptor>
-                                <type name="Optional" />
-                            </typeDescriptor>
-                        </plugin>
-                    </plugins>
-                </group>
-            </optionalFileGroups>
-        </installStep>
         <installStep name="可选组件">
             <visible>
                 <flagDependency flag="lang" value="zh" />
@@ -517,27 +496,6 @@
                             <description>Synchronises TNG-related appearance data.</description>
                             <files>
                                 <folder source="OptionalPlugins/MorphSyncTogether__TNG" destination="" priority="0" />
-                            </files>
-                            <typeDescriptor>
-                                <type name="Optional" />
-                            </typeDescriptor>
-                        </plugin>
-                    </plugins>
-                </group>
-            </optionalFileGroups>
-        </installStep>
-        <installStep name="IEDSyncTogether · add-ons">
-            <visible>
-                <flagDependency flag="lang" value="en" />
-                <flagDependency flag="ied" value="on" />
-            </visible>
-            <optionalFileGroups order="Explicit">
-                <group name="Pick only the packs you actually have installed" type="SelectAny">
-                    <plugins order="Explicit">
-                        <plugin name="Legacy UDP relay host config">
-                            <description>Only for the explicit legacy UDP transport with UDP 38471 forwarded. The default transport does not need it.</description>
-                            <files>
-                                <folder source="OptionalPlugins/IEDSyncTogether__RelayHost" destination="" priority="0" />
                             </files>
                             <typeDescriptor>
                                 <type name="Optional" />

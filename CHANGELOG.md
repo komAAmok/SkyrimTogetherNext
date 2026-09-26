@@ -60,12 +60,45 @@
   (`SkyrimTogetherRuntime.dll` / `SkyrimTogetherRuntime_1_5.dll`),门面的加载器又是
   精确模块名匹配 —— 单份 ini 表达不了两者。两条候选修法都**需要实机验证**,
   本轮不翻转行为,已连同证据与边界写入 `docs/PITFALLS.md` §32;
-- 另外两处**确认存在但位于不可推送的子模块内**的缺陷(同样只记录、不修改):
-  `IEDSyncTogether` 的传输/配置/代理子系统是**死代码**(CMake 只编 10 个文件,
-  无人调用 `SyncService::Start()`,已用传递包含闭包证明),其随包的 ini 与 FOMOD 的
-  `RelayHost` 子选项**不产生任何效果**;`DAVSyncTogether` 的
-  `recursive_directory_iterator` 构造/递增落在循环内 `try` **之外**,`main.cpp` 无
-  handler ⇒ `filesystem_error` 会逃进 `OnSKSEMessage` 触发 `std::terminate`。
+- **新增本仓库自持的插件补丁机制**(见下),并用它修掉了
+  `DAVSyncTogether` 的一处崩溃:`DAVConfigIndex::Load()` 里
+  `recursive_directory_iterator` 的构造落在循环内 `try` **之外**,而 `Load()` 由
+  `OnSKSEMessage(kDataLoaded)` 直接调用、`main.cpp` 又没有 handler ⇒
+  `filesystem_error` 逃出 SKSE 消息回调即 `std::terminate`。触发条件很平常:
+  `Data/SKSE/Plugins/DynamicArmorVariants` **存在但不是目录**(残留的同名文件)。
+  已改用 `error_code` 重载,枚举失败只记一行日志;
+- **删掉 `IEDSyncTogether` 的 `RelayHost` 子选项**:它唯一的作用是打开旧 UDP 传输,
+  而该传输**根本没被编译**(CMake SOURCES 里没有 `UdpTransport.cpp`/`StrTransport.cpp`/
+  `SyncService.cpp`/`Config.cpp`),勾了也不会有任何效果——与其留一个装样子,
+  不如删掉。同时把"随包的 `IEDSyncTogether.ini` 目前是惰性的"写进清单
+  `payloadNote`,免得有人报"我的配置被忽略"。
+
+### 新增:本仓库自持的插件补丁机制
+
+七个插件是**钉死的子模块**,指向本仓库**没有权限推送**的仓库(已实测:
+`git push --dry-run` 对 `Caelvanost/DAVSyncTogether` 返回 `403`;两个上游的 HEAD
+又恰好等于当前 pin,所以也没有"等上游修"这条路)。而 CI 的
+`git submodule update --init --force --recursive --depth=1` 会**丢弃工作树里的一切改动**
+—— 于是"在子模块里改一行"这种修法**永远进不了包**。
+
+新增 `Code/plugins/patches/<plugin>/*.patch` + `Code/plugins/tools/plugin_patches.py`
+把这条件拆掉:补丁是本仓库的**普通内容**,照常 review、照常随包发布,在插件被
+configure/build **之前**应用到子模块工作树上。
+
+| 命令 | 用途 | 在哪跑 |
+| --- | --- | --- |
+| `apply` | 应用全部补丁(**幂等**:已应用则跳过) | `windows.yml`,紧跟 checkout、在 build 之前 |
+| `verify` | 每个补丁都必须仍能打到 pin 上 | `plugins.yml`,与其它门禁并列 |
+| `check` | 当前工作树里补丁是否已应用 | 本地 |
+| `revert` | 反向应用,回到 pin | 本地 |
+
+`verify` 用 `git apply --check --cached`(对**索引**而不是工作树),所以"已经应用了"
+**掩盖不了**"这个补丁已经配不上新的 pin"——这正是重新 pin 时最需要拦住的失误。
+
+同时改了 `plugin_snapshot.py`:快照门禁原来比对**工作树**,补丁一应用它就误报
+"snapshot differs"。现在它通过 `git show <pin>:<path>` 读**pin 的那个提交**的内容,
+量的仍然是"备份是否还等于被构建的那个提交",而不是"工作树是否干净"。
+两种状态(已打/未打)都实测通过,篡改快照仍然会被抓住。
 
 ### 清单
 

@@ -110,9 +110,11 @@ reports where each site moved to, refusing any result whose instruction
 mnemonic or length disagrees. Output: `st_patch_offsets_1597.tsv`, consumed by
 hand into the `GamePatch::Site` entries in the client.
 
-Status: 3069/3080 codebase ids mapped (99.6%), 3698/3698 offsets validated
-against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 11 that remain
-and what they cost are listed in Tools/missing_1_5_97_ids.txt. Counted by
+Status: 3069/3082 codebase ids mapped (99.6%), 3698/3698 offsets validated
+against version-1-5-97-0.bin, all 10 1.5.x maps regenerated. The 13 that remain
+and what they cost are listed in Tools/missing_1_5_97_ids.txt. The totals are
+checked against this file by Tools/Scripts/check_docs.py, so they cannot drift
+here without the gate failing. Counted by
 `gen_ae_to_se_map.py::collect_codebase_ids`; see that file for the two blind
 spots (a `*.[ch]pp` glob that skipped every `.h`, and commented-out calls
 counted as live) that were fixed when these numbers were last recomputed.

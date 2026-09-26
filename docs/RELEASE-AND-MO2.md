@@ -10,9 +10,21 @@
 | **推送 tag** | `Release build` | **GitHub Release**,含下面两个 zip |
 
 ```bash
+# 1. 文档先到位。CODE_GUIDELINES.md 把"文档更新"算作改动的一部分,
+#    这一步不是可选的:覆盖率数字、两个 README 的版本表、推荐版本,
+#    以及本 tag 在 CHANGELOG 里的小节,缺一个都会在这里红。
+python Tools/Scripts/check_docs.py
+
+# 2. 打 tag 并推送
 git tag v1.0.20
 git push origin v1.0.20
 ```
+
+> **为什么发版前必须跑这一条**:这个检查不是形式主义,它抓到过的都是真的——
+> `v1.1.3` 当时打了 tag 却**没有在 CHANGELOG 里留下任何小节**,该版本的内容
+> 只存在于两个 README 的版本表里;两个 README 的版本表也曾经**互不一致**;
+> 覆盖率数字在三个文档里各写各的,其中两个还是旧口径。
+> 这些都属于"读者会相信、但其实是错的"的内容,所以由 `check_docs.py` 挡住。
 
 发布的两个包:
 

@@ -9,6 +9,57 @@
 
 ## 未发布(自 v1.1.4 起)
 
+### 文档与约束:让"文档更新"成为可检查的规则
+
+`CODE_GUIDELINES.md` 新增一节 **Documentation is part of the change**:
+**每次版本修改必须在同一个提交里更新文档**,并且发 tag 之前必须先过一遍
+`Tools/Scripts/check_docs.py`。光写规则没用,所以规则配了一条门禁
+(已接入 `plugins.yml`,并在 `docs/RELEASE-AND-MO2.md` 的发版步骤里前置)。
+
+新增 `Tools/Scripts/check_docs.py`,四项检查:
+
+| 检查 | 断言 |
+| --- | --- |
+| `coverage` | 所有引用 1.5.x 覆盖率的文档都必须引用**当前**数字;历史口径必须显式标注"已被取代/当时" |
+| `version-tables` | 两个 README 的版本表必须覆盖 CHANGELOG 的每一个版本,且两者**互不矛盾** |
+| `tags-have-sections` | 每个已打的 tag 都必须在 CHANGELOG 里有对应小节 |
+| `recommended-version` | 推荐版本必须真实存在(有 CHANGELOG 小节),中英一致 |
+
+**它立刻抓到了四处真实问题**,都已修:
+
+- **`v1.1.3` 打了 tag 却没有 CHANGELOG 小节** —— 该版本的内容只存在于两个
+  README 的版本表里,CHANGELOG 里既没有 `## v1.1.3` 也没有任何小节。
+  已补写完整小节;
+- **`v1.1.4` 在两个 README 的版本表里都没有行** —— 版本表停在 1.1.3;
+- **覆盖率数字是旧口径**:`README.md`、`README_EN.md`、`Tools/ida/README.md`、
+  `docs/LAN-RADMIN-GUIDE.md` 都还写着 3080/3069/11 个,而生成器给的是
+  **3082/3069/13 个**;
+- **推荐版本落后两个版本**:横幅写着 `1.1.1`,而最新 tag 是 `1.1.4`。
+
+另外把"未映射 id 是**函数**还是**数据**"这条区分写进了两个 README 与
+`docs/LAN-RADMIN-GUIDE.md`:函数 id 的桩"调用即返回 0"可以安全调用,
+数据 id 不能走同一条路(桩是可执行内存,当数据读会读到机器码)。
+这正是 §34 那处修复背后的判据,值得让读者也看得到。
+
+门禁本身写错过两次,**两次都是自测发现的**,都已修正:
+
+- 第一版只检查"文档里出现过正确数字",于是**同一文档里新旧两个值并存时它会通过**
+  ——正是它要防的漂移形态。改为枚举文档中**所有**覆盖率形状的数字逐个比对;
+- 第二版又太紧:把 `Tools/ida/README.md` 里**有意保留的历史口径**
+  (已标注 `Superseded`)误报,还把 `3698/3698 offsets validated` 这个
+  **另一个指标**误判成 id 覆盖率。改为"历史口径必须显式标注为历史",
+  并排除两边相等的 pair。
+
+还有一处**通过得太容易**的坑:该检查依赖 `git tag`,而 `actions/checkout@v4`
+**默认不取 tag**,那样它会跑零次并报告成功。已在 CI 侧显式加
+`fetch-depth: 0` 与 `fetch-tags: true`,并在门禁侧加了"一个本仓库的 tag
+都看不见就直接报错"的守卫。
+
+顺带记下一个此前没人写下来的事实:**tag 命名空间是共享的**。上游与本仓库
+都用 `v1.1.x`,且指向不同提交(本仓库 `v1.1.0` = `03cf2cbb`,
+上游 = `fd8748f0`),所以"这个 tag 是不是我们的"必须显式列出系列
+(`OWN_TAG_SERIES`)而不是靠名字判断。
+
 ### 同步上游 #901:Havok 控制器时间步长(未发布,来自上游 dev)
 
 上游 `dev` 上有 2 个 v1.8.2 之后的提交,其中 `fbf72883`(#901)修的是
@@ -160,6 +211,34 @@ configure/build **之前**应用到子模块工作树上。
   (`*.[ch]pp` 通配漏掉全部 301 个 `.h`;注释掉的调用被当成活的),旧口径 3075 因此
   既漏 8 个又虚增 3 个;
 - `docs/PITFALLS.md` §3.1:记录本次同步的两处判断与查证手段。
+
+## v1.1.3(2026-09-26)
+
+**插件生态落地**:把剩余三个插件按同一配方并入,可选插件由 3 个增至 6 个。
+
+> 本节是**补写**的。`v1.1.3` 当时打了 tag,却没有在 CHANGELOG 里留下任何小节——
+> 该版本的内容只存在于两个 README 的版本表里。`Tools/Scripts/check_docs.py`
+> 的 `tags-have-sections` 检查把这类"打了 tag 却无人可读"的发布挡住了,
+> 本节即由该检查发现后补齐。
+
+- 并入 `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`
+  (Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),
+  子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;
+- 删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,
+  该脚本又从不进包),中英文改为只描述功能;
+- 修复**自己引入的发布阻断**:两个插件 pin 的 vcpkg baseline 在 CI 的
+  `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,
+  已改为按 manifest 反推 baseline 再逐个 fetch;
+- **OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器
+  `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub
+  (`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex`
+  随包出货,**Add Actor 同意门控真正可用**;
+- 顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` +
+  1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持
+  **子选项的 artifacts**(原先静默忽略);
+- `GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本补上可复现的编译入口,
+  其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义
+  (它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁。
 
 ## v1.1.2(2026-09-26)
 

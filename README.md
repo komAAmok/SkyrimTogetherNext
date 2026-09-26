@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 > ## ⚠️ 推荐游戏版本: **1.5.97**
-> ## 📦 推荐 Mod 版本: **1.1.1**
+> ## 📦 推荐 Mod 版本: **1.1.4**
 >
 > 1.5.97 是本框架验证最充分的版本,1.0.41 起修复了部署与联机崩溃问题。
 > 使用其它游戏版本或更旧的 Mod 版本出现的问题,请先升级到上述版本再反馈。
@@ -43,11 +43,17 @@
 | 1.7.99 / 1.7.104 | 新版 SKSE | 开箱即用(format 5 地址库) |
 
 > **1.5.x 支持说明**:1.5.x(含 1.5.97)已完整支持。AE ID → 1.5.x 偏移翻译表
-> 随包附带 10 个版本,地址映射覆盖 **99.6%**(代码引用的 3080 个地址中已解析
+> 随包附带 10 个版本,地址映射覆盖 **99.6%**(代码引用的 3082 个地址中已解析
 > 3069),且全部 3698 条映射都能在官方地址库 `version-1-5-97-0.bin` 中找到对应
-> 符号;剩余 11 个(近孪生兄弟函数、无调用者的模块、调试视图)运行时安全降级
+> 符号;剩余 13 个(近孪生兄弟函数、无调用者的模块、调试视图)运行时安全降级
 > (空实现桩 / RTTI 空指针保护 / 跳过补丁),不会崩溃,清单与各自影响见
 > [Tools/missing_1_5_97_ids.txt](Tools/missing_1_5_97_ids.txt)。
+>
+> 这 13 个里只有 `32883` 会被玩家察觉(远程玩家动画重播时不重置动画图);
+> 其余是调试视图、调试器线程名与没有调用者的模块。**函数 id 与数据 id 的降级
+> 方式不同**:未映射的**函数** id 会拿到"调用即返回 0"的桩,可以安全调用;
+> 未映射的**数据** id 若照常解引用,读到的是那段桩自己的机器码,所以这类 id
+> 一律改用 `FindAddressById` 显式解析、失败即降级。
 >
 > **1.5.x 结构体**:包内附带**第二个运行时 DLL**(`SkyrimTogetherRuntime_1_5.dll`),
 > 它与 1.6.x/1.7.x 用的那个从同一份源码编出,靠 `SKYRIM_TARGET_LEGACY` 条件编译
@@ -98,6 +104,7 @@
 
 | 版本 | 日期 | 主要内容 |
 | --- | --- | --- |
+| **1.1.4** | 2026-09-26 | **同步上游 v1.8.2 并按本仓库多版本逻辑改写**:并入 #899(按“原始 NPC + 房主选中的模板”重建等级化 NPC,保住守卫姓名/默认装备等非继承数据)与 #893(排除各派系监狱储物容器,否则一个玩家的物品会进另一个玩家的箱子);两处 1.5.x 改写都不是猜的 —— `GarbageCollector` 单例(id `400329`)与 `SetLeveledCreature`(id `20231`)在 1.5.97 上**没有映射**,照抄上游会分别变成**解引用零返回桩**和**每帧 Disable/Enable 死循环**,已改为直查地址库 + `CanRecordPick()` 门控;修掉 `CommandService::OnSetTimeCommand` 里唯一一处未判空的 `GetByConnectionId` 解引用(**任意玩家一条 `/settime` 即可打崩专用服务器**);修正 `docs/COMPANION-PLUGINS.md` 中与实际出货值**完全相反**的传输描述并加门禁绑死;**覆盖率口径修正**:`collect_codebase_ids()` 原先漏扫全部 301 个 `.h`、又把注释掉的调用算作活的,现口径 **3069/3082(99.6%)** |
 | **1.1.3** | 2026-09-26 | **插件生态落地**:把剩余三个插件按同一配方并入 —— `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`(Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),可选插件由 3 个增至 **6 个**,子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,该脚本又从不进包),中英文改为只描述功能;修复**自己引入的发布阻断** —— 两个插件 pin 的 vcpkg baseline 在 CI 的 `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,已改为按 manifest 反推 baseline 再逐个 fetch;**OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器 `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub(`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex` 随包出货,**Add Actor 同意门控真正可用**;顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` + 1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持**子选项的 artifacts**(原先静默忽略);`GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本也补上了可复现的编译入口,其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义(它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁 |
 | **1.1.2** | 2026-09-26 | 四轮审计 + 插件层专项:修复服务端可被远程打崩(重复认证请求空指针)、`PlayerService`/`DiscoveryService`/`WeatherService`/`OverlayService`/`CalculateHealthPercentage` 等 20 余处空指针;插件层 **ProxyResolver 映射监听器从来没被触发过**(`OStimTogether`/`IEDSyncTogether` 都注册了),现已由 `PlayerComponent` 构造/销毁触发;`setLogCallback` 存而不用、服务端限流桶泄漏也已修;**快捷键只保留 F2**(右 Ctrl/F3/F4/F6/F7/F8 全部注释或禁用);还原被误删的 34 个地址库文件(1.5.x 与 1.6.x/1.7.x 全部在位) |
 | **1.1.1** | 2026-09-25 | 三轮审计收尾:修复 `VisitInteriorCell` 在整个 load 期间对空 cell 的链式解引用、`Actor::Create` 对玩家的连续三次解引用、`DebugService` 未判空就用的 actor;并修正 `Actor::Create` 的判空顺序(原会把已分配的 actor 泄漏) |

@@ -25,6 +25,15 @@ on:
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
       - 'Tools/Scripts/papyrus_archive.py'
+      # The documentation gate reads these, so a change to any of them has to
+      # run it - otherwise a stale number can be pushed without CI noticing.
+      - 'Tools/Scripts/check_docs.py'
+      - 'README.md'
+      - 'README_EN.md'
+      - 'CHANGELOG.md'
+      - 'CODE_GUIDELINES.md'
+      - 'docs/**'
+      - 'Tools/missing_1_5_97_ids.txt'
       - '.github/workflows/plugins.yml'
       # The snapshot gate exists to protect snapshots/, so it has to run when
       # they change - and when .gitignore changes, because an ignore rule is
@@ -38,6 +47,15 @@ on:
       - 'GameFiles/Skyrim/fomod/**'
       - 'Tools/Packaging/**'
       - 'Tools/Scripts/papyrus_archive.py'
+      # The documentation gate reads these, so a change to any of them has to
+      # run it - otherwise a stale number can be pushed without CI noticing.
+      - 'Tools/Scripts/check_docs.py'
+      - 'README.md'
+      - 'README_EN.md'
+      - 'CHANGELOG.md'
+      - 'CODE_GUIDELINES.md'
+      - 'docs/**'
+      - 'Tools/missing_1_5_97_ids.txt'
       - '.github/workflows/plugins.yml'
       # The snapshot gate exists to protect snapshots/, so it has to run when
       # they change - and when .gitignore changes, because an ignore rule is
@@ -50,10 +68,16 @@ jobs:
   contract:
     runs-on: windows-latest
     steps:
+      # fetch-depth: 0 plus fetch-tags, because check_docs.py reads the tag list
+      # to prove every released version has a changelog section. A default
+      # shallow checkout fetches no tags, and the check would then pass by
+      # finding nothing - passing for the wrong reason is worse than failing.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Verify the STRPM consumer contract
         shell: pwsh
@@ -94,6 +118,15 @@ jobs:
       - name: Verify plugin transport compatibility
         shell: pwsh
         run: python Code/plugins/tools/check_transport_compat.py
+
+      # CODE_GUIDELINES.md makes documentation part of every version change.
+      # This is what enforces it: the coverage figures in prose must match the
+      # generator, both README version tables must cover every changelog
+      # version, every tagged release must have a changelog section, and the
+      # recommended version must be one that exists.
+      - name: Verify the documentation matches the code
+        shell: pwsh
+        run: python Tools/Scripts/check_docs.py
 
   wizard:
     runs-on: windows-latest

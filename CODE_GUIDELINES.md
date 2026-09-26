@@ -52,3 +52,38 @@ Preface commit messages with one of the following tags:
 * `tweak:` for tweaks to an existing system
 * `fix:` for bug fixes and crash fixes
 * `refactor:` for refactoring
+
+## Documentation is part of the change
+
+A change is not finished when the code compiles. **Every version change must update
+the documentation in the same commit**, and a release must not be tagged until it
+has. This is not a style preference: the documentation in this repository is what
+tells a player which build to install, which game versions work, and how far 1.5.x
+coverage actually reaches. Every one of those is a claim about the code, and a claim
+that drifts is worse than no claim at all, because it is believed.
+
+What "the documentation" means for a given change:
+
+| The change touches | Update, in the same commit |
+| --- | --- |
+| Anything a player can observe | `CHANGELOG.md` - a new `## <version>` section (or the unreleased heading, before a tag) |
+| A released version | `README.md` **and** `README_EN.md` version tables, kept in step with each other |
+| Which game versions work, or how far the mapping reaches | the 1.5.x note in both READMEs, plus `Tools/missing_1_5_97_ids.txt` when the id set changes |
+| Address-library coverage or the recovery tooling | `Tools/ida/README.md` status line and `docs/LAN-RADMIN-GUIDE.md` |
+| The plugin layer | `docs/COMPANION-PLUGINS.md`, `docs/PLUGIN-SOURCES.md` |
+| Packaging, FOMOD, or the install flow | `docs/RELEASE-AND-MO2.md` |
+
+Two rules that follow from this, and that reviewers should hold the line on:
+
+- **Numbers in prose must come from the tool that owns them, not from memory.** The
+  1.5.x coverage figure is produced by `gen_ae_to_se_map.py::collect_codebase_ids`;
+  run it rather than copying a number from an earlier paragraph. That number has
+  already drifted once because it was recounted by hand.
+- **A claim that a gate can check should be checked by a gate.** Where documentation
+  states a value that also exists in a machine-readable file - the coverage figures,
+  the id manifest's own count, whether every released tag has a changelog section -
+  `Tools/Scripts/check_docs.py` is where that belongs. Prose that nothing verifies
+  is prose that will eventually be wrong.
+
+Run `python Tools/Scripts/check_docs.py` before tagging. It is part of the release
+checklist, and it is wired into CI.

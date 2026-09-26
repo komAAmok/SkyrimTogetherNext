@@ -11,9 +11,7 @@
 > 1.5.97 是本框架验证最充分的版本,1.0.41 起修复了部署与联机崩溃问题。
 > 使用其它游戏版本或更旧的 Mod 版本出现的问题,请先升级到上述版本再反馈。
 
-为 Bethesda 游戏提供联机能力的开源框架,当前支持 **上古卷轴 5:天际特别版(Skyrim Special Edition)**,也就是广为人知的 **Skyrim Together**。
-
-本仓库是一个**可直接游玩的发行版**,而不只是框架源码。它把联机所需的一切打包进一个安装包:游戏本体不需要任何手工配置,MO2 里装上就能连;队友之间的动作场景、体型与外观、装备展示、物品交易由**六个可选联机插件**按需提供,不装任何一个也不影响联机。
+本仓库旨在 Skyrim Together 开源框架的基础上,提供更多游戏版本的兼容,更丰富的联机插件生态,以达到更沉浸的联机体验。
 
 与上游的关系:上游 [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) 提供客户端/服务端框架、网络层与引擎逆向成果;本仓库在此之上负责**可用性、稳定性与插件生态**——修掉实机联机中真实遇到的问题,并让这些修复可以被复现和验证。
 
@@ -103,7 +101,7 @@
 
 | 版本 | 日期 | 主要内容 |
 | --- | --- | --- |
-| **1.1.3** | 2026-09-26 | **插件生态落地**:把 `D:\sktest` 下剩余三个插件按同一配方并入 —— `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`(Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),可选插件由 3 个增至 **6 个**,子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,该脚本又从不进包),中英文改为只描述功能;修复**自己引入的发布阻断** —— 两个插件 pin 的 vcpkg baseline 在 CI 的 `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,已改为按 manifest 反推 baseline 再逐个 fetch;**OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器 `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub(`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex` 随包出货,**Add Actor 同意门控真正可用**;顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` + 1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持**子选项的 artifacts**(原先静默忽略);`GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本也补上了可复现的编译入口,其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义(它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁 |
+| **1.1.3** | 2026-09-26 | **插件生态落地**:把剩余三个插件按同一配方并入 —— `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`(Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),可选插件由 3 个增至 **6 个**,子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,该脚本又从不进包),中英文改为只描述功能;修复**自己引入的发布阻断** —— 两个插件 pin 的 vcpkg baseline 在 CI 的 `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,已改为按 manifest 反推 baseline 再逐个 fetch;**OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器 `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub(`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex` 随包出货,**Add Actor 同意门控真正可用**;顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` + 1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持**子选项的 artifacts**(原先静默忽略);`GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本也补上了可复现的编译入口,其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义(它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁 |
 | **1.1.2** | 2026-09-26 | 四轮审计 + 插件层专项:修复服务端可被远程打崩(重复认证请求空指针)、`PlayerService`/`DiscoveryService`/`WeatherService`/`OverlayService`/`CalculateHealthPercentage` 等 20 余处空指针;插件层 **ProxyResolver 映射监听器从来没被触发过**(`OStimTogether`/`IEDSyncTogether` 都注册了),现已由 `PlayerComponent` 构造/销毁触发;`setLogCallback` 存而不用、服务端限流桶泄漏也已修;**快捷键只保留 F2**(右 Ctrl/F3/F4/F6/F7/F8 全部注释或禁用);还原被误删的 34 个地址库文件(1.5.x 与 1.6.x/1.7.x 全部在位) |
 | **1.1.1** | 2026-09-25 | 三轮审计收尾:修复 `VisitInteriorCell` 在整个 load 期间对空 cell 的链式解引用、`Actor::Create` 对玩家的连续三次解引用、`DebugService` 未判空就用的 actor;并修正 `Actor::Create` 的判空顺序(原会把已分配的 actor 泄漏) |
 | **1.1.0** | 2026-09-25 | **性能与同步**:插值改 Catmull-Rom 三次曲线 + 有界外推(消除远端玩家的折线感与丢包时的冻结—跳变);帧循环间隔 16→8 ms,更新率约 32→64/s;移动更新由 O(更新数×实体数) 降为线性;修复重复生成同一远程玩家引发的引擎空指针崩溃;全仓库 `GetById` 解引用审计,修复 15 处无守卫解引用;**自部署「假失败」修复**:改为内容比对,mtime 仅作前置过滤,删除从未存在的 `.str_old` 清理(它把错误码污染成 `error 2`);定时器量化定量(请求 16 ms 实为 31.25 ms) |

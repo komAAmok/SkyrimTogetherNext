@@ -1,6 +1,6 @@
-# Skyrim Together Next - 1.5.97 missing address manifest (11 ids)
+# Skyrim Together Next - 1.5.97 missing address manifest (13 ids)
 #
-# Coverage 3069/3080 codebase ids (99.6%), and all 3698 map entries validate
+# Coverage 3069/3082 codebase ids (99.6%), and all 3698 map entries validate
 # against version-1-5-97-0.bin. Tools/ida/recover_1597.py closed 20 of the
 # previous 29 by identifying the 1.6.1170 function on its own terms (referenced
 # string literals, call-graph position, globals it touches) instead of
@@ -20,6 +20,17 @@
 #          player's animation is replayed with ResetAnimationGraphForReplay, so
 #          the graph is not reverted and a replayed animation can look wrong.
 #          The only entry here with real gameplay effect.
+#   389089 the float global holding the physics timestep, added by the upstream
+#          #901 controller-timing fix. bhkCharacterController::UpdateStepTiming
+#          resolves it with FindAddressById rather than POINTER_SKYRIMSE: it is a
+#          DATA id, so an unmapped one would hand back the executable stub and
+#          dereferencing that reads the stub's own opcodes as a float. Where it
+#          is unavailable the timing falls back to the movement delta and then
+#          to the value already in the controller.
+#   39856  AIProcess::GetCharController, the other half of #901. A FUNCTION id,
+#          so the stub's documented "calling it returns zero" contract applies
+#          and the accessor simply answers null on 1.5.97 - which both call
+#          sites already handle by skipping the timing refresh.
 #   21600  PlayerCamera::IsFirstPerson. Read once, from the optional animation
 #          mod compat path (ModCompat/BehaviorVar.cpp), and only for the local
 #          player; degrades to "third person".
@@ -55,6 +66,8 @@
 # ae=14774 | call/data | getGenerator | Games/Skyrim/BSRandom/BSRandom.cpp:20
 # ae=36460 | call/data | GarbageCollector::Add(TESBoundObject*) | Games/Skyrim/Misc/GarbageCollector.cpp:24
 # ae=400329 | call/data | GarbageCollector singleton | Games/Skyrim/Misc/GarbageCollector.cpp:11
+# ae=389089 | data | physics timestep global | Games/Skyrim/Havok/bhkCharacterController.cpp:34
+# ae=39856 | call/data | AIProcess::GetCharController | Games/Skyrim/AI/AIProcess.cpp:14
 # ae=21600 | call/data | isFirstPerson | Games/Skyrim/Camera/PlayerCamera.cpp:15
 # ae=32883 | call/data | InternalRevertAnimationGraphManager | Games/IAnimationGraphManagerHolder.cpp:34
 # ae=20231 | call/data | TESObjectREFR::SetLeveledCreature | Games/Skyrim/TESObjectREFR.cpp:170

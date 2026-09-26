@@ -55,6 +55,7 @@
 #include <Games/Skyrim/BSAnimationGraphManager.h>
 #include <Havok/hkbStateMachine.h>
 #include <Havok/hkbBehaviorGraph.h>
+#include <Havok/bhkCharacterController.h>
 
 #include <ModCompat/BehaviorVar.h>
 
@@ -188,8 +189,23 @@ void Actor::ForcePosition(const NiPoint3& acPosition) noexcept
 {
     ScopedReferencesOverride recursionGuard;
 
-    // It just works TM
-    SetPosition(acPosition, true);
+    // A remote actor skips native movement processing, so its controller can
+    // still be sitting on a zero timestep when this runs. Handing that state to
+    // SetPosition lets the position write reset velocity against a zero step,
+    // and the division that follows produces non-finite acceleration, which
+    // propagates into contact mass modifiers - the "objects and NPCs glide after
+    // a collision" failure. Refresh the timing first; where no usable step
+    // exists yet, move the reference and let interpolation catch the controller
+    // up once physics timing is available.
+    bool updateController = true;
+    const auto* pExtension = GetExtension();
+    if (pExtension && pExtension->IsRemote() && currentProcess)
+    {
+        if (auto* pController = currentProcess->GetCharController())
+            updateController = pController->UpdateStepTiming();
+    }
+
+    SetPosition(acPosition, updateController);
 }
 
 void Actor::QueueUpdate() noexcept
@@ -1373,14 +1389,23 @@ bool Actor::IsSpeakingInScene()
     return isSpeakingInScene;
 }
 
-char TP_MAKE_THISCALL(HookActorProcess, Actor, float a2)
+char TP_MAKE_THISCALL(HookActorProcess, Actor, float aDeltaTime)
 {
-    // Only process AI if we own the actor
-
+    // Suppress local movement for remote actors, but keep their controller's
+    // timing valid while doing so. Returning early without this leaves the
+    // controller on a zero timestep, which is the state the position-update path
+    // in ForcePosition then divides by.
     if (apThis->GetExtension()->IsRemote())
-            return 0;
+    {
+        if (apThis->currentProcess)
+        {
+            if (auto* pController = apThis->currentProcess->GetCharController())
+                pController->UpdateStepTiming(aDeltaTime);
+        }
+        return 0;
+    }
 
-    return TiltedPhoques::ThisCall(RealActorProcess, apThis, a2);
+    return TiltedPhoques::ThisCall(RealActorProcess, apThis, aDeltaTime);
 }
 
 TP_THIS_FUNCTION(TAddDeathItems, void, Actor);

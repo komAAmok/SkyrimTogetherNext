@@ -3053,3 +3053,107 @@ Code/plugins/patches/**/*.patch text eol=lf
 > 所以**任何新引入的、会被 `git apply` 读的文本文件**都必须显式钉 LF。
 > `* text=auto` 的默认值在 Linux 上无害，在这里是定时炸弹。
 
+## 34. 2026-09-27 场次：同步上游 #901（未发布的 dev 提交）
+
+### 34.1 为什么是 dev 而不是 tag
+
+上游最新的 tag 仍是 `v1.8.2`（`0ffb80b0`），而 `dev` 已经比它多 2 个提交：
+
+| 提交 | 内容 | 本仓库 |
+| --- | --- | --- |
+| `fbf72883` | **#901 远端 actor 的 Havok 控制器时间步长** | 本轮已并入 |
+| `589b5f5b` | CI 双重 zip（`upload-artifact@v7` 的 `archive:` 键） | **不适用** |
+
+第二个不适用是查过的、不是跳过的：本仓库用 `upload-artifact@v4`，5 处
+`upload-artifact` 里只有 `release.yml:149` 的 path 含 `.zip`（那是发布流程本身），
+且全仓库没有 `release-assets` 这个路径——上游那个 bug 的前提在本仓库不存在。
+
+### 34.2 #901 修的是什么
+
+远端 actor 跳过原生移动处理，于是新建的 Havok controller 停在
+`stepInfo.deltaTime == 0`。插值位置更新照样重置速度，
+**除以 0 得到非有限加速度**，再经接触质量修正传播出去 ——
+实机表现是"物体和 NPC 碰撞后、踩到散落物品后**异常滑行**"。
+
+修法两处：远端移动处理里刷新 controller 时序；强制位置更新前刷新，
+拿不到有效步长时**推迟** controller 定位（只更新引用/3D，让插值稍后补上）。
+
+### 34.3 1.5.x 的偏移是**读出来的**，不是抄的
+
+新增 3 个文件里 `hkStepInfo` 是纯数据布局，与版本无关。真正的问题是
+`bhkCharacterController::stepInfo` 在 1.5.x 上是不是也在 `0x80`。
+
+**本机有一份真实的 1.5.97 `SkyrimSE.exe`**（`D:\game\SkyrimSE\`，
+`FileVersion 1.5.97.0`），所以这件事可以查而不是猜。做法：
+
+1. 在 `.text` 里搜"加载物理步长全局 + 求倒数 + 经**同一寄存器**写 `+0x88` 与 `+0x8C`"
+   这一模式。全镜像（22 MB `.text`）**只命中一处**：RVA `0xDBFDD4` / `0xDBFDE4`；
+2. 反查字节确认指令：
+
+   ```text
+   F3 0F 10 0D DF 85 04 01   movss xmm1,[rip+0x10485DF]  -> 0x1E083A8  (物理步长全局)
+   F3 0F 11 8E 88 00 00 00   movss [rsi+0x88],xmm1                   (deltaTime)
+   F3 0F 5E C1               divss xmm0,xmm1                        (取倒数)
+   F3 0F 11 86 8C 00 00 00   movss [rsi+0x8C],xmm0                   (invDeltaTime)
+   ```
+
+3. 用 `.pdata` 定出所属函数 `0xDBF630`，再确认**两个 RVA 在
+   `version-1-5-97-0.bin` 里都是真实符号**：函数 = id `76436`，
+   全局 `0x1E083A8` = id `512261`。两头都有名字，不是插值出来的近似值。
+
+`0x88/0x8C` 就是 `deltaTime`/`invDeltaTime`，所以 `stepInfo` 在 `0x80` ——
+与上游对 1.6.x/1.7.x 的断言**一致**。**该成员在两代之间没有移动**，
+所以这里不像 `Actor` 那样需要 `#ifdef SKYRIM_TARGET_LEGACY` 分支，
+一条 `static_assert` 对两个目标都成立。
+
+### 34.4 两个新 id 在 1.5.97 上都没有映射，但**性质不同**
+
+同一对 id 在 1.6.317/640/1170/1179 与 1.7.99/104 的库里**全部有映射**，
+所以 1.6.x / 1.7.x 走的就是上游原路径；只有 1.5.x 需要改写。而两者的改写方式**相反**：
+
+- `39856`（`AIProcess::GetCharController`）是**函数 id**。
+  `VersionDb.h:60-62` 写明桩的契约是"**调用它**返回 0 而不是崩"，
+  所以按本仓库既有写法用 `POINTER_SKYRIMSE` + `ThisCall` **正确且一致**，
+  未映射时自然得到 `nullptr`，两个调用点都判空跳过刷新。
+- `389089`（物理步长那个 **float 全局**）是**数据 id**，**不能**这样写：
+  桩是一段**可执行内存**（`48 31 C0 0F 57 C0 C3`），
+  `*stub()` 是**把它自己的机器码当 float 读**。
+
+  实测那几个字节解码为 `1.895e-29`，恰好被 `UpdateDeltaTime` 的
+  `<= 0.0001` 规则挡掉。**但这是桩的编码碰巧，不是契约**——
+  换一段解码成大有限值的桩，它就会被当成合法步长直接写进 controller。
+  故改用 `FindAddressById` 显式解析、失败传 0，
+  与 `GarbageCollector::Get()`、`LeveledNpcSystem::CanRecordPick()`
+  处理各自未映射数据 id 的做法一致。
+
+> **教训**：`POINTER_SKYRIMSE` 对未映射 id 是安全的，**但只对函数 id 安全**。
+> 数据 id 走同一条路会解引用桩的机器码。区分"这个 id 是拿来调用的还是拿来读的"
+> 是 1.5.x 适配里必须先问的一句话。
+
+### 34.5 顺带修掉一处**我自己引入**的空指针面
+
+上游的 `ForcePosition` 里没有 `GetExtension()`，而本仓库的
+`Actor::GetExtension()`（`Actor.cpp:285-298`）在既非 `ExActor` 也非
+`ExPlayerCharacter` 时**返回 `nullptr`**。照搬上游会在
+"本来就是要让它更安全的这条路径上"新增一个解引用。
+已按同文件 `HookSetPosition`（`:201`）的既有写法判空。
+
+### 34.6 验证方式
+
+`hkStepInfo` 的退化阶梯用 g++ 编成可执行，并**分进程**跑了两种映射状态：
+
+| 状态 | 结果 |
+| --- | --- |
+| 1.6.x/1.7.x，id 有映射 | `ok=1 dt=0.0166667 inv=60.000` |
+| 1.5.x，id 无映射、有移动步长 | `ok=1 dt=0.0200000 inv=50.000`（退回移动步长） |
+| 1.5.x，两者都没有 | `ok=1 dt=0.0100000 inv=100.000`（保留 controller 里已有的值） |
+
+**分进程是必须的**：`PhysicsDeltaTime()` 缓存答案（"只问一次"），
+同一进程内换映射不会重算——这一点也是实测撞出来的，不是设计时想到的。
+
+另用 g++ 把改过的 `AIProcess::GetCharController` / `ForcePosition` 逻辑
+连同一份最小 shim 编译运行过，确认签名、调用约定与判空分支无误。
+（shim 本身修了三轮才对：`VersionDbPtr` 是模板、`TP_THIS_FUNCTION` 定义的是
+**函数指针类型**故 `Get()` 返回指针的指针、`NiRefObject` 是 0x10 字节的
+多态基类。这三处错都在 shim 里，源码没动过。）
+

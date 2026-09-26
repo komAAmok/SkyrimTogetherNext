@@ -67,7 +67,6 @@ TP_THIS_FUNCTION(TPlayAnimationAndWait, bool, void, uint32_t auiStackID, TESObje
 TP_THIS_FUNCTION(TPlayAnimation, bool, void, uint32_t auiStackID, TESObjectREFR* apSelf, BSFixedString* apEventName);
 TP_THIS_FUNCTION(TRotate, void, TESObjectREFR, float aAngle);
 TP_THIS_FUNCTION(TLockChange, void, TESObjectREFR);
-TP_THIS_FUNCTION(TSetLeveledCreature, void, TESObjectREFR, TESActorBase* apOriginalBase, TESActorBase* apTemplateBase);
 
 static TActivate* RealActivate = nullptr;
 static TAddInventoryItem* RealAddInventoryItem = nullptr;
@@ -78,7 +77,6 @@ static TRotate* RealRotateX = nullptr;
 static TRotate* RealRotateY = nullptr;
 static TRotate* RealRotateZ = nullptr;
 static TLockChange* RealLockChange = nullptr;
-static TSetLeveledCreature* RealSetLeveledCreature = nullptr;
 
 #ifdef SAVE_STUFF
 
@@ -164,6 +162,13 @@ void TESObjectREFR::SetRotation(float aX, float aY, float aZ) noexcept
     TiltedPhoques::ThisCall(RealRotateX, this, aX);
     TiltedPhoques::ThisCall(RealRotateY, this, aY);
     TiltedPhoques::ThisCall(RealRotateZ, this, aZ);
+}
+
+void TESObjectREFR::SetLeveledCreature(TESActorBase* apOriginalBase, TESActorBase* apTemplateA) noexcept
+{
+    TP_THIS_FUNCTION(TSetLeveledCreature, void, TESObjectREFR, TESActorBase*, TESActorBase*);
+    POINTER_SKYRIMSE(TSetLeveledCreature, s_SetLeveledCreature, 20231);
+    TiltedPhoques::ThisCall(s_SetLeveledCreature, this, apOriginalBase, apTemplateA);
 }
 
 using TiltedPhoques::Serialization;
@@ -1128,26 +1133,13 @@ void TP_MAKE_THISCALL(HookLockChange, TESObjectREFR)
         World::Get().GetRunner().Trigger(LockChangeEvent(apThis->formID, false, 0));
 }
 
-// Kept for reference: Actor::GetLeveledPick reads the engine's ExtraLeveledCreature directly.
-// Called by Actor::RecalcLeveledActor (37323) and TESActorBaseData::CalcTemplateForRef (14374) in the engine.
-void TP_MAKE_THISCALL(HookSetLeveledCreature, TESObjectREFR, TESActorBase* apOriginalBase, TESActorBase* apTemplateBase)
-{
-    TiltedPhoques::ThisCall(RealSetLeveledCreature, apThis, apOriginalBase, apTemplateBase);
-
-    const uint32_t cOriginalBaseId = apOriginalBase ? apOriginalBase->formID : 0;
-    // ExtraDataList::SetLeveledCreature stores this pointer directly in templateBase.
-    const uint32_t cTemplateBaseId = apTemplateBase ? apTemplateBase->formID : 0;
-
-    TESForm* pResult = apThis->baseForm;
-    spdlog::debug(
-        "SetLeveledCreature: ref {:X}, original base {:X}, template base {:X}, current base {:X}", apThis->formID, cOriginalBaseId, cTemplateBaseId, pResult ? pResult->formID : 0);
-}
-
+// The debug-only HookSetLeveledCreature that used to live here was replaced by
+// TESObjectREFR::SetLeveledCreature: the leveled NPC reconciliation now writes
+// that extra data itself instead of logging what the engine wrote.
 static TiltedPhoques::Initializer s_objectReferencesHooks(
     []()
     {
         POINTER_SKYRIMSE(TLockChange, s_lockChange, 19512);
-        // POINTER_SKYRIMSE(TSetLeveledCreature, s_SetLeveledCreature, 20231);
         POINTER_SKYRIMSE(TRotate, s_rotateX, 19787);
         POINTER_SKYRIMSE(TRotate, s_rotateY, 19788);
         POINTER_SKYRIMSE(TRotate, s_rotateZ, 19789);
@@ -1158,7 +1150,6 @@ static TiltedPhoques::Initializer s_objectReferencesHooks(
         POINTER_SKYRIMSE(TPlayAnimation, s_playAnimation, 56205);
 
         RealLockChange = s_lockChange.Get();
-        // RealSetLeveledCreature = s_SetLeveledCreature.Get();
         RealRotateX = s_rotateX.Get();
         RealRotateY = s_rotateY.Get();
         RealRotateZ = s_rotateZ.Get();
@@ -1169,7 +1160,6 @@ static TiltedPhoques::Initializer s_objectReferencesHooks(
         RealPlayAnimation = s_playAnimation.Get();
 
         TP_HOOK(&RealLockChange, HookLockChange);
-        // TP_HOOK(&RealSetLeveledCreature, HookSetLeveledCreature);
         TP_HOOK(&RealRotateX, HookRotateX);
         TP_HOOK(&RealRotateY, HookRotateY);
         TP_HOOK(&RealRotateZ, HookRotateZ);

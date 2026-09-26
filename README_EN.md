@@ -6,15 +6,13 @@
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 > ## ⚠️ Recommended game version: **1.5.97**
-> ## 📦 Recommended mod version: 1.1.3
+> ## 📦 Recommended mod version: **1.1.1**
 >
 > 1.5.97 is the version this framework is best validated against, and 1.0.41 fixes the
 > deployment and multiplayer crash issues. If you are on another game version or an older
 > mod build, please update to these before reporting a problem.
 
-This repository builds on the open-source Skyrim Together framework to support more game versions and a richer companion-plugin ecosystem, for a more immersive multiplayer experience.
-
-How it relates to upstream: [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) provides the client/server framework, the networking layer and the engine reverse-engineering. This repository adds **usability, stability and the plugin ecosystem** on top - fixing what actually breaks in real multiplayer sessions, and making each fix reproducible and verifiable.
+This repository builds on the open-source Skyrim Together framework to support more game versions and Mods (mod packs), plus a richer companion-plugin ecosystem, for a more immersive multiplayer experience.
 
 This repository extends the upstream [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) with several practical capabilities:
 
@@ -65,13 +63,12 @@ The following mod pack has been validated for multiplayer and can be used with t
 
 | Mod pack | Link | Stability |
 | --- | --- | --- |
-| 神话整合 (Magic Skyrim) | https://magicskyrim.net/archives/2976 | Under testing |
+| 神话整合 (Magic Skyrim) | https://magicskyrim.net/ | Under testing |
+| Nolvus v6 | https://www.nolvus.net/ | Under testing |
 
-> **神话整合**: Verified through the basic multiplayer flow; **stability is still under testing.**
-> If you hit a crash, please attach the logs described below and mention that you are using this pack.
-> Mod packs not listed here are not necessarily broken, but they are untested. If a pack ships
-> animation / behavior mods that collide with this framework's behavior-variable replacement,
-> you will see `BehaviorVar::Patch` lines in the log.
+> If you hit a crash, please attach the logs described below. 
+>
+> If a pack ships animation / behavior mods that collide with this framework's behavior-variable replacement, you will see `BehaviorVar::Patch` lines in the log.
 
 ## 🐛 Reporting Issues
 

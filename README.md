@@ -5,15 +5,13 @@
 [![Build windows](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml/badge.svg)](https://github.com/komAAmok/SkyrimTogetherNext/actions/workflows/windows.yml)
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
-> ## ⚠️ 推荐游戏版本:**1.5.97**
-> ## 📦 推荐 Mod 版本: 1.1.3
+> ## ⚠️ 推荐游戏版本: **1.5.97**
+> ## 📦 推荐 Mod 版本: **1.1.1**
 >
 > 1.5.97 是本框架验证最充分的版本,1.0.41 起修复了部署与联机崩溃问题。
 > 使用其它游戏版本或更旧的 Mod 版本出现的问题,请先升级到上述版本再反馈。
 
-本仓库旨在 Skyrim Together 开源框架的基础上,提供更多游戏版本的兼容,更丰富的联机插件生态,以达到更沉浸的联机体验。
-
-与上游的关系:上游 [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) 提供客户端/服务端框架、网络层与引擎逆向成果;本仓库在此之上负责**可用性、稳定性与插件生态**——修掉实机联机中真实遇到的问题,并让这些修复可以被复现和验证。
+本仓库旨在 Skyrim Together 开源框架的基础上,提供更多游戏版本和Mod(Mod整合包)的兼容,更丰富的联机插件生态,以达到更沉浸的联机体验。
 
 本仓库在上游 [TiltedEvolution](https://github.com/tiltedphoques/TiltedEvolution) 基础上扩展了多项实用能力:
 
@@ -76,11 +74,10 @@
 
 | 整合包名 | 链接 | 稳定性 |
 | --- | --- | --- |
-| 神话整合 | https://magicskyrim.net/archives/2976 | 测试中 |
+| 神话整合 | https://magicskyrim.net/ | 测试中 |
+| Nolvus v6 | https://www.nolvus.net/ | 测试中 |
 
-> **神话整合**:已通过基础联机流程验证,**稳定性仍在测试中**。遇到闪退请先按
-> "反馈问题"附上日志,并说明使用的是该整合包。
-> 未列出的整合包并非一定不可用,但未经测试;整合包自带的动画/行为类 Mod
+> 遇到闪退请先按"反馈问题"附上日志。
 > 若与本框架的行为变量替换冲突,会打印 `BehaviorVar::Patch` 相关日志。
 
 ## 🐛 反馈问题

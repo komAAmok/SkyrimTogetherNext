@@ -7,6 +7,44 @@
 每个 tag(形如 `v1.0.20`)对应一个 Release,附上版本号相同的两个包——
 客户端 mod 与专用服务器。逐条提交的历史见 `git log` 与各次 PR。
 
+## v1.1.4(2026-09-26)
+
+同步上游 **v1.8.2**(3 个提交,分叉点 `e0002073`),并按本仓库的多版本逻辑改写了两处
+会在 1.5.x 上失效的写法。
+
+### 上游同步
+
+- **#899 按"原始 NPC + 房主选中的模板"重建等级化 NPC**:此前远端角色的 base 被**直接**
+  换成房主选中的模板,丢掉了只存在于原始 NPC 上的数据(守卫的名字、默认装备等)。
+  现在走引擎自己的 `CreateTemplateActorBase(原始, 模板)`,与单机解析结果一致;
+  旧的临时 base 交给引擎的 `GarbageCollector` 回收(与 `RecalcLeveledActor` 同一套策略,
+  但**不动**旧实现留下的静态 pick);
+- **#893 排除各派系的监狱储物容器**:入狱时没收的赃物/随身物品容器按派系各存一份,
+  同步它们等于让一个玩家的物品进另一个玩家的储物箱。现在遍历 `ModManager::factions`
+  收集这些容器指针并从对象同步里排除(只比较指针,不读它们的内容);
+
+### 1.5.x 兼容(本次同步的主要风险)
+
+- **`GarbageCollector::Get()` 不再解引用零返回桩**:单例 id `400329` 在 1.5.97
+  映射表里**不存在**,而 `POINTER_SKYRIMSE` 对未映射 id 返回的是"零返回桩"——
+  照抄上游会变成**解引用地址 0**。已改为直查地址库,未映射返回 `nullptr`,
+  调用点判空后保留旧 base(泄漏一个临时 form,不崩);
+- **修掉一个上游引入的每帧 Disable/Enable 死循环**:上游用 `GetLeveledPick() == pPick`
+  判断"重建完成",而这个值读的是 `SetLeveledCreature`(id `20231`,1.5.97 **未映射**)
+  写进去的 extra data ⇒ 比较**永远为假**,`WaitingFor3D` 会每帧重新禁用再启用该角色。
+  新增 `LeveledNpcSystem::CanRecordPick()`(只查一次并缓存),不可写时退回本仓库原有路径
+  并把完成判定切回 `baseForm == pPick`;
+- `TESObjectREFR::SetBaseForm` 更名为上游的 `SetObjectReference`(仅改名,布局不变);
+- `TESFaction` 补 `CrimeData` / `ModManager::factions`:偏移不是猜的——
+  form 数组自 `0x10` 起、每项 `0x18`、按 FormType 索引,Faction(11)→`0x118`
+  与既有 Quest(77)→`0x748` 互相印证,三个 `static_assert` 同时钉住;
+
+### 清单
+
+- `Tools/missing_1_5_97_ids.txt`:新增两个未映射 id(`36460`、单例 `400329`),
+  覆盖率 3066/3078(99.6%);
+- `docs/PITFALLS.md` §3.1:记录本次同步的两处判断与查证手段。
+
 ## v1.1.2(2026-09-26)
 
 第四轮审计:全仓复查 + 插件层专项,以及**一次真实缺陷的回滚**。

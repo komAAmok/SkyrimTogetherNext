@@ -1,13 +1,13 @@
-# Skyrim Together Next - 1.5.97 missing address manifest (9 ids)
+# Skyrim Together Next - 1.5.97 missing address manifest (11 ids)
 #
-# Coverage 3066/3075 codebase ids (99.7%), and all 3699 map entries validate
+# Coverage 3066/3078 codebase ids (99.6%), and all 3699 map entries validate
 # against version-1-5-97-0.bin. Tools/ida/recover_1597.py closed 20 of the
 # previous 29 by identifying the 1.6.1170 function on its own terms (referenced
 # string literals, call-graph position, globals it touches) instead of
 # interpolating between mapped neighbours; see Tools/ida/st_overrides_graph.txt
 # for the per-id evidence.
 #
-# What the remaining 9 cost, in order of how much anyone would notice:
+# What the remaining 11 cost, in order of how much anyone would notice:
 #
 #   32883  animation graph revert. AnimationSystem only calls it when a remote
 #          player's animation is replayed with ResetAnimationGraphForReplay, so
@@ -17,6 +17,17 @@
 #          mod compat path (ModCompat/BehaviorVar.cpp), and only for the local
 #          player; degrades to "third person".
 #   82088  UI::CloseAllMenus, reached only from a debug view.
+#   36460  GarbageCollector::Add (the base-object overload), added by the
+#          upstream 1.8.2 leveled-NPC rebuild. Only reached from that rebuild,
+#          and the stub makes it a no-op: the superseded temporary NPC base is
+#          leaked instead of being handed to the engine's collector. Its
+#          singleton is unmapped too, so GarbageCollector::Get returns null
+#          there and the call is skipped before it ever reaches this id.
+#   400329 GarbageCollector singleton. Deliberately resolved with
+#          FindAddressById rather than POINTER_SKYRIMSE: an unmapped id there
+#          yields the zero-returning stub, and dereferencing it is an access
+#          violation at address 0 on every leveled NPC rebuild. Returning null
+#          instead makes the disposal a no-op (see 36460 above).
 #   69554  tasklet thread names - thread labels in a debugger, nothing else.
 #   400180 RTTI descriptor for BSWin32GameDataSystemUtility; nothing casts to it.
 #   36548  startup movie skip. One candidate exists and shares a literal, but
@@ -32,6 +43,8 @@
 # structural fingerprints and the candidates already ruled out.
 #
 # ae=14774 | call/data | getGenerator | Games/Skyrim/BSRandom/BSRandom.cpp:20
+# ae=36460 | call/data | GarbageCollector::Add(TESBoundObject*) | Games/Skyrim/Misc/GarbageCollector.cpp:24
+# ae=400329 | call/data | GarbageCollector singleton | Games/Skyrim/Misc/GarbageCollector.cpp:11
 # ae=21600 | call/data | isFirstPerson | Games/Skyrim/Camera/PlayerCamera.cpp:15
 # ae=32883 | call/data | InternalRevertAnimationGraphManager | Games/IAnimationGraphManagerHolder.cpp:34
 # ae=36548 | patch anchor | skip startup movie | Games/Skyrim/Interface/UI.cpp:133

@@ -16,6 +16,7 @@
 struct AnimationVariables;
 struct TESWorldSpace;
 struct TESBoundObject;
+struct TESActorBase;
 struct TESContainer;
 struct BGSScene;
 
@@ -137,7 +138,7 @@ struct TESObjectREFR : TESForm
     virtual void sub_81();
     virtual void sub_82();
     virtual void sub_83();
-    virtual void SetBaseForm(TESBoundObject* apForm); // "void SetObjectReference(...)"?
+    virtual void SetObjectReference(TESBoundObject* apObject);
     virtual void sub_85();
     virtual void sub_86();
     virtual void sub_87();
@@ -165,6 +166,12 @@ struct TESObjectREFR : TESForm
     virtual void sub_9B();
 
     void SetRotation(float aX, float aY, float aZ) noexcept;
+
+    // Writes the ExtraLeveledCreature extra data the engine keeps for a
+    // resolved leveled actor: which placed NPC it came from and which template
+    // was picked. Unmapped on 1.5.x, where the address library substitutes a
+    // no-op stub and only the metadata write is lost.
+    void SetLeveledCreature(TESActorBase* apOriginalBase, TESActorBase* apTemplateA) noexcept;
 
     BSPointerHandle<TESObjectREFR> GetHandle() const noexcept;
     uint32_t GetCellId() const noexcept;

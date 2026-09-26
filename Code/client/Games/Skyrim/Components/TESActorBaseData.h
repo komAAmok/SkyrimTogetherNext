@@ -5,6 +5,7 @@
 struct BGSVoiceType;
 struct TESFaction;
 struct TESLevItem;
+struct TESActorBase;
 
 struct TESActorBaseData : BaseFormComponent
 {
@@ -48,6 +49,12 @@ struct TESActorBaseData : BaseFormComponent
         else
             actorBaseFlags &= ~BaseFlags::IS_ESSENTIAL;
     }
+
+    // Copies apOriginalBase and applies apTemplateBase's inherited data
+    // according to the original's template flags - what the engine does when it
+    // resolves a leveled NPC. Returns null when the running build has no
+    // mapping for the underlying function.
+    static TESActorBase* CreateTemplateActorBase(TESActorBase* apOriginalBase, TESActorBase* apTemplateBase) noexcept;
 
     GameArray<FactionRank> factions;
 };

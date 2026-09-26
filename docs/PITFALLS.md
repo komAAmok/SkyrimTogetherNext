@@ -104,6 +104,36 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
   **"局部变量完整性"**（抓半截 hunk 拼接）。
 - `.gitmodules` 幽灵 submodule：删掉残留 `[submodule]` 条目（`66d61839`），否则拉远程报错。
 
+### 3.1 同步上游 v1.8.2（2026-09-26，`e0002073` → `0ffb80b0`）
+
+上游 3 个提交：#899（按"原始 NPC + 房主选中的模板"重建等级化 NPC 基础）、
+#893（排除各派系的监狱储物容器）、#900（合并）。逐文件对齐后的**判断**：
+
+- **`TESObjectREFR::SetBaseForm` → `SetObjectReference`**：上游只是把虚函数改名。
+  fork 侧只有 `Actor.cpp` 一处调用，跟着改即可；`static_assert` 表没动（名字不改布局）。
+- **`TESObjectREFR::SetLeveledCreature`（id 20231）/ `GarbageCollector`（单例 400329、
+  方法 36460）/ `CreateTemplateActorBase`（14375）**：**1.5.97 映射表只认 14375**，另三个全缺。
+  上游写法在这里会踩两个坑，都已按 fork 逻辑绕开：
+  1. `GarbageCollector::Get()` 用 `POINTER_SKYRIMSE` 解引用单例 ⇒ 未映射时拿到**零返回桩**，
+     `*stub()` 就是**解引用地址 0**（而且是在每次等级化 NPC 重建时都踩）。
+     已改为 `FindAddressById` 直查，未映射返回 `nullptr`，
+     调用点判空后**保留**旧临时 base（泄漏一个临时 form，好过崩）。
+  2. 上游用 `GetLeveledPick() == pPick` 判定"重建完成"，而该比较读的正是
+     `SetLeveledCreature` 写进去的 extra data ⇒ 1.5.x 上**永不相等**，
+     `WaitingFor3D` 状态会**每帧重新 Disable/Enable**（不是不生效，是死循环）。
+     已加 `LeveledNpcSystem::CanRecordPick()`（`static` 缓存一次），不可写时退回
+     fork 原有的"base 直接置为 pick"路径，并把完成判定切回 `baseForm == pPick`。
+  > 教训同 §2：**上游的"修正"是对 AE 而言的**。这次不是偏移，是"这个 id 在 1.5.x 根本不存在"。
+  > 判据：新引入的 id 先去 `versionlib-ae-to-se-1-5-97-0.map` 里查一行，
+  > 缺了就必须问"缺了会怎样"，而不是"反正有桩兜底"。
+- **`ModManager::factions`（TES.h）**：不是拍脑袋的偏移。form 数组从 0x10 起、
+  每项 0x18、按 FormType 索引：Faction(11) → `0x10 + 0x18*11 = 0x118`，
+  已有的 Quest(77) → `0x748`，与上游值**互相印证**。三个 `static_assert` 同时钉住。
+- **`TESFaction` 补齐 CrimeData**：成员全在 form 记录本体里，**不在** ExtraDataList 后面，
+  所以 1.5.x 那 8 字节差**不经过这里**，一套偏移通吃两个分支（已写进注释）。
+- **`Tools/missing_1_5_97_ids.txt`**：本次新增两个未映射 id（`36460` 与单例 `400329`），
+  覆盖率 3066/3078（99.6%），清单同步更新。
+
 ## 4. launcher vs SKSE 差异
 
 1. 页面保护：SKSE 下 `.text` 是 RX，直写会 AV → 需临时 RWX 窗口（`GamePatch.h`）。

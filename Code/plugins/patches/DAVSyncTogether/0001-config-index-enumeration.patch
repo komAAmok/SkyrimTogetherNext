@@ -22,7 +22,7 @@ index acd6d62..3900efd 100644
 +        const std::filesystem::recursive_directory_iterator end;
 +        if (iterationEc) {
 +            SKSE::log::error(
-+                "DAVST CONFIG_INDEX cannot enumerate path=\"{\"} \" error=\"{\"}",
++                "DAVST CONFIG_INDEX cannot enumerate path=\"{}\" error=\"{}\"",
 +                root.string(),
 +                iterationEc.message());
 +            return;
@@ -31,7 +31,7 @@ index acd6d62..3900efd 100644
 +        for (; iterator != end; iterator.increment(iterationEc)) {
 +            if (iterationEc) {
 +                SKSE::log::warn(
-+                    "DAVST CONFIG_INDEX enumeration stopped path=\"{\"} \" error=\"{\"}",
++                    "DAVST CONFIG_INDEX enumeration stopped path=\"{}\" error=\"{}\"",
 +                    root.string(),
 +                    iterationEc.message());
 +                break;

@@ -3260,3 +3260,119 @@ README 的版本表。这不是笔误，是"文档更新靠自觉"这个模式�
 > **教训**：一个"遍历集合"的检查，必须先断言**集合非空**。
 > 否则输入消失时，它会从"没发现问题"变成"没问题"。
 
+## 36. 2026-09-27 场次：KiLoader / KreatE 的「不兼容」其实是我们的辅助进程误加载了 ENB 代理
+
+**报障**：装了 KiLoader（以及依赖它的 KreatE）之后启动游戏弹窗
+`KiLoader initialization failed`，细节是两条 `Couldn't open logging file`，
+第二条 `std::system_error: The process cannot access the file because it is being used by
+another process`。结论被直接写成「本框架不兼容 KiLoader」。
+
+上游有同样的报告（TiltedEvolution#766，2025-02 提出、至今 open），
+维护者的回复是「无法承诺支持 KiLoader，建议改用 Community Shaders」。
+**这个结论在本仓库里是错的**，而且错得不必要。
+
+### 36.1 判据：报错里的进程名不是游戏进程
+
+截图里最关键的一处字样是 **`KiLoaderTPProcess`**：
+
+```
+IOException(Couldn't open logging file
+    C:\Users\Admin\AppData\Local\KiLoaderTPProcess\Logs\KiLoader.log)
+IOException(Couldn't open logging file
+    D:\GAMES\Nolvus V6\STOCK GAME\Data\KiLoader\KiLoader.log)
+    std::system_error: The process cannot access the file because it is being
+    used by another process
+```
+
+`TPProcess.exe` 是**本框架的 CEF 辅助进程**（`Code/tp_process/`，
+在 `OverlayApp::Initialize` 里作为 `browser_subprocess_path` 交给 CEF）。
+KiLoader 的日志路径按**当前进程名**推导，所以 `KiLoaderTPProcess` 这个目录名
+说明 KiLoader 是在**我们的辅助进程里**被拉起来的，不是游戏进程。
+
+> **教训**：报错里的进程名/路径里出现**我们自己的可执行文件名**时，
+> 「两个 mod 不兼容」这个结论就已经站不住了 —— 先查「谁把那个框架带进了我们的进程」。
+
+### 36.2 链路：游戏根目录的代理 DLL 赢了 System32
+
+辅助进程 `TPProcess.exe` 位于**游戏根目录**。Windows 的默认搜索顺序是
+**exe 所在目录 → 系统目录 → PATH**，所以游戏根目录里的任何同名 DLL 都会
+优先于 `System32` 被加载。
+
+而 `libcef.dll` 的延迟导入表里有 `dxgi.dll`、`d3d11.dll`、`d3d12.dll`、`dcomp.dll`
+（自写 PE 解析确认；`Code/tp_process` 只静态依赖 `libcef.dll`/`KERNEL32.dll`/`ADVAPI32.dll`）。
+这四个正是 ENB、ReShade、SpecialK、Community Shaders 用来挂自己的**代理 DLL 名**。
+
+于是链路是：
+
+1. 辅助进程启动 → `libcef.dll` 按名延迟加载 `d3d11.dll`；
+2. 游戏根目录的 ENB 代理胜出 → ENB 初始化 → 带起 `enbseries\` 下的卫星 DLL；
+3. `KiLoaderSatelliteENB` 拉起**第二份 KiLoader**；
+4. 第二份去开游戏进程**整场都占着**的 `Data\KiLoader\KiLoader.log` → 启动即失败；
+5. 弹窗被读成「Skyrim Together 和 KiLoader 冲突」。
+
+**这解释了为什么只有装了 ENB/ReShade 类框架的整合包会报**：没有代理 DLL 时，
+游戏根目录没有 `d3d11.dll`，第 2 步就不会发生。
+
+### 36.3 修法与两个实测细节
+
+修法：`Code/tp_process/main.cpp` 在 `CefExecuteProcess` **之前**，按**完整路径**
+加载 `System32` 的四个代理名（见下）。加载器在搜索任何目录**之前**
+先按**基名**匹配已加载模块，所以随后的按名加载（延迟导入就是按名）直接命中
+它们，不再落到游戏根目录。
+
+**钉住的四个名字**：`dxgi.dll`、`d3d11.dll`、`d3d12.dll`、`dcomp.dll`。选它们的依据是
+直接读 `libcef.dll` 的**延迟导入表**：只有这四个既是延迟导入、又是图形框架会占用的
+代理名；其余延迟导入（USER32/SHELL32/MFPlat…）不可能被 mod 占名。
+
+**细节一：顺序必须 `dxgi` 在前**。`System32\d3d11.dll` **静态导入** `dxgi.dll`，
+先加载 `d3d11` 会让它自己的依赖解析到游戏根目录的代理，加载失败。
+本机用一份同名的假代理复现（C# + P/Invoke，见 36.4）：
+
+```
+app dir 里放假的 d3d11.dll + dxgi.dll，不预加载：
+  bare d3d11.dll -> FAILED err=193 (ERROR_BAD_EXE_FORMAT)
+  bare dxgi.dll  -> FAILED err=193
+先预加载 d3d11、再 dxgi：
+  preload d3d11 -> FAILED err=193      <- 它自己的 dxgi 依赖被劫持
+先预加载 dxgi、再 d3d11：
+  preload dxgi  -> C:\WINDOWS\system32\dxgi.dll
+  preload d3d11 -> C:\WINDOWS\system32\d3d11.dll
+  bare dxgi     -> C:\WINDOWS\system32\dxgi.dll   <- 已钉住
+  bare d3d11    -> C:\WINDOWS\system32\d3d11.dll  <- 已钉住
+```
+
+**细节二：不能改用 `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32)`**。
+本框架自己的 overlay 运行时（`libEGL.dll`、`libGLESv2.dll`、`vk_swiftshader.dll`、
+`d3dcompiler_47.dll`）同样部署在游戏根目录并**按名**加载，收紧搜索路径会把
+「辅助进程误加载 ENB」换成「overlay 起不来」。只钉这四个名字即可，
+因为 `libcef.dll` 的延迟导入表里，只有这四个是第三方会占用名字的图形 DLL。
+
+> **未走的路**：删掉游戏根目录的代理、让 ENB 换代理名 —— 都是在要求玩家改自己的
+> mod 列表；把辅助进程挪出游戏根目录 —— 要动 CEF 的 `browser_subprocess_path`
+> 与打包布局，收益不抵风险。
+
+### 36.4 复核用的命令（照抄）
+
+```powershell
+# 1. 辅助进程到底静态依赖什么（只有 libcef/KERNEL32/ADVAPI32 才是对的）
+#    用自写 PE 解析读导入表；`dumpbin /imports` 需要 VS 环境
+
+# 2. libcef.dll 的延迟导入里有没有第三方会占用的图形 DLL 名
+#    -> dxgi.dll / d3d11.dll / d3d12.dll / dcomp.dll 都在
+
+# 3. 应用目录优先级：把假 DLL 放在 exe 旁边，看按名加载落到哪里
+#    （本机实测：落在 exe 旁边，报 193；预加载 System32 后落到 System32）
+
+# 4. 真机确认代理是否存在
+Get-ChildItem '<game root>' -Filter '*.dll' |
+    Where-Object { $_.Name -match 'd3d11|dxgi|dinput8|version|winmm' }
+```
+
+### 36.5 顺带记下：KiLoader 是什么
+
+KiLoader 不是普通 SKSE 插件，而是一个**插件加载框架**：它有自己的插件 API、
+有「卫星 DLL」（`KiLoaderSatelliteENB.dll` / `KiLoaderSatelliteSKSE.dll`，
+分别挂在 ENB 与 SKSE 上），并**按进程名**管理日志与配置。KreatE 与 AELAS 是
+跑在它上面的插件。正因为它是**按进程**存在的框架，同一台机器上出现第二份实例
+时才会撞日志文件 —— 这是它如实报告了被强加的碰撞，不是它的缺陷。
+

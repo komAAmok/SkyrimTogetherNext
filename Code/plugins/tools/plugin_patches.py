@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,45 @@ def patch_files(plugin_id: str) -> list[Path]:
 
 def submodule_dir(plugin: dict) -> Path:
     return ROOT / plugin['submodule']
+
+
+# A format placeholder whose braces contain a quote. The C++ literal for
+# path=\"{}\" is written with escaped quotes, and writing the escape in the wrong
+# place - path=\"{\"} - puts the quote *inside* the braces. fmt then reads the quote
+# as the format spec, std::string has no formatter for it, and the translation unit
+# fails to compile: that typo is what broke the DAVSyncTogether build with
+# error C7595 at DAVConfigIndex.cpp(109,17), and the patch that carried it lives in
+# this repository, so nothing upstream would ever have caught it.
+#
+# The rule is deliberately narrow. A real format spec is alignment, width,
+# precision or a type letter; a quote in one is always a misplaced escape, so this
+# cannot fire on a legitimate spec.
+FORMAT_FIELD = re.compile(r'\{([^{}]*)\}')
+
+
+def unescape_cpp(literal: str) -> str:
+    """The bytes the compiler sees, for the escapes that matter here."""
+    return literal.replace('\\\\', '\x00').replace('\\"', '"').replace('\x00', '\\')
+
+
+def malformed_format_fields(text: str) -> list[tuple[int, str]]:
+    """(line, field) for every placeholder that cannot be a valid format spec.
+
+    One entry per line, not per quote: a line with two broken placeholders is one
+    mistake to fix, and reporting it twice only makes the output noisier.
+    """
+    found = []
+    for number, line in enumerate(text.splitlines(), 1):
+        # Only added lines: a '-' line is the pinned source, not ours to fix.
+        if not line.startswith('+') or line.startswith('+++'):
+            continue
+        # fmt treats {{ and }} as literal braces, so drop them before parsing.
+        candidate = unescape_cpp(line[1:]).replace('{{', '').replace('}}', '')
+        for field in FORMAT_FIELD.findall(candidate):
+            if '"' in field:
+                found.append((number, field))
+                break
+    return found
 
 
 def is_applied(directory: Path, patch: Path) -> bool:
@@ -103,7 +143,7 @@ def cmd_apply(_args) -> int:
 
 
 def cmd_check(_args) -> int:
-    failures = []
+    failures = lint_patches()
     for plugin in plugins():
         directory = submodule_dir(plugin)
         for patch in patch_files(plugin['id']):
@@ -136,10 +176,29 @@ def cmd_revert(_args) -> int:
     return 0
 
 
+def lint_patches() -> list[str]:
+    """Reject a patch whose own added lines cannot compile as format strings.
+
+    git apply cannot see this: the patch is syntactically perfect and applies
+    cleanly, and the failure only appears in a Windows build ten minutes later.
+    That is exactly how it reached CI once, so it is checked here instead.
+    """
+    failures = []
+    for plugin in plugins():
+        for patch in patch_files(plugin['id']):
+            for number, field in malformed_format_fields(patch.read_text(encoding='utf-8')):
+                failures.append(
+                    f"{plugin['id']}/{patch.name}:{number}: a format placeholder contains a "
+                    f"quote ({{{field}}}); the escaped quote belongs outside the braces "
+                    f'(\"{{}}\" not \"{{\"}}) or fmt fails to compile it'
+                )
+    return failures
+
+
 def cmd_verify(_args) -> int:
     """Every patch must apply to the pinned commit, and none may be unapplied
     without being recorded. Run against a pristine tree (CI does)."""
-    failures = []
+    failures = lint_patches()
     total = 0
     for plugin in plugins():
         directory = submodule_dir(plugin)

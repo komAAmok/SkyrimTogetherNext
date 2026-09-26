@@ -7,7 +7,123 @@
 每个 tag(形如 `v1.0.20`)对应一个 Release,附上版本号相同的两个包——
 客户端 mod 与专用服务器。逐条提交的历史见 `git log` 与各次 PR。
 
-## 未发布(自 v1.1.4 起)
+## v1.1.5(2026-09-27)
+
+### 修复:插件补丁里的 fmt 占位符写错,导致 CI 编译失败
+
+**现象**:`Build windows` 与 `Playable Skyrim Together Build` 两个工作流都红,
+标注为 `companion plugin build failed: DAVSyncTogether (build)`,编译错误是
+`DAVConfigIndex.cpp(109,17): error C7595: 'fmt::v12::fstring<...>::fstring': call to
+immediate function is not a constant expression`。
+
+**根因**:错在**本仓库自己的补丁文件**,不在插件源码里。
+`Code/plugins/patches/DAVSyncTogether/0001-config-index-enumeration.patch` 里那两条
+日志的占位符写成了 `path=\"{\"} \" error=\"{\"}` —— **转义引号写进了花括号里面**。
+C++ 编译器看到的是 `path="{"} " error="{"}`;`fmt` 在**编译期**解析格式串时,
+把花括号里的 `"` 当成**格式说明符**,而 `std::string` 没有对应它的 formatter,
+于是直接编译失败。写成 `path=\"{}\" error=\"{}\"` 即两个正常占位符,问题消失。
+
+**为什么 CI 挡不住、本地也看不见**:
+
+- `git apply` 只看补丁**能不能打上**。这条补丁语法完全正确、上下文完全匹配,
+  `PATCH VERIFY OK` 一路绿灯 —— 它根本不知道打进去的 C++ 编不过;
+- 本地没有 Windows SDK 与 vcpkg,`fmt` 的编译期检查跑不起来,
+  所以这个错误**只在 Windows 构建里、十几分钟之后**才现身。
+
+**修法**:补丁里两行占位符改回 `\"{}\"`。**补丁语义一字未动**,
+只是把转义引号移到花括号外面;`git diff` 恰好 2 行。
+
+**顺带加了一条门禁**(`Code/plugins/tools/plugin_patches.py`):`verify` 与 `check`
+现在会**逐行扫补丁的新增行**,凡是花括号里出现引号的占位符一律报错,并直接指出
+正确写法。规则刻意收得很窄 —— 真正的格式说明符是宽度/精度/类型字母,
+引号出现在里面**必然是转义写错了**,所以不会误伤合法写法。反向验证过:
+把补丁改回原来的写法,门禁立刻报出两处(第 25、34 行)。
+
+> **教训**:补丁能应用 ≠ 补丁编得过。`git apply` 的绿灯只证明文本能对上,
+而**唯一的真值来源是编译器**。这类「本地绿、远端红」的坑,
+要么在本地补齐工具链,要么把判据写成门禁 —— 这次选了后者,
+因为它是**可判定**的:花括号里不该有引号。
+
+### 修复:KiLoader / KreatE 的「不兼容」弹窗(它们本来并不冲突)
+
+**现象**:装了 KiLoader(以及依赖它的 KreatE / AELAS)之后,启动游戏弹
+`KiLoader initialization failed`,细节是两条 `Couldn't open logging file`,
+第二条 `std::system_error: The process cannot access the file because it is being
+used by another process`。看起来像本框架与 KiLoader 不兼容,上游也有同样的
+报告([TiltedEvolution#766](https://github.com/tiltedphoques/TiltedEvolution/issues/766),
+至今 open,回复是「无法承诺支持 KiLoader」)。
+
+**根因**(证据来自报错文本本身,不是推测):
+
+1. 报错里的进程名是 **`KiLoaderTPProcess`** —— 那是**本框架的 CEF 辅助进程**
+   `TPProcess.exe` 的名字,不是游戏进程。也就是说 KiLoader 是在**我们的辅助进程里**
+   被拉起来的;
+2. 为什么会被拉起来:`TPProcess.exe` 位于**游戏根目录**,Windows 解析它的导入表时
+   **先搜 exe 所在目录**,再搜 `System32`;而 `libcef.dll` 按名字延迟加载
+   `dxgi.dll`、`d3d11.dll`、`d3d12.dll`、`dcomp.dll`(自写 PE 解析读延迟导入表确认)。
+   这四个正是 ENB、ReShade、SpecialK、Community Shaders 用来挂代理的名字,于是
+   辅助进程加载的是**游戏根目录的 ENB 代理**,ENB 再带起 `enbseries\` 下的卫星 DLL,
+   `KiLoaderSatelliteENB` 随之拉起一份 KiLoader;
+3. 为什么那一份必死:KiLoader 的日志路径按**当前进程名**推导,于是它去开
+   `Data\KiLoader\KiLoader.log` —— 而游戏进程**整场**都占着这个文件
+   (报错第一行的 `AppData\Local\KiLoaderTPProcess\Logs\KiLoader.log` 同样来自
+   进程名)。同一个框架的两份实例无法共用该文件,第二份在启动阶段即失败。
+
+所以这**不是**功能冲突,而是辅助进程误加载了不属于它的 DLL,再由 KiLoader 如实报出
+了这个碰撞。
+
+**修法**:`Code/tp_process/main.cpp` 在 `CefExecuteProcess` 之前,按**完整路径**加载
+`System32` 的 `dxgi.dll`、`d3d11.dll`、`d3d12.dll`、`dcomp.dll` —— 这四个既是
+`libcef.dll` **延迟导入表**里的名字(直接读 PE 得到,其余延迟导入都是 USER32/SHELL32
+这类不可能被 mod 占用的系统名),也正是图形框架会占用的代理名。加载器在搜索任何目录
+之前会先按**基名**匹配已加载模块,因此随后的按名加载(延迟导入正是按名)直接命中它们,
+不再落到游戏根目录。
+
+两个细节是**实测**出来的,不是照抄:
+
+- **顺序必须 `dxgi` 在前**:`System32\d3d11.dll` 静态导入 `dxgi.dll`,先加载 `d3d11`
+  会让它自己的依赖解析到游戏根目录的代理,加载失败并报 `ERROR_BAD_EXE_FORMAT (193)`。
+  本机用一份同名的假代理复现:先 `d3d11` → 193;先 `dxgi` → 两者都正确落到 `System32`。
+  (`d3d12.dll` / `dcomp.dll` **不**导入 `dxgi`,这点也实测过,所以只有前两个的相对顺序
+  是硬要求);
+- **不能改用 `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32)`**:本框架自己的
+  overlay 运行时(`libEGL.dll`、`libGLESv2.dll`、`vk_swiftshader.dll`、
+  `d3dcompiler_47.dll`)同样部署在游戏根目录并**按名**加载,收紧搜索路径会把
+  「辅助进程误加载 ENB」换成「overlay 起不来」。只钉这四个名字即可,
+  因为 `libcef.dll` 的延迟导入表里,只有这四个是第三方会占用名字的图形 DLL。
+
+**未走的路(以及为什么)**:把 `d3d11.dll` / `dxgi.dll` 从游戏根目录删掉、或让 ENB
+改用别的代理名,都是在要求玩家改自己的 mod 列表;给辅助进程换一个不在游戏根目录的
+路径,则要动 CEF 的 `browser_subprocess_path` 与打包布局,收益不抵风险。
+
+> **教训**:「两个 mod 不兼容」这个结论,在**报错里的进程名不是游戏进程**时就要先怀疑。
+> 本例里 `KiLoaderTPProcess` 这一处字样已经指出肇事者是我们自己的辅助进程;
+> 顺着「谁在这个进程里、它为什么在这里」查,比顺着「KiLoader 和谁冲突」查快得多。
+
+### 版本策略:把 **1.1.1** 指定为稳定版(推荐版本回到 1.1.1)
+
+两个 README 的横幅推荐版本改为 **1.1.1**,并在版本表里用
+`**1.1.1** ⭐ **稳定版**` 单独标出;其余版本行**取消加粗**,保持普通样式,
+让「哪一个是稳定版」一眼可辨。中英文两版同步。
+
+> **这一条与 §35 的记录并不矛盾,是同一个判据的两种用法。** §35 里门禁抓到的
+> 「推荐版本落后两版」,指的是**无人维护造成的漂移**:横幅停在 `1.1.1`、
+> 而最新 tag 已经到 `1.1.4`,谁也不知道该装哪个。现在横幅回到 `1.1.1`,
+> 是**有理由的选择**,并且这个理由写在横幅里、由门禁绑住(见下):
+> `1.1.2 ~ 1.1.4` 照常出货、照常可联机,只是**未被指定为稳定版**。
+> 两者的区别不在数字,在于**说不说得清为什么**。
+
+门禁相应扩了 `recommended-version` 这条(没有新开一条检查):横幅指定的推荐版本,
+必须**正是**版本表里标了 ⭐ 稳定版的那一行。这样「横幅说 1.1.1」与「表格标 1.1.1」
+不会各自漂移,也顺带保证表里**恰好只有一行**是稳定版 —— 两行都标、或一行都没标,
+都会红。四条分支(横幅与标记不一致 / 两行都标 / 一行都没标 / 中英各自不一致)
+都做了反向验证。
+
+同时把版本表行的识别放宽到允许数字后面跟稳定版标记(`**1.1.1** ⭐ **稳定版**`),
+但**只允许这一个标记**:第一版放宽成「数字后面跟任意内容」时,
+`| 1.5.3 ~ 1.5.97(老 SE) |` 这类**游戏版本表**的行也会被当成版本表行,
+于是缺行可以用无关的行蒙混过去 —— 正是这条检查存在的意义被它自己绕开了。
+已收紧为只匹配 `⭐ **稳定版**` / `⭐ **stable**`,并做了反向验证。
 
 ### 文档与约束:让"文档更新"成为可检查的规则
 

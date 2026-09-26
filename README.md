@@ -6,9 +6,12 @@
 [![Discord](https://img.shields.io/discord/247835175860305931.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/skyrimtogether)
 
 > ## ⚠️ 推荐游戏版本: **1.5.97**
-> ## 📦 推荐 Mod 版本: **1.1.4**
+> ## 📦 推荐 Mod 版本: **1.1.1** ⭐ **稳定版**
 >
 > 1.5.97 是本框架验证最充分的版本,1.0.41 起修复了部署与联机崩溃问题。
+> **1.1.1 是指定为稳定版的 Mod 版本**:它经过三轮审计,是目前实机验证最充分的
+> 构建。更新的版本(1.1.2 ~ 1.1.4)照常提供、也照常可以联机,只是尚未被指定为
+> 稳定版;想要跟进新功能可以用新版本,想要稳定就留在 1.1.1。
 > 使用其它游戏版本或更旧的 Mod 版本出现的问题,请先升级到上述版本再反馈。
 
 本仓库旨在 Skyrim Together 开源框架的基础上,提供更多游戏版本和Mod(Mod整合包)的兼容,更丰富的联机插件生态,以达到更沉浸的联机体验。
@@ -74,6 +77,37 @@
 > 会在进入房间 / 准备联机时直接导致游戏崩溃。如遇进房闪退,请先禁用此 Mod 再试。
 > 若你确实需要字幕类功能,可改用其它实现,或等待上游修复。
 
+### ✅ 曾经误报为冲突、现已兼容:KiLoader / KreatE
+
+**KiLoader** 与它的插件 **KreatE**、**AELAS** 过去会弹出
+`KiLoader initialization failed` / `Couldn't open logging file`,看起来像本框架不兼容它们。
+**那不是本框架的问题,已修复**;升级到本版本后可以同时启用,不需要卸载或二选一。
+
+**真实原因**:联机界面(CEF)会另起一个辅助进程 `TPProcess.exe`,而它就在**游戏根目录**里。
+Windows 解析它的导入表时,会**先看 exe 所在目录**,再看 `System32`;而 `libcef.dll` 是
+按名字延迟加载 `d3d11.dll` 的 —— 这恰好就是 ENB / ReShade / SpecialK 用来挂载自己的
+代理 DLL 名。于是辅助进程把**游戏根目录里那个 ENB 代理**当成了系统 DLL 加载,ENB 又把
+`enbseries\` 下的卫星 DLL 带进来,`KiLoaderSatelliteENB` 再拉起一份 KiLoader。
+
+**为什么它会报错**:KiLoader 的日志路径是按**当前进程名**推出来的,于是那一份变成了
+`KiLoaderTPProcess`,并要去打开游戏进程**整场都占着**的
+`Data\KiLoader\KiLoader.log`。同一个框架的两份实例没法共用这个文件,第二份在启动阶段
+就死了,而弹出来的错误看上去像是「Skyrim Together 和 KiLoader 冲突」。
+
+**修法**:让 `TPProcess.exe` 在初始化 CEF 之前,**先按完整路径把 `System32` 的
+`dxgi.dll`、`d3d11.dll`、`d3d12.dll`、`dcomp.dll` 加载好** —— 这四个既是
+`libcef.dll` 延迟加载的名字,也是图形框架真正会占用的代理名。加载器会先按基名匹配
+已加载的模块,所以之后的按名加载会直接命中它们,而不会再落到游戏根目录的代理上。
+`dxgi` 必须排在 `d3d11` **之前**:`d3d11.dll` 静态依赖 `dxgi.dll`,先加载 `d3d11`
+会让它自己的依赖解析到代理并失败(实测报 `ERROR_BAD_EXE_FORMAT (193)`)。
+
+> 只钉这几个名字、而不是收紧整个搜索路径,是因为本框架自己的 overlay 运行时
+> (`libEGL.dll`、`libGLESv2.dll` 等)也部署在游戏根目录并按名加载。
+
+> 如果你在**旧版本**上遇到这个弹窗,除了升级,也可以先把 ENB 的代理 DLL
+> (游戏根目录下的 `d3d11.dll` / `dxgi.dll`)暂时移开验证一次 —— 移开就不再弹,
+> 就说明是这条链路。
+
 ## 🧩 支持的整合包
 
 以下整合包已做过联机适配验证,可直接在其基础上启用本框架:
@@ -104,11 +138,12 @@
 
 | 版本 | 日期 | 主要内容 |
 | --- | --- | --- |
-| **1.1.4** | 2026-09-26 | **同步上游 v1.8.2 并按本仓库多版本逻辑改写**:并入 #899(按“原始 NPC + 房主选中的模板”重建等级化 NPC,保住守卫姓名/默认装备等非继承数据)与 #893(排除各派系监狱储物容器,否则一个玩家的物品会进另一个玩家的箱子);两处 1.5.x 改写都不是猜的 —— `GarbageCollector` 单例(id `400329`)与 `SetLeveledCreature`(id `20231`)在 1.5.97 上**没有映射**,照抄上游会分别变成**解引用零返回桩**和**每帧 Disable/Enable 死循环**,已改为直查地址库 + `CanRecordPick()` 门控;修掉 `CommandService::OnSetTimeCommand` 里唯一一处未判空的 `GetByConnectionId` 解引用(**任意玩家一条 `/settime` 即可打崩专用服务器**);修正 `docs/COMPANION-PLUGINS.md` 中与实际出货值**完全相反**的传输描述并加门禁绑死;**覆盖率口径修正**:`collect_codebase_ids()` 原先漏扫全部 301 个 `.h`、又把注释掉的调用算作活的,现口径 **3069/3082(99.6%)** |
-| **1.1.3** | 2026-09-26 | **插件生态落地**:把剩余三个插件按同一配方并入 —— `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`(Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),可选插件由 3 个增至 **6 个**,子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,该脚本又从不进包),中英文改为只描述功能;修复**自己引入的发布阻断** —— 两个插件 pin 的 vcpkg baseline 在 CI 的 `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,已改为按 manifest 反推 baseline 再逐个 fetch;**OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器 `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub(`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex` 随包出货,**Add Actor 同意门控真正可用**;顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` + 1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持**子选项的 artifacts**(原先静默忽略);`GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本也补上了可复现的编译入口,其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义(它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁 |
-| **1.1.2** | 2026-09-26 | 四轮审计 + 插件层专项:修复服务端可被远程打崩(重复认证请求空指针)、`PlayerService`/`DiscoveryService`/`WeatherService`/`OverlayService`/`CalculateHealthPercentage` 等 20 余处空指针;插件层 **ProxyResolver 映射监听器从来没被触发过**(`OStimTogether`/`IEDSyncTogether` 都注册了),现已由 `PlayerComponent` 构造/销毁触发;`setLogCallback` 存而不用、服务端限流桶泄漏也已修;**快捷键只保留 F2**(右 Ctrl/F3/F4/F6/F7/F8 全部注释或禁用);还原被误删的 34 个地址库文件(1.5.x 与 1.6.x/1.7.x 全部在位) |
-| **1.1.1** | 2026-09-25 | 三轮审计收尾:修复 `VisitInteriorCell` 在整个 load 期间对空 cell 的链式解引用、`Actor::Create` 对玩家的连续三次解引用、`DebugService` 未判空就用的 actor;并修正 `Actor::Create` 的判空顺序(原会把已分配的 actor 泄漏) |
-| **1.1.0** | 2026-09-25 | **性能与同步**:插值改 Catmull-Rom 三次曲线 + 有界外推(消除远端玩家的折线感与丢包时的冻结—跳变);帧循环间隔 16→8 ms,更新率约 32→64/s;移动更新由 O(更新数×实体数) 降为线性;修复重复生成同一远程玩家引发的引擎空指针崩溃;全仓库 `GetById` 解引用审计,修复 15 处无守卫解引用;**自部署「假失败」修复**:改为内容比对,mtime 仅作前置过滤,删除从未存在的 `.str_old` 清理(它把错误码污染成 `error 2`);定时器量化定量(请求 16 ms 实为 31.25 ms) |
+| 1.1.5 | 2026-09-27 | **修复 CI 编译失败**:`Build windows` / `Playable Skyrim Together Build` 两个工作流都因 `DAVSyncTogether` 编译报 `error C7595`(`fmt` 的编译期检查)而红,根因是**本仓库自己的补丁** —— `Code/plugins/patches/DAVSyncTogether/0001-config-index-enumeration.patch` 把占位符写成了 `"{"}`(转义引号写进了花括号里面,`fmt` 把它当成格式说明符,而 `std::string` 没有对应它的 formatter),已改回 `"{}"`,补丁语义一字未动;顺带给 `plugin_patches.py` 的 `verify` / `check` 加了**逐行扫描**:花括号里出现引号的占位符直接报错并指出正确写法(反向验证过),因为 `git apply` 只能证明补丁能打上、证明不了它编得过;**修复 KiLoader / KreatE「不兼容」弹窗** —— 报错里的 `KiLoaderTPProcess` 说明被劫持的是**本框架的 CEF 辅助进程** `TPProcess.exe`:`libcef.dll` 按名延迟加载 `d3d11.dll` / `dxgi.dll` / `d3d12.dll` / `dcomp.dll`,而辅助进程位于游戏根目录、搜索顺序先看 exe 所在目录,于是加载了**游戏根目录的 ENB 代理**,ENB 带起 `enbseries\` 下的卫星 DLL 再拉起第二份 KiLoader,两份实例抢同一个日志文件而启动即失败;修法是初始化 CEF 之前按完整路径预加载这四个 System32 DLL(`dxgi` 必须在前:`d3d11.dll` 静态依赖它,顺序反了会报 `ERROR_BAD_EXE_FORMAT (193)`),四个名字均已实测钉住;**版本策略**:推荐版本定为 **1.1.1**,并在两个 README 的版本表里用 ⭐ 标为稳定版(其余版本行取消加粗),`recommended-version` 门禁扩展为「横幅必须与 ⭐ 行一致、且恰好只有一行被标记」;本节还收进了此前**已提交但未发版**的两项:**同步上游 #901**(远端 actor 的 Havok 控制器时间步长为 0 会导致「踩到散落物品后异常滑行」,新增的 `hkStepInfo` 与 `bhkCharacterController::stepInfo` 偏移 `0x80` 是在真实的 1.5.97 exe 里**实测**出来的、两头都有地址库符号,不是照抄上游),以及 **`check_docs.py` 文档门禁**(覆盖率、两个 README 的版本表、tag 与 CHANGELOG 小节、推荐版本四项检查,已接入 CI) |
+| 1.1.4 | 2026-09-26 | **同步上游 v1.8.2 并按本仓库多版本逻辑改写**:并入 #899(按“原始 NPC + 房主选中的模板”重建等级化 NPC,保住守卫姓名/默认装备等非继承数据)与 #893(排除各派系监狱储物容器,否则一个玩家的物品会进另一个玩家的箱子);两处 1.5.x 改写都不是猜的 —— `GarbageCollector` 单例(id `400329`)与 `SetLeveledCreature`(id `20231`)在 1.5.97 上**没有映射**,照抄上游会分别变成**解引用零返回桩**和**每帧 Disable/Enable 死循环**,已改为直查地址库 + `CanRecordPick()` 门控;修掉 `CommandService::OnSetTimeCommand` 里唯一一处未判空的 `GetByConnectionId` 解引用(**任意玩家一条 `/settime` 即可打崩专用服务器**);修正 `docs/COMPANION-PLUGINS.md` 中与实际出货值**完全相反**的传输描述并加门禁绑死;**覆盖率口径修正**:`collect_codebase_ids()` 原先漏扫全部 301 个 `.h`、又把注释掉的调用算作活的,现口径 **3069/3082(99.6%)** |
+| 1.1.3 | 2026-09-26 | **插件生态落地**:把剩余三个插件按同一配方并入 —— `AnimSyncTogether`(动画图谱变量/事件同步)、`DAVSyncTogether`(Dynamic Armor Variants 外观同步)、`TradeTogether`(玩家间物品与金币交易),可选插件由 3 个增至 **6 个**,子模块、契约校验、打包清单、CI 构建、耐久快照、安装向导六处同步更新;删除 FOMOD 里那段**两条指引都是死路**的 OStim 提示(上游既无 release 也无 tag,该脚本又从不进包),中英文改为只描述功能;修复**自己引入的发布阻断** —— 两个插件 pin 的 vcpkg baseline 在 CI 的 `--depth 1` 克隆里取不到,而 vcpkg 的 builtin registry 路径**没有 fetch 回退**,已改为按 manifest 反推 baseline 再逐个 fetch;**OStim 的两个 Papyrus 脚本终于能编了**:改用开源编译器 `russo-2025/papyrus-compiler`(pin tag + SHA-256),补 12 个基础类型 stub(`plugins/` 是 gitlink,只能放本仓库),`OSKSE.pex` / `OStimTogetherNative.pex` 随包出货,**Add Actor 同意门控真正可用**;顺带修掉 `OStimTogether_OCum.esp` **出货却不带脚本**的缺口(补 4 个 `Form` + 1 个 `Game` stub,`OStimTogetherOCum.pex` 接入同一编译通道),并让打包脚本支持**子选项的 artifacts**(原先静默忽略);`GameFiles/Skyrim/scripts/source/` 的 10 个出货脚本也补上了可复现的编译入口,其中 `SkyrimTogetherVerifyLaunchScript.psc` 修掉编译器不支持的 `\n` 转义(它会**静默产出字面反斜杠**);归档 papyrus-compiler 源码到 `snapshots/tools/` 并加门禁 |
+| 1.1.2 | 2026-09-26 | 四轮审计 + 插件层专项:修复服务端可被远程打崩(重复认证请求空指针)、`PlayerService`/`DiscoveryService`/`WeatherService`/`OverlayService`/`CalculateHealthPercentage` 等 20 余处空指针;插件层 **ProxyResolver 映射监听器从来没被触发过**(`OStimTogether`/`IEDSyncTogether` 都注册了),现已由 `PlayerComponent` 构造/销毁触发;`setLogCallback` 存而不用、服务端限流桶泄漏也已修;**快捷键只保留 F2**(右 Ctrl/F3/F4/F6/F7/F8 全部注释或禁用);还原被误删的 34 个地址库文件(1.5.x 与 1.6.x/1.7.x 全部在位) |
+| **1.1.1** ⭐ **稳定版** | 2026-09-25 | 三轮审计收尾:修复 `VisitInteriorCell` 在整个 load 期间对空 cell 的链式解引用、`Actor::Create` 对玩家的连续三次解引用、`DebugService` 未判空就用的 actor;并修正 `Actor::Create` 的判空顺序(原会把已分配的 actor 泄漏) |
+| 1.1.0 | 2026-09-25 | **性能与同步**:插值改 Catmull-Rom 三次曲线 + 有界外推(消除远端玩家的折线感与丢包时的冻结—跳变);帧循环间隔 16→8 ms,更新率约 32→64/s;移动更新由 O(更新数×实体数) 降为线性;修复重复生成同一远程玩家引发的引擎空指针崩溃;全仓库 `GetById` 解引用审计,修复 15 处无守卫解引用;**自部署「假失败」修复**:改为内容比对,mtime 仅作前置过滤,删除从未存在的 `.str_old` 清理(它把错误码污染成 `error 2`);定时器量化定量(请求 16 ms 实为 31.25 ms) |
 | 1.0.41 | 2026-09-23 | FOMOD 安装引导中英双语 + 精简;修掉发布包内中文变乱码(盖章版本号时未指定编码) |
 | 1.0.40 | 2026-09-23 | 跟随 `ff 25` 跳转桩,hook 冲突日志直接点名占用方 mod |
 | 1.0.39 | 2026-09-23 | 削减每帧开销,解决加载慢与卡顿 |

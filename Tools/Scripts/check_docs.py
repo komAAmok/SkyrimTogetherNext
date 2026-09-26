@@ -99,9 +99,27 @@ def changelog_versions() -> set[str]:
     return set(re.findall(r'^##\s+v?([0-9]+\.[0-9]+\.[0-9]+)', read(CHANGELOG), re.M))
 
 
+# A version cell may carry the stable marker after the number, because the table
+# marks the recommended release as the one to install. It may carry nothing else:
+# allowing an arbitrary tail made this match the game-version table too ("1.5.3 ~
+# 1.5.97" starts with a version), which would let a missing release row pass on
+# the strength of an unrelated row - the exact vacuous pass this check exists to
+# prevent.
+STABLE_LABEL = r'(?:\s*\u2b50\s*\*\*(?:\u7a33\u5b9a\u7248|stable)\*\*)?'
+
+
 def readme_versions(rel: str) -> set[str]:
-    return set(re.findall(r'^\|\s*\*{0,2}([0-9]+\.[0-9]+\.[0-9]+)\*{0,2}\s*\|',
-                          read(rel), re.M))
+    return set(re.findall(
+        r'^\|\s*\*{0,2}([0-9]+\.[0-9]+\.[0-9]+)\*{0,2}' + STABLE_LABEL + r'\s*\|',
+        read(rel), re.M))
+
+
+def readme_stable_versions(rel: str) -> list[str]:
+    """Versions whose table row carries the stable marker."""
+    return re.findall(
+        r'^\|\s*\*{0,2}([0-9]+\.[0-9]+\.[0-9]+)\*{0,2}\s*\u2b50\s*'
+        r'\*\*(?:\u7a33\u5b9a\u7248|stable)\*\*',
+        read(rel), re.M)
 
 
 def check_coverage(failures: list[str]) -> None:
@@ -260,7 +278,7 @@ def check_tags_have_sections(failures: list[str]) -> None:
 
 
 def check_recommended_version(failures: list[str]) -> None:
-    """The banner must name a version that exists, in both languages."""
+    """The banner must name a release that exists and is the marked stable one."""
     zh = re.search(r'推荐 Mod 版本[:：]\s*\**\s*v?([0-9]+\.[0-9]+\.[0-9]+)', read(README))
     en = re.search(r'Recommended mod version[:：]\s*\**\s*v?([0-9]+\.[0-9]+\.[0-9]+)',
                    read(README_EN))
@@ -274,6 +292,25 @@ def check_recommended_version(failures: list[str]) -> None:
     if zh.group(1) not in released:
         failures.append(
             f'the READMEs recommend {zh.group(1)}, which has no {CHANGELOG} section')
+
+    # The banner and the version table both name the release to install, so they
+    # have to name the same one. Recommending a build the table does not mark -
+    # or marking two, or none - leaves the reader to guess, which is the state
+    # this check exists to prevent.
+    for rel, label in ((README, zh.group(1)), (README_EN, en.group(1))):
+        marked = readme_stable_versions(rel)
+        if not marked:
+            failures.append(
+                f'{rel}: no version-table row carries the stable marker, so the '
+                f'banner recommending {label} is unverifiable')
+        elif len(marked) > 1:
+            failures.append(
+                f'{rel}: {len(marked)} rows carry the stable marker '
+                f'({", ".join(marked)}); exactly one release is the stable one')
+        elif marked[0] != label:
+            failures.append(
+                f'{rel}: the banner recommends {label} but the stable row is '
+                f'{marked[0]}; they must name the same release')
 
 
 CHECKS = {

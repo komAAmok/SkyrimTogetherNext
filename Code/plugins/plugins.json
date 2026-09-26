@@ -64,7 +64,7 @@
           "dest": "."
         }
       ],
-      "artifactsNote": "OSKSE.pex and OStimTogetherNative.pex are compiled by compat/OStimUIConsent/compile-ui-consent.ps1, which needs PapyrusCompiler.exe from an installed Skyrim. A CI runner has no Skyrim, so those two scripts are not packaged here; OStimTogether's own release script builds them on a machine that does. The wizard description states the consequence.",
+      "artifactsNote": "OSKSE.pex and OStimTogetherNative.pex are compiled by compat/OStimUIConsent/compile-ui-consent.ps1, which needs PapyrusCompiler.exe from an installed Skyrim. A CI runner has no Skyrim, so those two scripts are not packaged here; OStimTogether's own release script builds them on a machine that does. The wizard description no longer repeats this, because both of the routes it offered a user were dead ends.",
       "artifacts": [
         {
           "from": "OStimTogether.dll",
@@ -72,7 +72,7 @@
         }
       ],
       "introduction": {
-        "zh": "让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。\n\n注意:本包只含 OStimTogether.dll。它的两个 Papyrus 脚本(OSKSE.pex / OStimTogetherNative.pex)需要在装有 Creation Kit 的机器上用 compat/OStimUIConsent/compile-ui-consent.ps1 编译,请从 OStimTogether 自己的发布包取得,或自行编译后放入 Data/Scripts/。",
+        "zh": "让联机队友之间的动作场景保持同步:场景状态、参与者对齐、装备锁、脱衣与外观修复。需要所有玩家一起安装同一版本;不勾选时,本框架的其余联机功能完全不受影响。",
         "en": "Keeps scene state, participant alignment, equipment locks and undress/appearance repair in sync between connected players. Every player must install the same version; leaving it unchecked changes nothing else about the framework."
       },
       "subOptions": [

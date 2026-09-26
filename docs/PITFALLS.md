@@ -321,6 +321,32 @@ AE 每项 +`0x10`。上游 `6f963497` 抬过 `pad1`，**同步时不要把 legac
 - **【已查，不修，见 §19.7】`BehaviorVar` 的"multiple behavior replacers"与选错物种**：
   日志里狼/麋鹿被认成 Cow，看着像 bug，但**逐条验证后决定不动**（换了三种"更聪明"的
   判据都**没有变好**，其中两种更差），原因与判据见 §19.7。
+- **【P3，待办，等一次外部编译】OStimTogether 的 Add Actor 同意门控缺两个 `.pex`**：
+  包内只有 `OStimTogether.dll`；`OSKSE.pex` / `OStimTogetherNative.pex` 不在包里。
+  **影响面只有这一个功能**：DLL 照常注册 native（`main.cpp:255`），OStim 用回自己的原版
+  `OSKSE.psc` 正常工作，只是**没有 Add Actor 同意门控**——优雅降级，不是坏包。
+  **为什么 CI 编不出来**：`compat/OStimUIConsent/compile-ui-consent.ps1` 要 `PapyrusCompiler.exe`
+  （来自已安装的 Skyrim/CK），CI runner 没有；`.pex` 是编译字节码（magic `FA57C0DE`），
+  `Data/Scripts/` 下 68 个文件**全是 `.pex`**，游戏没有运行时编译器，拷 `.psc` 进去无效。
+  **为什么用户也拿不到**（2026-09-26 实测，别再重复走这两条死路）：
+  ① 上游 `Caelvanost/OStimTogether` **没有任何 release、没有任何 tag**
+  （`releases.atom` 0 条、`tags.atom` 0 条、API `/releases` 返回 `[]`）；
+  ② 这两个 `.pex` 在上游**全部 ref 的历史里从未存在过**
+  （`git log --all --diff-filter=A -- "*.pex"` 为空，`git ls-tree -r` 全 ref 扫描 0 命中）；
+  ③ `compat/` 是 submodule 内容、**从不进包**（payload 只取 `package/Data`），
+  所以 “用 `compile-ui-consent.ps1` 自行编译” 这句对用户同样是空指针。
+  原先 FOMOD 中文描述里那段 “注意:本包只含 OStimTogether.dll…” 两条指引都是死路，
+  **已删除**（`plugins.json` 的 `introduction.zh`，中英文现已一致）；**不要再加回去**。
+  **将来那次编译之前必须先补的缺口**：`OSKSE.psc` 用到 `nioverride.*`
+  （第 4/5/13/20/22 行：`HasNodeTransformScale` / `GetNodeTransformScale` /
+  `RemoveNodeTransformPosition` / `AddNodeTransformPosition` / `UpdateNodeTransform`），
+  但 `Dependencies/Source/` 只 stub 了 7 个文件、**没有 `nioverride.psc`**，全盘也搜不到
+  → **照现在的脚本编译必然因未知类型失败**，须先补 stub（或指向 RaceMenu 源码）。
+  **拿到 `.pex` 之后怎么接线**：放进仓库自有位置 `Code/plugins/packaging/`
+  （与 `IEDSyncTogether.esp` 同一先例，见 `plugins.json` 的 payloadNote 与 `../` 规则），
+  在 `plugins.json` 的 OStimTogether `payload` 加一条 `dest: "scripts/"`。
+  ⚠️ **顺序不能颠倒**：`Add-PluginPayload.ps1` 对缺失的 payload 源是 `throw`，
+  先接线再补文件会**直接把 CI 构建打挂**。
 
 ---
 

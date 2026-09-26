@@ -2728,3 +2728,195 @@ Code/plugins/papyrus/Compile-OCumIntegrationScript.ps1 -CompilerPath <path>/papy
 Tools/Packaging/Add-PluginPayload.ps1 -Stage <stage> -ArtifactsRoot <artifacts> -VerifyOnly
 ```
 
+## 32. 2026-09-26 场次：服务端一条聊天命令即可打崩，以及"装上就是死的"插件数据同步
+
+> **锚点**：本节两条修复 + 门禁 + 文档都在**同一个提交**里，标题为
+> `fix: guard an admin-session null deref, and stop the transport docs from lying`，
+> 其父提交是 `3e9f0c6c`。查证用 `git log 3e9f0c6c..HEAD`。
+> （不写自身 hash：本文件也在那个提交里，写进去就自我指涉、每次 amend 都失效。）
+> 本轮继续全仓审计，重点是**插件接口与插件层**。两条都是**真缺陷**，判据仍是 §27 的那条
+> （同一指针在同一文件里被判空过，就不该在别处被直接解引用），外加一条新的：
+> **"文档声称的默认值"必须与"实际出货的默认值"逐字一致。**
+
+### 32.1 现象：任意玩家一条 `/settime` 就能打崩专用服务器
+
+`CommandService::OnSetTimeCommand` 对**每一个**在线玩家取管理员身份：
+
+```cpp
+const auto* pAdmin = PlayerManager::Get()->GetByConnectionId(session);   // 可能为 nullptr
+if (pAdmin->GetId() == cPlayerId) { ... }                                 // 直接解引用
+```
+
+这是全仓库**唯一**一处对 `GetByConnectionId` 的返回值不判空就解引用的地方。
+
+### 32.2 根因：认证流程存在"会话已建立、玩家行还没有"的合法中间态
+
+`GameServer::HandleAuthenticationRequest` 的顺序是：
+
+| 行 | 动作 |
+| --- | --- |
+| `GameServer.cpp:896` | `m_adminSessions.insert(session)` —— **会话先进表** |
+| `GameServer.cpp:947` | `kModsMismatch` 等检查失败 → **提前 return** |
+| `GameServer.cpp:977` | `PlayerManager::Create(...)` —— **玩家行才建立** |
+| `GameServer.cpp:999` | `HandlePlayerJoin` 取消 → **提前 return** |
+
+关键在于：**整个认证流程里没有任何一处**在失败路径上回头清理这个集合。
+`m_adminSessions` 只在 `GameServer::OnDisconnection`（`:612`）里被擦除，
+那是**另一条**路径、**另一个**时刻。所以 `:947`（行根本没建）与 `:983`（重复认证）
+之后，集合里就留下了一个**查不到玩家行**的连接 id。
+
+> **本条的证据边界（不猜）**：`Kick` 是否**同步**触发 `OnDisconnection`，取决于
+> `TiltedCore` 的 `Server` 基类，而 `Libraries/TiltedCore` 在本机**未检出**
+> （`git ls-tree` 里它甚至不是子模块，是 `add_requires("tiltedcore 0.2.9")` 从
+> xmake 源拉取的），因此**无法本地核实**。若 `Kick` 同步，则 `:998` 的
+> `Kick` 会顺带擦除集合、`:999` 再删行，窗口关闭；若 `Kick` 是排队/异步的，
+> 窗口就真实存在。
+>
+> **所以判据不建立在 `Kick` 的语义上**，而建立在**代码库自己的结论**上：
+> 同一个集合的**其余所有**读者都判了空，而且 `GameServer.cpp:496-502` 明确打印
+> `"Admin session not found: {}"` 并 `continue` —— 这就是代码库自己承认
+> "会话可能没有对应玩家行"。一处漏判空，就足以是缺陷，与窗口能否被构造无关。
+
+**为什么以前没炸**：`m_adminSessions` 的**其余所有读者**都判了空 ——
+`GameServer.cpp:496-502`（还专门为这一情形打了 `"Admin session not found"`）、
+`:1096`、`:1110`，以及 `PartyService_Bindings.cpp:12-16`。只有这一处漏了。
+
+> 附带记录（**未改动**，因为够不到）：`Player_Bindings.cpp:37` 把
+> `GetByConnectionId(aSelf.GetConnectionId())` 的返回值**直接**交给
+> `PartyService::IsPlayerLeader`，而后者（`PartyService.cpp:50-52`）**不判空**就
+> `apPlayer->GetParty()`。这里是**自查找**（参数取自 `aSelf` 自己的连接 id），
+> 正常情况下必然命中自己，除非 Lua 脚本持有一个断线后的**悬垂** `Player` 引用。
+> 无法证明可达，故只记录、不修改。
+
+### 32.3 修复
+
+改为取到即判、失败即 `continue`，并加注释写明这个中间态为什么存在
+（`Code/server/Services/CommandService.cpp`）。
+
+### 32.4 现象：七个随包插件的数据同步"装上就是死的"
+
+这是本轮最重的一处：**框架侧的一切都是对的，出货的 ini 把七个插件全都导到了错误的传输上。**
+
+链路（每一环都已用源码核实）：
+
+1. 七个插件**无一例外**都按名字找门面 DLL，**没有任何一个插件提到过框架运行时**：
+   `AnimSyncTogether`/`DAVSyncTogether`/`TradeTogether` 用 vendored 头里的
+   `LoadFromModule()` 默认值；`IEDSyncTogether`(`STRPMAdapter.cpp:40-48`)、
+   `MorphSyncTogether`(`UdpTransport.cpp:73`)、`OStimTogether`(`STRPMTransport.cpp:11`)
+   直接写死 `L"STRPluginMessagingAPI.dll"`。
+2. 于是走的永远是**门面**，而门面的 `Broker::Start()` 在 `backendMode != kUdp` 时
+   **先试桥接**：`TryStartStrBridge()`（`STRPluginMessagingAPIRuntime.cpp:512-517`）。
+3. 出货的 `Code/plugins/packaging/STRPluginMessagingAPI.ini` 里
+   `Mode=Auto` + `STRBridgeModule=STRPluginMessagingBridge.dll`。
+4. `LoadStrBridgeModule` **先 `GetModuleHandleW`**，而桥接是 SKSE 插件、早已加载
+   ⇒ 必然命中；`STRPM_QueryTransportInterface` 也由桥接导出。
+5. 桥接的 `Start()` 只要把接收分发器和 bootstrap 线程起来就返回 `kOk`
+   （解析是**懒加载**的），于是 `_activeBackend = kStrBridge`、`_running = true`。
+6. `STRPM_ENABLE_UDP_BACKEND=0`，所以 `#if !STRPM_ENABLE_UDP_BACKEND` 分支直接
+   `return false`，**UDP 回退在编译期就不存在**。
+
+**致命的一环在桥接的接收半**：`Send` 被**两个**条件同时门控
+（`STRPluginMessagingBridge.cpp:1128`）：
+
+```cpp
+if (!g_transportInstance.load() || !g_receiveResolverReady.load())
+    return STRPM::Result::kNotConnected;
+```
+
+而 `g_receiveResolverReady` 只有一个写入点（`:993`），要求
+`STRPMBridgeReceive::Start()` 成功；它先调 `ResolveOnConsumeAddress()`，那里是
+`EnumerateRuntimeMemory(GetModuleHandleW(nullptr))`（`STRPluginMessagingBridgeReceive.cpp:433`），
+并过滤 `mbi.AllocationBase == module`——**只扫 SkyrimSE.exe 自己那块分配**。
+这一条过滤就足以让它在**本框架内永远不可能就绪**：
+
+- 本框架的 `TransportService` 住在 `SkyrimTogetherRuntime.dll` 这个**独立模块**里，
+  它的 `AllocationBase` 不等于 SkyrimSE.exe ⇒ **根本不在扫描范围内**；
+- 而且这是**唯一的**一条理由：桥接找的 RTTI 名 `.?AUTransportService@@` 恰好**就是**
+  全局命名空间里 `struct TransportService` 的 MSVC 修饰名（`?AU` + 名字 + `@@`），
+  本框架的类正是全局作用域 `struct`（`Code/client/Services/TransportService.h:26`，
+  头文件与实现都没有 `namespace`）⇒ **名字能对上，是模块范围把它排除掉了**。
+  换句话说：桥接的锚点设计对本框架是"认得出、但够不着"。
+
+（发送半的锚点在本框架里**是存在的**——`OverlayClient.cpp:153` 确实有那个**宽**字面量
+`L"Send chat message of type {}: '{}' "`，`TransportService::Send` 里也确有
+`Buffer buffer(1 << 16)`；桥接为 MSVC 生成的那份会把锚点换成宽字面量，所以
+**发送半可能真的解析成功**。但这不改变结论：`Send` 要求两半**同时**就绪，
+接收半永远不就绪 ⇒ 永远 `kNotConnected`。）
+
+**结论**：出货配置下，七个插件每一次 `send()` 都返回 `kNotConnected`，
+**同步静默失效**，且不报错、不崩溃，日志里只有桥接自己那句
+"receive resolver waiting for NotifyChatMessageBroadcast runtime RTTI"。
+
+### 32.5 已修：文档与门禁（这两项是纯事实修正，可验证）
+
+- `docs/COMPANION-PLUGINS.md` 原文写着"**packaged ini names the framework runtime,
+  which is why a plugin that loads the facade by name still ends up on the native
+  transport**"——**与出货的 ini 完全相反**。这句话是 `976f9702` 改 ini 时漏改的，
+  而它恰恰是读者据以判断"我的插件走哪条传输"的那一句。已改写为事实，并写明
+  **七个插件都落在桥接上**；
+- `Code/plugins/tools/check_transport_compat.py` 增加两个断言，把**散文与出货值绑死**：
+  ① 文档必须出现 ini 里 `STRBridgeModule` 的**实际取值**；② 文档不得再声称
+  "names the framework runtime"。已做**反向验证**：分别注入这两种回归，门禁都
+  `exit 1` 并指名道姓；恢复后 `exit 0`。
+
+### 32.6 未决项：单份 ini 表达不了两个运行时名
+
+真正的修法是让插件直接查框架运行时（框架 `Code/client/Services/PluginMessagingExport.cpp`
+**已经导出了同样的四个入口点**，包括 `STRPM_QueryTransportInterface`）。但
+`STRBridgeModule` 只有**一个**键，而运行时按游戏版本有两个名字
+（`SkyrimTogetherRuntime.dll` / `SkyrimTogetherRuntime_1_5.dll`），
+门面的加载器又是**精确模块名**匹配。两条候选修法，**都需要实机验证，本轮不下结论**：
+
+| 修法 | 影响面 | 为什么本轮没做 |
+| --- | --- | --- |
+| 默认改回 `SkyrimTogetherRuntime.dll` | 1.6.x/1.7.x **恢复可用**；1.5.x 更糟（见下） | **已证明会载入错误 ABI 的 DLL**，不只是"仍然死" |
+| 由 bootstrap 按 `IsLegacyGame()` **改写** ini 的那一行 | 两个版本都对 | bootstrap 要写用户的 `Data/SKSE/Plugins/`，MO2 虚拟文件系统下可能落到覆盖层或直接失败，风险大于收益 |
+
+**为什么"改回 `SkyrimTogetherRuntime.dll`"比 `976f9702` 以为的更危险**（本轮新查明，
+这正是不能简单回退的原因）：
+
+1. `DeployRuntime` 把 `Data/SkyrimTogetherRuntime/` **整个镜像进游戏根目录**
+   （`main.cpp:571` + `:393`），而打包脚本**强制要求该目录里同时存在两个 DLL**
+   （`New-STNModPackage.ps1:153-157`）。所以**任何**版本的安装，游戏根目录里
+   `SkyrimTogetherRuntime.dll` 与 `SkyrimTogetherRuntime_1_5.dll` **都在**；
+2. bootstrap 只按 `IsLegacyGame()` `LoadLibraryW` **其中一个**（`main.cpp:468`），
+   另一个**仍在磁盘上**；
+3. 门面的 `LoadStrBridgeModule` 在 `GetModuleHandleW` 未命中后，会走
+   `LoadLibraryW(modulePath)`（`STRPluginMessagingAPIRuntime.cpp:850`），
+   而 Windows 对**裸模块名**的搜索顺序**第一站就是 exe 所在目录**。
+
+⇒ 在 **1.5.x** 上把 ini 写成 `SkyrimTogetherRuntime.dll`，`GetModuleHandleW` 因为
+bootstrap 加载的是 `_1_5` 而**未命中**，紧接着 `LoadLibraryW` **会把旁边那个
+1.6.x/1.7.x 的运行时映像载入 1.5.x 进程** —— 那是一份用**不同结构体布局**编译的
+DLL（`SKYRIM_TARGET_LEGACY=1` 才切布局，见 `main.cpp:57-60`）。
+
+**后果的精确边界**（不夸大）：那份运行时**不是**被 bootstrap 启动的，所以
+`World::Create()` / `RunTiltedApp()` 都没跑，它内部的 `m_pWorld` 始终为空；
+于是 `PluginMessagingService::Send` 在 `if (!m_pWorld)` 处返回 `kNotAvailable`
+（`PluginMessagingService.cpp:185-186`）。**所以这不是"必然崩溃"**，
+而是"**载入了一份本不该存在的跨版本映像，插件拿到一个永远不可用的传输**"。
+本轮**不做这个改动**的理由是：它把一个**已证明的静默失效**换成一个
+**未被测试过的跨版本映像载入**——后者在实机上是否真的无害（静态初始化器、
+地址库单例、其它插件的 hook 是否会被这份映像干扰）**无法在本机验证**，
+而前者至少是"不崩"。
+
+> **所以 `976f9702` 的结论对、理由错**：它以为命名单个运行时的后果是"在另一个游戏版本上
+> 静默找不到传输"，实际后果是**把错误 ABI 的 DLL 拉进进程**。
+> 这让"默认指向桥接"从"两害相权"变成"**唯一不引入新崩溃面的选择**"——
+> 代价是插件同步失效（静默、不崩），换来的是不崩。
+
+**注意**：插件仓库是**钉死的子模块，本仓库不推送**，所以"让插件去查框架运行时"
+这条路**在本仓库内不可行**（改了也进不了 CI 与发布）。
+
+### 32.7 教训
+
+> **一个"两个版本各有一个名字"的东西，不能让一个只有一个槽位的配置文件去默认它。**
+> `976f9702` 的推理本身没错（运行时确实两个名字），但它把结论定成了
+> "那就默认桥接吧"——而桥接在**本框架内结构性地收不到任何东西**。
+> 于是为了修 1.5.x 的一个空档，代价是**所有版本**的插件同步全部失效。
+> 正确的默认应该是"**在本框架内能被满足的那个**"，哪怕它只覆盖一个游戏版本。
+
+> **文档里的"默认值"必须由门禁绑到实际出货值上。** 这次两处偏差
+> （散文说 A、ini 是 B）能存活，就是因为没有任何检查同时读这两个文件。
+> 凡是"文档向读者承诺一个可观测行为"的地方，都值得一条这样的断言。
+

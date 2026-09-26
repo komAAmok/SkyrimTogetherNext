@@ -23,6 +23,9 @@ OPCODES_REL = 'Code/encoding/Opcodes.h'
 CHAT_SEND_INDEX = 38
 CHAT_BROADCAST_INDEX = 36
 
+INI_REL = 'Code/plugins/packaging/STRPluginMessagingAPI.ini'
+DOC_REL = 'docs/COMPANION-PLUGINS.md'
+
 
 def members(text: str, enum_name: str) -> list[str]:
     body = re.search(r'enum ' + enum_name + r'[^{]*\{(.*?)\n\};', text, re.S).group(1)
@@ -75,6 +78,34 @@ if request_index >= 0 and 'kSetTimeCommandRequest' in client:
 if notify_index >= 0 and 'kNotifySetTimeResult' in server:
     if notify_index <= server.index('kNotifySetTimeResult'):
         failures.append('kNotifyPluginMessaging was inserted before existing server opcodes')
+
+# The packaged ini decides which transport a companion plugin actually lands
+# on, and this document states which one that is. They drifted apart once
+# already: the ini was moved off the framework runtime and the document kept
+# claiming the runtime was named, which is exactly the kind of claim a reader
+# plans a deployment around. Bind the prose to the shipped value.
+ini_text = (ROOT / INI_REL).read_text(encoding='utf-8')
+shipped = re.search(r'^\s*STRBridgeModule\s*=\s*(\S+)\s*$', ini_text, re.M)
+shipped_value = shipped.group(1) if shipped else None
+doc_text = (ROOT / DOC_REL).read_text(encoding='utf-8')
+
+if shipped_value is None:
+    failures.append(
+        f'{INI_REL} has no STRBridgeModule setting; the facade would silently '
+        f'fall back to its own built-in default'
+    )
+else:
+    if shipped_value not in doc_text:
+        failures.append(
+            f'{DOC_REL} never names {shipped_value}, which is what {INI_REL} '
+            f'ships as STRBridgeModule; a reader cannot tell which transport a '
+            f'companion plugin lands on'
+        )
+    if 'names the framework runtime' in doc_text:
+        failures.append(
+            f'{DOC_REL} still claims the packaged ini names the framework '
+            f'runtime, but {INI_REL} names {shipped_value}'
+        )
 
 print(f'client opcodes: {len(client) - 1} in use, plugin request at index {request_index}')
 print(f'server opcodes: {len(server) - 1} in use, plugin notify at index {notify_index}')

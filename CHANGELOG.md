@@ -39,6 +39,34 @@
   form 数组自 `0x10` 起、每项 `0x18`、按 FormType 索引,Faction(11)→`0x118`
   与既有 Quest(77)→`0x748` 互相印证,三个 `static_assert` 同时钉住;
 
+### 插件层专项审计
+
+- **服务端可被任意玩家一条聊天命令打崩**:`CommandService::OnSetTimeCommand` 对
+  `m_adminSessions` 里每个连接调 `PlayerManager::GetByConnectionId(session)->GetId()`,
+  **不判空**。认证流程里连接 id 在 `GameServer.cpp:896` 先进集合,玩家行到 `:977`
+  才建立,而 `:947`(mod 策略不符)、`:983`(重复认证)都会提前返回且**不回头清理集合**
+  ——集合只在断线时(`:612`)擦除。该集合的其余所有读者都判了空,其中
+  `GameServer.cpp:496-502` 还专门为此打印 `"Admin session not found"`。已改为取到即判、
+  失败即 `continue`;
+- **修正一处会误导部署的文档**:`docs/COMPANION-PLUGINS.md` 声称"出货的 ini 指向框架运行时,
+  所以按名字加载门面的插件仍然走原生传输"——与 `976f9702` 之后的实际出货值**完全相反**
+  (ini 里是 `STRBridgeModule=STRPluginMessagingBridge.dll`)。已改写为事实,并写明
+  七个随包插件**无一例外**都按名字找门面 DLL、因而**都落在聊天隧道桥接上**;
+- `check_transport_compat.py` 增加两条断言,把该文档与**实际出货的 ini 取值**绑死
+  (文档必须出现 ini 里的真实值;不得再声称指向框架运行时)。已做反向验证:注入这两种
+  回归后门禁均 `exit 1` 并指名道姓;
+- **已查明但未改动**(插件仓库是钉死的子模块,本仓库不推送,改了进不了 CI 与发布):
+  `STRBridgeModule` 只有**一个**键,而运行时按游戏版本有两个名字
+  (`SkyrimTogetherRuntime.dll` / `SkyrimTogetherRuntime_1_5.dll`),门面的加载器又是
+  精确模块名匹配 —— 单份 ini 表达不了两者。两条候选修法都**需要实机验证**,
+  本轮不翻转行为,已连同证据与边界写入 `docs/PITFALLS.md` §32;
+- 另外两处**确认存在但位于不可推送的子模块内**的缺陷(同样只记录、不修改):
+  `IEDSyncTogether` 的传输/配置/代理子系统是**死代码**(CMake 只编 10 个文件,
+  无人调用 `SyncService::Start()`,已用传递包含闭包证明),其随包的 ini 与 FOMOD 的
+  `RelayHost` 子选项**不产生任何效果**;`DAVSyncTogether` 的
+  `recursive_directory_iterator` 构造/递增落在循环内 `try` **之外**,`main.cpp` 无
+  handler ⇒ `filesystem_error` 会逃进 `OnSKSEMessage` 触发 `std::terminate`。
+
 ### 清单
 
 - `Tools/missing_1_5_97_ids.txt`:新增三个未映射 id(`20231`、`36460`、单例 `400329`),

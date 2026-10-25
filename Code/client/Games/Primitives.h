@@ -383,12 +383,9 @@ private:
     T* m_pPointer;
 };
 
-struct alignas(sizeof(void*)) BSIntrusiveRefCounted
-{
-    volatile int32_t refCount;
-};
-
-static_assert(sizeof(BSIntrusiveRefCounted) == sizeof(void*));
+// BSIntrusiveRefCounted lives in BSCore/BSIntrusiveRefCounted.h: it is a game
+// type with the game's own layout, and keeping a second copy here is what lets
+// the two drift apart.
 
 enum ETiltedFlags : uint8_t
 {

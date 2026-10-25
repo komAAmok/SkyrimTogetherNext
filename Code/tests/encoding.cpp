@@ -22,6 +22,7 @@
 #include <Messages/AssignObjectsRequest.h>
 #include <Messages/AssignObjectsResponse.h>
 #include <Messages/ClientMessageFactory.h>
+#include <Messages/NotifyActionEvents.h>
 #include <Messages/NotifyActorValueChanges.h>
 #include <Messages/NotifyAddTarget.h>
 #include <Messages/NotifyChatMessageBroadcast.h>
@@ -32,6 +33,7 @@
 #include <Messages/NotifySubtitle.h>
 #include <Messages/NotifySyncExperience.h>
 #include <Messages/ProjectileLaunchRequest.h>
+#include <Messages/RequestActionEvents.h>
 #include <Messages/RequestActorValueChanges.h>
 #include <Messages/RequestHealthChangeBroadcast.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
@@ -517,8 +519,11 @@ TEST_CASE("Packets", "[encoding.packets]")
     GIVEN("ClientReferencesMoveRequest")
     {
         ClientReferencesMoveRequest sendMessage, recvMessage;
-        auto& update = sendMessage.Updates[1];
-        auto& move = update.UpdatedMovement;
+        sendMessage.Tick = 1712345678901;
+        auto& move = sendMessage.Updates[1];
+        move.Position.x = 1234.5f;
+        move.Direction = 0.75f;
+        move.SampleTick = 1712345678000;
 
         AnimationVariables vars;
         vars.Booleans.resize(76);
@@ -552,7 +557,66 @@ TEST_CASE("Packets", "[encoding.packets]")
 
         recvMessage.DeserializeRaw(reader);
 
-        REQUIRE(recvMessage.Updates[1].UpdatedMovement == sendMessage.Updates[1].UpdatedMovement);
+        REQUIRE(recvMessage.Tick == sendMessage.Tick);
+        REQUIRE(recvMessage.Updates[1] == sendMessage.Updates[1]);
+        REQUIRE(recvMessage.Updates[1].SampleTick == sendMessage.Updates[1].SampleTick);
+    }
+
+    GIVEN("RequestActionEvents")
+    {
+        ActionEvent firstAction;
+        firstAction.Tick = 1712345678901;
+        firstAction.ActionId = 42;
+        firstAction.TargetId = 963741;
+        firstAction.State1 = 6547;
+        firstAction.EventName = "jumpStandingStart";
+
+        ActionEvent secondAction = firstAction;
+        secondAction.Tick += 120;
+        secondAction.ActionId = 43;
+        secondAction.EventName = "attackStart";
+        secondAction.TargetEventName = "toast";
+
+        RequestActionEvents sendMessage, recvMessage;
+        sendMessage.Actions[1] = {firstAction, secondAction};
+        sendMessage.Actions[7] = {secondAction};
+
+        Buffer buff(1000);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        uint64_t trash;
+        reader.ReadBits(trash, 8); // pop opcode
+
+        recvMessage.DeserializeRaw(reader);
+
+        REQUIRE(sendMessage == recvMessage);
+    }
+
+    GIVEN("NotifyActionEvents")
+    {
+        ActionEvent action;
+        action.Tick = 1712345678901;
+        action.ActionId = 42;
+        action.EventName = "blockStart";
+
+        NotifyActionEvents sendMessage;
+        sendMessage.Actions[3] = {action, action};
+
+        Buffer buff(1000);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ServerMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == sendMessage.GetOpcode());
+        REQUIRE(*CastUnique<NotifyActionEvents>(std::move(pMessage)) == sendMessage);
     }
 }
 
@@ -1226,6 +1290,165 @@ TEST_CASE("Subtitle topic travels in both directions", "[encoding.subtitle]")
     recvNotify.DeserializeRaw(reader2);
     REQUIRE(recvNotify == notify);
     REQUIRE(recvNotify.TopicFormId == cTopicFormId);
+}
+
+TEST_CASE("The scene a line was spoken in survives both halves of the wire", "[encoding.subtitle]")
+{
+    // The receiving client uses the scene id and phase to find the copy of the scene it plays
+    // itself, and a lost phase makes it drop a line it should have played. Both fields travel in
+    // every dialogue and subtitle message, in both directions.
+    const GameId cSceneId{0x12, 0x34567};
+
+    SubtitleRequest request;
+    request.ServerId = 7;
+    request.Text = "hello there";
+    request.TopicFormId = 0x1DEAD;
+    request.SceneId = cSceneId;
+    request.ScenePhase = 3;
+
+    Buffer buff(1000);
+    Buffer::Writer writer(&buff);
+    request.Serialize(writer);
+
+    uint64_t opcode = 0;
+    Buffer::Reader reader(&buff);
+    reader.ReadBits(opcode, 8);
+
+    SubtitleRequest recvRequest;
+    recvRequest.DeserializeRaw(reader);
+    REQUIRE(recvRequest == request);
+    REQUIRE(recvRequest.SceneId == cSceneId);
+    REQUIRE(recvRequest.ScenePhase == 3);
+
+    NotifySubtitle notify;
+    notify.ServerId = 7;
+    notify.Text = "hello there";
+    notify.TopicFormId = 0x1DEAD;
+    notify.SceneId = cSceneId;
+    notify.ScenePhase = 4;
+
+    Buffer buff2(1000);
+    Buffer::Writer writer2(&buff2);
+    notify.Serialize(writer2);
+
+    uint64_t opcode2 = 0;
+    Buffer::Reader reader2(&buff2);
+    reader2.ReadBits(opcode2, 8);
+
+    NotifySubtitle recvNotify;
+    recvNotify.DeserializeRaw(reader2);
+    REQUIRE(recvNotify == notify);
+    REQUIRE(recvNotify.SceneId == cSceneId);
+    REQUIRE(recvNotify.ScenePhase == 4);
+
+    DialogueRequest dialogue;
+    dialogue.ServerId = 9;
+    dialogue.SoundFilename = "Sound\\Voice\\test.fuz";
+    dialogue.SceneId = cSceneId;
+    dialogue.ScenePhase = 5;
+
+    Buffer buff3(1000);
+    Buffer::Writer writer3(&buff3);
+    dialogue.Serialize(writer3);
+
+    uint64_t opcode3 = 0;
+    Buffer::Reader reader3(&buff3);
+    reader3.ReadBits(opcode3, 8);
+
+    DialogueRequest recvDialogue;
+    recvDialogue.DeserializeRaw(reader3);
+    REQUIRE(recvDialogue == dialogue);
+    REQUIRE(recvDialogue.SceneId == cSceneId);
+    REQUIRE(recvDialogue.ScenePhase == 5);
+
+    NotifyDialogue notifyDialogue;
+    notifyDialogue.ServerId = 9;
+    notifyDialogue.SoundFilename = dialogue.SoundFilename;
+    notifyDialogue.SceneId = cSceneId;
+    notifyDialogue.ScenePhase = 6;
+
+    Buffer buff4(1000);
+    Buffer::Writer writer4(&buff4);
+    notifyDialogue.Serialize(writer4);
+
+    uint64_t opcode4 = 0;
+    Buffer::Reader reader4(&buff4);
+    reader4.ReadBits(opcode4, 8);
+
+    NotifyDialogue recvNotifyDialogue;
+    recvNotifyDialogue.DeserializeRaw(reader4);
+    REQUIRE(recvNotifyDialogue == notifyDialogue);
+    REQUIRE(recvNotifyDialogue.SceneId == cSceneId);
+    REQUIRE(recvNotifyDialogue.ScenePhase == 6);
+}
+
+TEST_CASE("An action event list cannot make the reader allocate what it never sent", "[encoding.action_events]")
+{
+    // Both counts in these messages arrive from a peer and used to size the map and the vector
+    // directly, so a short packet bought an allocation of millions of ActionEvents before the
+    // first one was parsed. An actor count past the bound drops the whole message; an actor's
+    // list past the bound is dropped on its own, so the entries behind it still line up.
+    {
+        Buffer buff(64);
+        Buffer::Writer writer(&buff);
+        Serialization::WriteVarInt(writer, RequestActionEvents::kMaxActorCount + 1);
+
+        Buffer::Reader reader(&buff);
+        RequestActionEvents recv;
+        recv.DeserializeRaw(reader);
+        REQUIRE(recv.Actions.empty());
+    }
+
+    {
+        Buffer buff(64);
+        Buffer::Writer writer(&buff);
+
+        // One actor, whose list claims far more actions than any sender writes
+        Serialization::WriteVarInt(writer, 1);
+        Serialization::WriteVarInt(writer, 3);
+        Serialization::WriteVarInt(writer, RequestActionEvents::kMaxActionCount + 1);
+
+        Buffer::Reader reader(&buff);
+        RequestActionEvents recv;
+        recv.DeserializeRaw(reader);
+        REQUIRE(recv.Actions.size() == 1);
+        REQUIRE(recv.Actions[3].empty());
+    }
+
+    {
+        Buffer buff(64);
+        Buffer::Writer writer(&buff);
+        Serialization::WriteVarInt(writer, NotifyActionEvents::kMaxActorCount + 1);
+
+        Buffer::Reader reader(&buff);
+        NotifyActionEvents recv;
+        recv.DeserializeRaw(reader);
+        REQUIRE(recv.Actions.empty());
+    }
+
+    // And a message inside the bounds still decodes, so the guard cannot be satisfied by
+    // refusing everything.
+    {
+        ActionEvent action;
+        action.Tick = 1712345678901;
+        action.ActionId = 42;
+        action.EventName = "blockStart";
+
+        RequestActionEvents send;
+        send.Actions[3] = {action};
+
+        Buffer buff(1000);
+        Buffer::Writer writer(&buff);
+        send.Serialize(writer);
+
+        uint64_t opcode = 0;
+        Buffer::Reader reader(&buff);
+        reader.ReadBits(opcode, 8);
+
+        RequestActionEvents recv;
+        recv.DeserializeRaw(reader);
+        REQUIRE(recv == send);
+    }
 }
 TEST_CASE("A non finite wire float is replaced where it is read", "[encoding.finite_floats]")
 {

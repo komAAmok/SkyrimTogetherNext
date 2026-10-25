@@ -334,11 +334,34 @@ void DebugService::OnDraw() noexcept
         ImGui::BeginMainMenuBar();
         if (ImGui::BeginMenu("Helpers"))
         {
-            if (ImGui::Button("Unstuck player"))
+            if (ImGui::Button("Unstuck player (knockback)"))
             {
                 auto* pPlayer = PlayerCharacter::Get();
-                if (pPlayer != nullptr)
+                if (pPlayer != nullptr && pPlayer->currentProcess != nullptr)
                     pPlayer->currentProcess->KnockExplosion(pPlayer, &pPlayer->position, 0.f);
+            }
+
+            // Fallback for players stuck in dialogue / scenes with input blocked. Does not touch quest stages.
+            if (ImGui::Button("Restore player controls"))
+            {
+                if (auto* pPlayer = PlayerCharacter::Get())
+                {
+                    pPlayer->StopCurrentDialogue(true);
+                    if (auto* pControls = PlayerControls::GetInstance())
+                    {
+                        pControls->SetBlockPlayerInput(false);
+                        pControls->SetActivateEnabled(true);
+                    }
+                    // Mirrors Game.EnablePlayerControls(). Scripts may disable them again through an input layer.
+                    if (auto* pInputManager = BSInputEnableManager::Get())
+                        pInputManager->EnableOtherEvent(BSInputEnableManager::kPlayerControls, true, true);
+                }
+            }
+            // ImGui has no SetItemTooltip before 1.89.9 and the pinned package is 1.89.7.
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Ends dialogue and re-enables controls disabled by scripts or scenes.\nMovement controls: %s",
+                                  BSInputEnableManager::IsMovementControlsEnabled() ? "enabled" : "disabled");
             }
 
             if (ImGui::Button("Stop all combat"))

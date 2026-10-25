@@ -1,3 +1,12 @@
+# RETIRED in the v1.8.3 -> v1.8.4 port (upstream commit 0882e77d deleted this
+# script). This file now only keeps the deletion visible to a repo that cannot
+# remove files yet; delete it together with the deletion of
+# `address_patcher.py` and `get_skyrim_addresses.py`.
+#
+# It fed a Fallout 4 address dump (out.txt) through every .cpp/.h in the current
+# directory to rewrite POINTER_FALLOUT4 entries, which has not matched this
+# codebase for years. Use Tools/Scripts/addrlib.py instead.
+
 addresses = {}
 
 with open('out.txt') as f:

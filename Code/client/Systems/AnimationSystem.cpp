@@ -11,7 +11,8 @@
 #include <AI/AIProcess.h>
 #include <Misc/MiddleProcess.h>
 
-#include <Messages/ClientReferencesMoveRequest.h>
+#include <Messages/RequestActionEvents.h>
+#include <Structs/Movement.h>
 
 #include <Components.h>
 #include <World.h>
@@ -107,13 +108,19 @@ void AnimationSystem::Clean(World& aWorld, const entt::entity aEntity) noexcept
 void AnimationSystem::AddActionsForReplay(RemoteAnimationComponent& aAnimationComponent,
                                           const ActionReplayChain& acReplay) noexcept
 {
-    // The insert is the allocation. It is a hint for the replay, so a failure leaves
+    // The pushes are the allocation. It is a hint for the replay, so a failure leaves
     // the component with the time points it already had and no replay queued, which
     // is what a chain with no actions produces.
     try
     {
-        aAnimationComponent.TimePoints.insert(aAnimationComponent.TimePoints.end(), acReplay.Actions.begin(),
-                                              acReplay.Actions.end());
+        // A replay rebuilds past state, so it is due right away rather than when
+        // playback reaches the original ticks.
+        for (auto action : acReplay.Actions)
+        {
+            action.Tick = 0;
+            aAnimationComponent.TimePoints.push_back(std::move(action));
+        }
+
         aAnimationComponent.ReplayCount = acReplay.Actions.size();
         aAnimationComponent.ResetAnimationGraphForReplay = acReplay.ResetAnimationGraph;
     }
@@ -149,45 +156,45 @@ void AnimationSystem::AddAction(RemoteAnimationComponent& aAnimationComponent, c
     }
 }
 
-void AnimationSystem::Serialize(World& aWorld, ClientReferencesMoveRequest& aMovementSnapshot, LocalComponent& localComponent, LocalAnimationComponent& animationComponent, FormIdComponent& formIdComponent)
+void AnimationSystem::SerializeMovement(World& aWorld, Actor* apActor, Movement& aMovement) noexcept
 {
-    const auto pForm = TESForm::GetById(formIdComponent.Id);
-    const auto pActor = Cast<Actor>(pForm);
-    if (!pActor)
+    if (const auto pCell = apActor->parentCell)
+        aWorld.GetModSystem().GetServerModId(pCell->formID, aMovement.CellId.ModId, aMovement.CellId.BaseId);
+
+    if (const auto pWorldSpace = apActor->GetWorldSpace())
+        aWorld.GetModSystem().GetServerModId(pWorldSpace->formID, aMovement.WorldSpaceId.ModId, aMovement.WorldSpaceId.BaseId);
+
+    aMovement.Position = apActor->position;
+
+    aMovement.Rotation.x = apActor->rotation.x;
+    aMovement.Rotation.y = apActor->rotation.z;
+
+    apActor->SaveAnimationVariables(aMovement.Variables);
+
+    if (apActor->currentProcess && apActor->currentProcess->middleProcess)
+    {
+        aMovement.Direction = apActor->currentProcess->middleProcess->direction;
+    }
+}
+
+void AnimationSystem::SerializeActions(RequestActionEvents& aMessage, LocalComponent& localComponent, LocalAnimationComponent& animationComponent) noexcept
+{
+    if (animationComponent.Actions.empty())
         return;
 
-    auto& update = aMovementSnapshot.Updates[localComponent.Id];
-    auto& movement = update.UpdatedMovement;
+    localComponent.CurrentAction = animationComponent.Actions.back();
 
-    if (const auto pCell = pActor->parentCell)
-        World::Get().GetModSystem().GetServerModId(pCell->formID, movement.CellId.ModId, movement.CellId.BaseId);
-
-    if (const auto pWorldSpace = pActor->GetWorldSpace())
-        World::Get().GetModSystem().GetServerModId(pWorldSpace->formID, movement.WorldSpaceId.ModId, movement.WorldSpaceId.BaseId);
-
-    movement.Position = pActor->position;
-
-    movement.Rotation.x = pActor->rotation.x;
-    movement.Rotation.y = pActor->rotation.z;
-
-    pActor->SaveAnimationVariables(movement.Variables);
-
-    if (pActor->currentProcess && pActor->currentProcess->middleProcess)
+    // The actions are moved into the message rather than copied, so a message that
+    // cannot take them leaves the buffer alone instead of losing the batch.
+    try
     {
-        movement.Direction = pActor->currentProcess->middleProcess->direction;
+        aMessage.Actions[localComponent.Id] = std::move(animationComponent.Actions);
+        animationComponent.Actions.clear();
     }
-
-    for (auto& entry : animationComponent.Actions)
+    catch (...)
     {
-        update.ActionEvents.push_back(entry);
+        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in AnimationSystem::SerializeActions");
     }
-
-    auto latestAction = animationComponent.GetLatestAction();
-
-    if (latestAction)
-        localComponent.CurrentAction = latestAction.MoveResult();
-
-    animationComponent.Actions.clear();
 }
 
 bool AnimationSystem::Serialize(World& aWorld, const ActionEvent& aActionEvent, const ActionEvent& aLastProcessedAction, std::string* apData)

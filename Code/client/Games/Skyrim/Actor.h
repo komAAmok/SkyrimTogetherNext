@@ -273,6 +273,12 @@ struct Actor : TESObjectREFR
         kHasSceneExtra = 1 << 3,
     };
 
+    // flags1
+    enum ActorFlags1
+    {
+        HAS_SCENE_DATA = 1 << 3,
+    };
+
     enum ActorFlags
     {
         IS_A_MOUNT = 1 << 1,

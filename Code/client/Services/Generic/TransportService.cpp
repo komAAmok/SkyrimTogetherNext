@@ -22,6 +22,7 @@
 #include <Messages/NotifySettingsChange.h>
 #include <JsonEscape.h>
 #include <Packet.hpp>
+#include <steam/isteamnetworkingutils.h>
 #include <WireLimits.h>
 
 #include <ScriptExtender.h>
@@ -171,7 +172,7 @@ void TransportService::Close() noexcept
     Client::Close();
 }
 
-bool TransportService::Send(const ClientMessage& acMessage) const noexcept
+bool TransportService::Send(const ClientMessage& acMessage, const TiltedPhoques::EPacketFlags aPacketFlags) const noexcept
 {
     if (!IsConnected())
         return false;
@@ -215,7 +216,7 @@ bool TransportService::Send(const ClientMessage& acMessage) const noexcept
         return false;
     }
 
-    Client::Send(&packet);
+    Client::Send(&packet, aPacketFlags);
 
     return true;
 }
@@ -618,6 +619,13 @@ bool TransportService::PumpConnectionLocked() noexcept
             Close();
         }
 
+        // Taken before polling, so that every message that arrived before this time
+        // gets handled by this update. That is what makes the receive time it reports
+        // a lower bound for everything the handlers below see, and it comes off the
+        // networking library's clock rather than ours so a long frame of ours does not
+        // look like network jitter.
+        m_lastPollTime = GetMessageReceiveTime();
+
         Update();
 
         return m_handshakePending.load();
@@ -799,6 +807,26 @@ void TransportService::HandshakeThreadMain(const std::string acEndpoint) noexcep
     {
         Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in TransportService::HandshakeThreadMain");
     }
+}
+
+double TransportService::GetMessageReceiveTime() const noexcept
+{
+    // The pinned transport has no per-message receive stamp - GetCurrentMessageReceiveTime()
+    // arrived with a later TiltedConnect than the one this fork builds against - so the
+    // arrival time of the message being handled is the last pump, which is when everything
+    // up to that point was picked up.
+    //
+    // What that costs: a long frame of ours is still seen by the playback clock as time that
+    // passed between two snapshots, so it reads as a little extra jitter and briefly delays
+    // remote actors. It stays bounded by PlaybackClock's target delay and rate limits, and
+    // it is still the right source for the one thing that matters here - the arrival times
+    // and the play head come off the same clock, so they cannot drift apart.
+    //
+    // What it must not be replaced with is the world clock: that is a different timeline
+    // from the networking one, and mixing the two would show up as a constant offset rather
+    // than a small delay. When the transport is eventually bumped, this becomes the
+    // library's receive stamp and nothing else has to change.
+    return m_lastPollTime;
 }
 
 void TransportService::HandleUpdate(const UpdateEvent& acEvent) noexcept

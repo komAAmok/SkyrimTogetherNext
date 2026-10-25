@@ -28,6 +28,7 @@ struct ActorExtension
 
     ActionEvent LatestAnimation{};
     size_t GraphDescriptorHash = 0;
+    uint64_t GraphDescriptorProjectKey = 0;
     std::chrono::steady_clock::time_point nakedDeadline{};
 
     // TODO: atomic? bool instead? maybe simplify to `IsReenabling()` ?

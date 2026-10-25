@@ -41,7 +41,21 @@ void TP_MAKE_THISCALL(HookShowSubtitle, SubtitleManager, TESObjectREFR* apSpeake
     // already covered here; upstream's rewrite would have narrowed it again.
     // The strlen guard is the fork's own addition and is kept.
     if (apSubtitleText && std::strlen(apSubtitleText) && pActor && !pActor->GetExtension()->IsPlayer())
-        World::Get().GetRunner().Trigger(SubtitleEvent(apSpeaker->formID, apSubtitleText));
+    {
+        // Same as dialogue: clients that play the same scene show their own subtitle for the line. The fork's rule
+        // above still decides whether the line is synced at all.
+        const bool cIsPlayerDialogue = MenuTopicManager::IsPlayerDialogueSpeaker(pActor);
+        BGSScene* pScene = cIsPlayerDialogue ? nullptr : pActor->GetCurrentScene();
+
+        SubtitleEvent event(apSpeaker->formID, apSubtitleText);
+        if (pScene && pScene->isPlaying)
+        {
+            event.SceneID = pScene->formID;
+            event.ScenePhase = pScene->currentPhaseIndex;
+        }
+
+        World::Get().GetRunner().Trigger(event);
+    }
 
     TiltedPhoques::ThisCall(RealShowSubtitle, apThis, apSpeaker, apSubtitleText, aIsInDialogue);
 }

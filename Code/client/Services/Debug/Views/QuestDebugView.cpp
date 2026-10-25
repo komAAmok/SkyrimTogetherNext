@@ -51,33 +51,27 @@ void DebugService::DrawQuestDebugView()
             if (!ImGui::CollapsingHeader(questName))
                 continue;
 
+            // Executed and waiting stages are one list (TESQuest::stages), sorted by stageIndex.
+            // Done stages are the executed ones, the rest are waiting.
             if (ImGui::CollapsingHeader("Stages"))
             {
-                for (auto& stage : *pQuest->pExecutedStages)
+                for (auto& pStage : pQuest->stages)
                 {
-                    auto pStage = &stage;
+                    // The list's head is stored inline, so a never-set head yields a null entry
+                    if (!pStage)
+                        continue;
+
                     ImGui::TextColored({0.f, 255.f, 255.f, 255.f}, "Stage: %d, is done? %s", pStage->stageIndex,
                                        pStage->IsDone() ? "true" : "false");
 
                     char setStage[64];
                     sprintf_s(setStage, std::size(setStage), "Set stage (%d)", pStage->stageIndex);
 
+                    // One button label per stage, the list can repeat the index across log entries
+                    ImGui::PushID(pStage->stageIndex);
                     if (ImGui::Button(setStage))
                         pQuest->ScriptSetStage(pStage->stageIndex);
-                }
-            }
-            if (ImGui::CollapsingHeader("Waiting Stages"))
-            {
-                for (auto& pStage : *pQuest->pWaitingStages)
-                {
-                    ImGui::TextColored({0.f, 255.f, 255.f, 255.f}, "Stage: %d, is done? %s", pStage->stageIndex,
-                                       pStage->IsDone() ? "true" : "false");
-
-                    char setStage[64];
-                    sprintf_s(setStage, std::size(setStage), "Set stage (%d)", pStage->stageIndex);
-
-                    if (ImGui::Button(setStage))
-                        pQuest->ScriptSetStage(pStage->stageIndex);
+                    ImGui::PopID();
                 }
             }
 

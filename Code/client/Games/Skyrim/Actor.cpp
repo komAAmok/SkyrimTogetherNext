@@ -1472,6 +1472,7 @@ void TP_MAKE_THISCALL(HookUnequipObject, Actor, void* apUnk1, TESBoundObject* ap
     TiltedPhoques::ThisCall(RealUnequipObject, apThis, apUnk1, apObject, aUnk2, apUnk3);
 }
 
+// Returns a float in xmm0, 0 when nothing was played. Callers check it for -1.0 (lip file failed to load).
 TP_THIS_FUNCTION(TSpeakSoundFunction, float, Actor, const char* apName, uint32_t* a3, uint32_t a4, uint32_t a5, uint32_t a6, uint64_t a7, uint64_t a8, uint64_t a9, bool a10, uint64_t a11, bool a12, bool a13, bool a14);
 static TSpeakSoundFunction* RealSpeakSoundFunction = nullptr;
 
@@ -1481,8 +1482,21 @@ float TP_MAKE_THISCALL(HookSpeakSoundFunction, Actor, const char* apName, uint32
 
     spdlog::debug("a3: {:X}, a4: {}, a5: {}, a6: {}, a7: {}, a8: {:X}, a9: {:X}, a10: {}, a11: {:X}, a12: {}, a13: {}, a14: {}", (uint64_t)a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
 
-    World::Get().GetRunner().Trigger(DialogueEvent(apThis->formID, apName));
-    
+    // Lines from a scene let other clients that play the same scene skip them, unless their copy is stuck in an earlier
+    // phase. Menu dialogue always plays.
+    const bool cIsPlayerDialogue = MenuTopicManager::IsPlayerDialogueSpeaker(apThis);
+    BGSScene* pScene = cIsPlayerDialogue ? nullptr : apThis->GetCurrentScene();
+
+    uint32_t sceneId = 0;
+    uint32_t scenePhase = 0;
+    if (pScene && pScene->isPlaying)
+    {
+        sceneId = pScene->formID;
+        scenePhase = pScene->currentPhaseIndex;
+    }
+
+    World::Get().GetRunner().Trigger(DialogueEvent(apThis->formID, apName, sceneId, scenePhase));
+
     return TiltedPhoques::ThisCall(RealSpeakSoundFunction, apThis, apName, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14);
 }
 

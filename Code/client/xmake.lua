@@ -82,4 +82,11 @@ build_client("SkyrimTogetherClient")
 -- engine structs with the 1.5.x layouts (see the SKYRIM_TARGET_LEGACY
 -- conditionals in Games/Skyrim). The matching runtime DLL is loaded by the
 -- SKSE bootstrap based on the game version.
+--
+-- This is this fork's answer to the game-version switch the upstream
+-- skyrim_version option drives: both runtimes come out of one build when the
+-- option is "latest", and naming 1.6.1170 only re-labels the artifact, it does
+-- not narrow what ships. Keep this target unconditional - a build that skipped
+-- it would leave 1.5.x players with a package that starts and never opens the
+-- multiplayer menu (windows.yml asserts the DLL exists for that reason).
 build_client("SkyrimTogetherClientLegacy", {"SKYRIM_TARGET_LEGACY=1"})

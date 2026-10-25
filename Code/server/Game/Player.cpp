@@ -110,7 +110,7 @@ void Player::SetPingMs(uint32_t aPingMs) noexcept
     m_pingMs = aPingMs;
 }
 
-void Player::Send(const ServerMessage& acServerMessage) const
+void Player::Send(const ServerMessage& acServerMessage, const TiltedPhoques::EPacketFlags aPacketFlags) const
 {
-    GameServer::Get()->Send(GetConnectionId(), acServerMessage);
+    GameServer::Get()->Send(GetConnectionId(), acServerMessage, aPacketFlags);
 }

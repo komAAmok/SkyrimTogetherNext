@@ -6,6 +6,8 @@ void NotifySubtitle::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const 
     Serialization::WriteVarInt(aWriter, ServerId);
     Serialization::WriteString(aWriter, Text);
     Serialization::WriteVarInt(aWriter, TopicFormId);
+    SceneId.Serialize(aWriter);
+    Serialization::WriteVarInt(aWriter, ScenePhase);
 }
 
 void NotifySubtitle::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -16,4 +18,6 @@ void NotifySubtitle::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noex
     Text = Serialization::ReadString(aReader);
     WireLimits::Clamp(Text, WireLimits::kMaxDialogueTextBytes);
     TopicFormId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
+    SceneId.Deserialize(aReader);
+    ScenePhase = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 }

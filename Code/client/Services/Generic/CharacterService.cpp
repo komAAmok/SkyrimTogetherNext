@@ -43,6 +43,8 @@
 #include <Messages/AssignCharacterResponse.h>
 #include <Messages/ServerReferencesMoveRequest.h>
 #include <Messages/ClientReferencesMoveRequest.h>
+#include <Messages/RequestActionEvents.h>
+#include <Messages/NotifyActionEvents.h>
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyFactionsChanges.h>
@@ -84,6 +86,7 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher,
     m_assignCharacterConnection = m_dispatcher.sink<AssignCharacterResponse>().connect<&CharacterService::OnAssignCharacter>(this);
     m_characterSpawnConnection = m_dispatcher.sink<CharacterSpawnRequest>().connect<&CharacterService::OnCharacterSpawn>(this);
     m_referenceMovementSnapshotConnection = m_dispatcher.sink<ServerReferencesMoveRequest>().connect<&CharacterService::OnReferencesMoveRequest>(this);
+    m_actionEventsConnection = m_dispatcher.sink<NotifyActionEvents>().connect<&CharacterService::OnNotifyActionEvents>(this);
     m_factionsConnection = m_dispatcher.sink<NotifyFactionsChanges>().connect<&CharacterService::OnFactionsChanges>(this);
     m_ownershipTransferConnection = m_dispatcher.sink<NotifyOwnershipTransfer>().connect<&CharacterService::OnOwnershipTransfer>(this);
     m_removeCharacterConnection = m_dispatcher.sink<NotifyRemoveCharacter>().connect<&CharacterService::OnRemoveCharacter>(this);
@@ -639,6 +642,14 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
                 return;
             }
 
+            // Moving an uninitialized reference crashes (e.g. null race); discovery will request its assignment once it loads
+            const TESForm* pLoadingForm = TESForm::GetById(cActorId);
+            if (pLoadingForm && pLoadingForm->IsStillLoading())
+            {
+                spdlog::info("Skipped spawn for actor {:X} because it is still loading, server id: {:X}", cActorId, acMessage.ServerId);
+                return;
+            }
+
             auto* const pForm = TESForm::GetById(cActorId);
             pActor = Cast<Actor>(pForm);
 
@@ -744,6 +755,10 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
         if (acMessage.Updates.empty())
             return;
 
+        // When it came off the network, not when this frame got to it. Otherwise a long frame on our side would look like
+        // network jitter and make every remote actor play further behind for seconds.
+        const double cArrivalTime = m_transport.GetMessageReceiveTime();
+
         auto view = m_world.view<RemoteComponent, InterpolationComponent, RemoteAnimationComponent>();
 
         // Index the view once instead of scanning it per entry. The scan made this
@@ -762,22 +777,53 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
 
             const auto entity = itor->second;
             auto& interpolationComponent = view.get<InterpolationComponent>(entity);
-            auto& animationComponent = view.get<RemoteAnimationComponent>(entity);
-            const auto& movement = update.UpdatedMovement;
 
             InterpolationComponent::TimePoint point;
             // Per-actor sample time when the sender supplied one; a server that
             // predates this field sends zero, where the packet's relay time is
             // the closest approximation available.
             point.Tick = update.SampleTick != 0 ? update.SampleTick : acMessage.Tick;
-            point.Position = movement.Position;
-            point.Rotation = {movement.Rotation.x, 0.f, movement.Rotation.y};
-            point.Variables = movement.Variables;
-            point.Direction = movement.Direction;
+            point.Position = update.Position;
+            point.Rotation = {update.Rotation.x, 0.f, update.Rotation.y};
+            point.Variables = update.Variables;
+            point.Direction = update.Direction;
 
-            InterpolationSystem::AddPoint(interpolationComponent, point);
+            // Actions no longer ride on a movement snapshot; they arrive in their own
+            // NotifyActionEvents, see OnNotifyActionEvents.
+            InterpolationSystem::AddPoint(interpolationComponent, point, cArrivalTime);
+        }
+    }
+    catch (...)
+    {
+        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in CharacterService::OnReferencesMoveRequest");
+    }
+}
 
-            for (const auto& action : update.ActionEvents)
+void CharacterService::OnNotifyActionEvents(const NotifyActionEvents& acMessage) const noexcept
+{
+    try
+    {
+        if (acMessage.Actions.empty())
+            return;
+
+        auto view = m_world.view<RemoteComponent, RemoteAnimationComponent>();
+
+        // Index the view once, as above: the action path carries one entry per acting actor per batch.
+        TiltedPhoques::Map<uint32_t, entt::entity> byServerId;
+        for (auto entity : view)
+            byServerId[view.get<RemoteComponent>(entity).Id] = entity;
+
+        for (const auto& [serverId, actions] : acMessage.Actions)
+        {
+            const auto itor = byServerId.find(serverId);
+
+            if (itor == std::end(byServerId))
+                continue;
+
+            auto& animationComponent = view.get<RemoteAnimationComponent>(itor->second);
+
+            // Played once the actor's playback clock reaches their tick, in step with its movement
+            for (const auto& action : actions)
             {
                 animationComponent.TimePoints.push_back(action);
             }
@@ -785,7 +831,7 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
     }
     catch (...)
     {
-        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in CharacterService::OnReferencesMoveRequest");
+        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in CharacterService::OnNotifyActionEvents");
     }
 }
 
@@ -955,8 +1001,13 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
         {
             m_world.emplace_or_replace<RemoteComponent>(cEntity, acMessage.ServerId, pFormIdComponent->Id, acMessage.OwnershipEpoch);
 
-            if (!m_world.all_of<InterpolationComponent>(cEntity))
-                InterpolationSystem::Setup(m_world, cEntity);
+            // The new owner carries on from its own, older view of the actor and stamps snapshots with its own clock, so
+            // the previous owner's snapshots and timing estimates would only drag the actor back. Start over from where
+            // it is now. Setup() runs on every transfer, not only when the component is missing.
+            const auto* pOldInterpolationComponent = m_world.try_get<InterpolationComponent>(cEntity);
+            const auto cPosition = pActor ? pActor->position : (pOldInterpolationComponent ? pOldInterpolationComponent->Position : NiPoint3{});
+            InterpolationSystem::Setup(m_world, cEntity).Position = cPosition;
+
             if (!m_world.all_of<RemoteAnimationComponent>(cEntity))
                 AnimationSystem::Setup(m_world, cEntity);
         }
@@ -1310,6 +1361,55 @@ void CharacterService::OnNotifySyncExperience(const NotifySyncExperience& acMess
                                 WireLimits::ClampExperienceDelta(acMessage.Experience));
 }
 
+// Whether the phase waits on a package of an NPC remote here. Packages only complete on the client running the NPC's AI,
+// so this copy of the scene can't get past the phase on its own.
+static bool IsPhaseStuckOnRemotePackage(BGSScene* apScene, uint32_t aPhaseIndex) noexcept
+{
+    // A phase with completion conditions ends once they pass, even mid-action, so this copy catches up within milliseconds.
+    if (!apScene || aPhaseIndex >= apScene->phases.length)
+        return false;
+
+    const BGSScenePhase* pPhase = apScene->phases[aPhaseIndex];
+    if (!pPhase || pPhase->HasCompletionConditions())
+        return false;
+
+    for (BGSSceneAction* pAction : apScene->actions)
+    {
+        if (!pAction || pAction->GetType() != BGSSceneAction::Type::kPackage || !pAction->BlocksPhase(aPhaseIndex))
+            continue;
+
+        Actor* pActor = Cast<Actor>(apScene->owningQuest ? apScene->owningQuest->GetAliasedRef(pAction->actorID) : nullptr);
+        ActorExtension* pExtension = pActor ? pActor->GetExtension() : nullptr;
+        if (pExtension && pExtension->IsRemote())
+            return true;
+    }
+
+    return false;
+}
+
+// Whether the local copy of the line's scene voices it itself or already did, so the sender's would cut it off and end the
+// phase early. A copy stuck in an earlier phase on a remote NPC's package never reaches the line, so it plays the sender's.
+static bool IsLineVoicedByLocalScene(Actor* apActor, const GameId& acSceneId, uint32_t aScenePhase) noexcept
+{
+    if (!apActor)
+        return false;
+
+    // Outside an actor's own scene data GetCurrentScene must not be called
+    if (!acSceneId || (apActor->flags1 & Actor::HAS_SCENE_DATA) == 0)
+        return false;
+
+    BGSScene* pScene = apActor->GetCurrentScene();
+    if (!pScene || !pScene->isPlaying || pScene->formID != World::Get().GetModSystem().GetGameId(acSceneId))
+        return false;
+
+    // At or past the sender's phase. A phase index past the end means the scene is starting or ending here.
+    const uint32_t cPhase = pScene->currentPhaseIndex;
+    if (cPhase >= aScenePhase || cPhase >= pScene->phases.length)
+        return true;
+
+    return !IsPhaseStuckOnRemotePackage(pScene, cPhase);
+}
+
 void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
 {
     // This is the densest noexcept surface in the client: every packet handler, the
@@ -1364,6 +1464,8 @@ void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
             DialogueRequest request{};
             request.ServerId = serverIdRes.value();
             request.SoundFilename = acEvent.VoiceFile;
+            if (acEvent.SceneID && m_world.GetModSystem().GetServerModId(acEvent.SceneID, request.SceneId))
+                request.ScenePhase = acEvent.ScenePhase;
 
             m_transport.Send(request);
         }
@@ -1389,9 +1491,18 @@ void CharacterService::OnNotifyDialogue(const NotifyDialogue& acMessage) noexcep
         if (!pActor)
             return;
 
+        // Every client plays scenes itself, the local copy usually voices the line. Menu and other-scene lines still play.
+        if (IsLineVoicedByLocalScene(pActor, acMessage.SceneId, acMessage.ScenePhase))
+        {
+            spdlog::info(
+                "Skipping remote dialogue for actor {:X}, sender's phase {}, it plays the same scene {:X} here, file: {}", pActor->formID, acMessage.ScenePhase,
+                pActor->GetCurrentScene()->formID, acMessage.SoundFilename);
+            return;
+        }
+
         spdlog::debug(
-            __FUNCTION__ ": playing dialogue Actor {:X}, serverId {:X}, isLeader {}, name {}, soundFile {}", pActor->formID, acMessage.ServerId, isLeader, pActor->baseForm->GetName(),
-            acMessage.SoundFilename);
+            __FUNCTION__ ": playing dialogue Actor {:X}, serverId {:X}, isLeader {}, name {}, soundFile {}", pActor->formID, acMessage.ServerId, isLeader,
+            pActor->baseForm ? pActor->baseForm->GetName() : "<no base form>", acMessage.SoundFilename);
 
         pActor->StopCurrentDialogue(true);
         pActor->SpeakSound(acMessage.SoundFilename.c_str());
@@ -1455,6 +1566,8 @@ void CharacterService::OnSubtitleEvent(const SubtitleEvent& acEvent) noexcept
             request.ServerId = serverIdRes.value();
             request.Text = acEvent.Text;
             request.TopicFormId = acEvent.TopicFormID;
+            if (acEvent.SceneID && m_world.GetModSystem().GetServerModId(acEvent.SceneID, request.SceneId))
+                request.ScenePhase = acEvent.ScenePhase;
             m_transport.Send(request);
         }
     }
@@ -1476,6 +1589,11 @@ void CharacterService::OnNotifySubtitle(const NotifySubtitle& acMessage) noexcep
         const bool isLeader = World::Get().GetPartyService().IsLeader(); // Helps distinguish in 2-party logs
         Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
         if (!pActor)
+            return;
+
+        // The local copy of the scene shows its own subtitle, see OnNotifyDialogue. Only the actor's own voice line ending
+        // hides a subtitle, so a remote one arriving after the local line has finished would stay on screen.
+        if (IsLineVoicedByLocalScene(pActor, acMessage.SceneId, acMessage.ScenePhase))
             return;
 
         // This is only for fallout 4
@@ -2218,18 +2336,30 @@ void CharacterService::ProcessLeveledConforms() noexcept
 
 void CharacterService::RunLocalUpdates() const noexcept
 {
-    static std::chrono::steady_clock::time_point lastSendTimePoint;
-    constexpr auto cDelayBetweenSnapshots = 100ms;
+    // Remote clients show actors about one snapshot interval late, so players, mounts and actors in combat get every snapshot
+    // and the rest every few. Assumes 60+ fps: 30ms keeps 60 fps gaps at two frames, with 33ms most were three (~25 Hz).
+    constexpr auto cDelayBetweenSnapshots = 30ms;
+    constexpr uint32_t cLowPrioritySnapshotDivider = 3;
+    // Movement is unreliable, keeping each message around a single packet (~120 bytes per humanoid) means a lost packet
+    // only drops a few actors
+    constexpr size_t cMaxActorsPerMovementMessage = 8;
+
+    static std::chrono::steady_clock::time_point lastSnapshotTimePoint;
+    static uint32_t snapshotCount = 0;
 
     const auto now = std::chrono::steady_clock::now();
-    if (now - lastSendTimePoint < cDelayBetweenSnapshots)
+    if (now - lastSnapshotTimePoint < cDelayBetweenSnapshots)
         return;
 
-    lastSendTimePoint = now;
+    lastSnapshotTimePoint = now;
+    const bool cIsFullSnapshot = ++snapshotCount % cLowPrioritySnapshotDivider == 0;
 
-    ClientReferencesMoveRequest message;
-    message.Tick = m_transport.GetClock().GetCurrentTick();
+    RequestActionEvents actionsMessage;
 
+    ClientReferencesMoveRequest movementMessage;
+    movementMessage.Tick = m_transport.GetClock().GetCurrentTick();
+
+    const auto* pPlayer = PlayerCharacter::Get();
     auto animatedLocalView = m_world.view<LocalComponent, LocalAnimationComponent, FormIdComponent>();
 
     for (auto entity : animatedLocalView)
@@ -2238,10 +2368,33 @@ void CharacterService::RunLocalUpdates() const noexcept
         auto& animationComponent = animatedLocalView.get<LocalAnimationComponent>(entity);
         auto& formIdComponent = animatedLocalView.get<FormIdComponent>(entity);
 
-        AnimationSystem::Serialize(m_world, message, localComponent, animationComponent, formIdComponent);
+        auto* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+        if (!pActor)
+            continue;
+
+        // Remote clients play actions on the same timeline as movement, by the time playback reaches an action it waits
+        // for the snapshot after it anyway, so sending actions along with that snapshot doesn't delay them
+        AnimationSystem::SerializeActions(actionsMessage, localComponent, animationComponent);
+
+        if (!cIsFullSnapshot && pActor != pPlayer && !pActor->IsMount() && !pActor->IsInCombat())
+            continue;
+
+        if (movementMessage.Updates.size() == cMaxActorsPerMovementMessage)
+        {
+            m_transport.Send(movementMessage, TiltedPhoques::kUnreliable);
+            movementMessage.Updates.clear();
+        }
+
+        AnimationSystem::SerializeMovement(m_world, pActor, movementMessage.Updates[localComponent.Id]);
     }
 
-    m_transport.Send(message);
+    if (!actionsMessage.Actions.empty())
+        m_transport.Send(actionsMessage);
+
+    // Movement is loss tolerant, so it goes out unreliably in as few packets as possible. The pinned TiltedConnect
+    // (293fab99) only offers kReliable/kUnreliable - the no-Nagle flag upstream also sets needs the newer submodule.
+    if (!movementMessage.Updates.empty())
+        m_transport.Send(movementMessage, TiltedPhoques::kUnreliable);
 }
 
 void CharacterService::SetRemoteFaceGenForce(const bool aForce) const noexcept
@@ -2353,19 +2506,10 @@ void CharacterService::RunRemoteUpdates() noexcept
     // the server or recomputed on the next tick.
     try
     {
-        // Play the remote world slightly in the past so there is always a sample
-        // ahead of the play head to interpolate towards. The margin has to cover
-        // one snapshot interval (the client sends every 100ms) plus the relay, so
-        // 300ms leaves room for two late snapshots; it is a constant rather than a
-        // tuned value because the clock exposes no round-trip or jitter estimate to
-        // derive it from.
-        //
-        // It is expressed against the same clock the samples carry. A server that
-        // predates the per-actor sample time stamps each packet with its own relay
-        // tick, and on those the margin is what keeps the play head behind it.
-        constexpr uint64_t kPlaybackDelayMs = 300;
-        const auto cNow = m_transport.GetClock().GetCurrentTick();
-        const auto tick = cNow > kPlaybackDelayMs ? cNow - kPlaybackDelayMs : 0;
+        // Each remote actor is played back on its owner's timeline, only as far behind as its snapshots need, see
+        // PlaybackClock. Playback can only rely on snapshots that have been handled, so it runs on the time they were last
+        // picked up at.
+        const double cNow = m_transport.GetLastPollTime();
 
         // Interpolation has to keep running even if the actor is not in view, otherwise we will never know if we need to spawn it
         auto interpolatedEntities = m_world.view<RemoteComponent, InterpolationComponent>();
@@ -2382,10 +2526,10 @@ void CharacterService::RunRemoteUpdates() noexcept
                 pActor = Cast<Actor>(pForm);
             }
 
-            InterpolationSystem::Update(pActor, interpolationComponent, tick);
+            InterpolationSystem::Update(pActor, interpolationComponent, cNow);
         }
 
-        auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, FormIdComponent>();
+        auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
 
         for (auto entity : animatedView)
         {
@@ -2397,7 +2541,9 @@ void CharacterService::RunRemoteUpdates() noexcept
 
             // Called even when the actor cannot be resolved: the queue has to be
             // trimmed either way, and the snapshots keep appending to it.
-            AnimationSystem::Update(m_world, pActor, animationComponent, tick);
+            // Actions run on the clock the interpolation pass above just advanced, so the body and its animations stay in step
+            const auto cTick = InterpolationSystem::GetPlaybackTick(animatedView.get<InterpolationComponent>(entity));
+            AnimationSystem::Update(m_world, pActor, animationComponent, cTick);
         }
 
         auto facegenView = m_world.view<FormIdComponent, FaceGenComponent>();

@@ -38,11 +38,16 @@ bool IAnimationGraphManagerHolder::RevertAnimationGraphManager()
 
 bool IAnimationGraphManagerHolder::IsReady()
 {
-    BSAnimationGraphManager* pAnimationGraph = nullptr;
-    const auto result = GetBSAnimationGraph(&pAnimationGraph);
+    // GetBSAnimationGraph() hands out a reference the caller owns. Owning it with
+    // a smart pointer is what releases it again, on every path out of this call.
+    BSTSmartPointer<BSAnimationGraphManager> spManager;
+    return GetBSAnimationGraph(spManager);
+}
 
-    if (pAnimationGraph)
-        pAnimationGraph->Release();
+BSTSmartPointer<BSAnimationGraphManager> IAnimationGraphManagerHolder::GetAnimationGraphManagerPtr() const noexcept
+{
+    BSTSmartPointer<BSAnimationGraphManager> spManager;
+    GetBSAnimationGraph(spManager);
 
-    return result;
+    return spManager;
 }

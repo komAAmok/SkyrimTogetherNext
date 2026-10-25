@@ -155,6 +155,31 @@ void TESQuest::SetStopped()
     MarkChanged(2);
 }
 
+bool TESQuest::IsStageReached(uint16_t aStage) noexcept
+{
+    return currentStage == aStage || IsStageDone(aStage);
+}
+
+uint32_t TESQuest::GetStageItemCount(uint16_t aStage) noexcept
+{
+    for (Stage* pStage : stages)
+    {
+        if (!pStage || pStage->stageIndex != aStage)
+            continue;
+
+        uint32_t count = 0;
+        for (void* pItem : pStage->items)
+        {
+            if (pItem)
+                ++count;
+        }
+
+        return count;
+    }
+
+    return 0;
+}
+
 bool TESQuest::IsAnyCutscenePlaying()
 {
     for (const auto& scene : scenes)

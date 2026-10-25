@@ -19,4 +19,8 @@ struct SubtitleEvent
     String Text{};
     // This is only relevant to fallout 4
     uint32_t TopicFormID{};
+    // Scene the line is spoken in, 0 for player dialogue menu lines or lines outside scenes
+    uint32_t SceneID{};
+    // The scene's current phase when the line started
+    uint32_t ScenePhase{};
 };

@@ -149,6 +149,23 @@ void QuestService::OnQuestChanges(const PacketEvent<RequestQuestUpdate>& acMessa
                     __FUNCTION__, notify.Id.LogFormat(), notify.Stage, notify.Status, notify.ClientQuestType);
             }
 
+            // Party members' scripts often reach the same stage on their own, only relay it once.
+            // A start has run none of its stages yet and a stop may run them again when the quest is
+            // restarted, so both reset the tracking rather than add to it.
+            if (message.Status == RequestQuestUpdate::StageUpdate || message.Status == RequestQuestUpdate::StageUpdateForced)
+            {
+                if (!pParty->QuestStages[message.Id].insert(message.Stage).second)
+                {
+                    spdlog::debug("{}: dropped duplicate quest stage from player {}, quest: {:X}, stage: {}", __FUNCTION__, pPlayer->GetId(),
+                                  message.Id.LogFormat(), message.Stage);
+                    return;
+                }
+            }
+            else
+            {
+                pParty->QuestStages.erase(message.Id);
+            }
+
             // Now that party MEMBERS can advance quests in addition to the party leader, must prevent loops/reflections.
             // If the sender of the request is a party Member, SendToLeader() if noone is in the QuestStageDedpHistory for
             // this quest+stage, then add self to the dedup history.

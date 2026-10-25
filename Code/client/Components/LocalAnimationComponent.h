@@ -11,14 +11,6 @@ struct LocalAnimationComponent
     Vector<ActionEvent> Actions;
     ActionEvent LastProcessedAction;
 
-    [[nodiscard]] Outcome<ActionEvent, bool> GetLatestAction() const noexcept
-    {
-        if (Actions.empty())
-            return false;
-
-        return Actions[Actions.size() - 1];
-    }
-
     void Append(const ActionEvent& acEvent) noexcept
     {
         // The buffer is what the replay below consumes, and an action that could not be

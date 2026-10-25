@@ -57,6 +57,7 @@ enum ClientOpcode : unsigned char
     // Appended, never inserted. Companion plugins hook this table by index, so
     // every existing opcode keeps its number; only new entries may be added.
     kPluginMessagingRequest,
+    kRequestActionEvents,
     kClientOpcodeMax
 };
 
@@ -119,5 +120,6 @@ enum ServerOpcode : unsigned char
     kNotifySetTimeResult,
     // Appended for the same reason as the client opcode above.
     kNotifyPluginMessaging,
+    kNotifyActionEvents,
     kServerOpcodeMax
 };

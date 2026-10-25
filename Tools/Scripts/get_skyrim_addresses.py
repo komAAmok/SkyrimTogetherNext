@@ -1,3 +1,13 @@
+# RETIRED in the v1.8.3 -> v1.8.4 port (upstream commit 0882e77d deleted this
+# script). This file now only keeps the deletion visible to a repo that cannot
+# remove files yet; delete it together with the deletion of
+# `address_patcher.py` and `addrlib_conv.py`.
+#
+# It scraped raw POINTER_SKYRIMSE addresses out of Code/client/ so they could be
+# fed back into `address_patcher.py`. Both ends of that loop are gone: addresses
+# are Address Library ids now, and dump_addresses.py / gen_ae_to_se_map.py are
+# the tools that read them. Use Tools/Scripts/addrlib.py instead.
+
 import os
 from pathlib import Path
 

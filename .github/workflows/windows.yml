@@ -16,10 +16,23 @@ on:
         required: true
         type: boolean
         default: false
+      # Ported from upstream: the game version the build is named for. This
+      # repository ships both runtimes (1.5.x through 1.7.x) from ONE
+      # configuration, so the value does not change what is compiled - it labels
+      # the build. Kept so an upstream-style caller (release.yml, forks of the
+      # playable-build workflow) keeps working, and it is passed to xmake so the
+      # option stays honest about being accepted.
+      skyrim-version:
+        required: false
+        type: string
+        default: 'latest'
     outputs:
       str-version:
         description: "Skyrim Together version string"
         value: ${{ jobs.build.outputs.version }}
+
+env:
+  SKYRIM_VERSION: ${{ inputs.skyrim-version || 'latest' }}
 
 jobs:
   build:
@@ -532,7 +545,7 @@ jobs:
           }
 
       - name: Configure xmake and install dependencies
-        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --yes -vD
+        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --toolchain=msvc --skyrim_version="${{ env.SKYRIM_VERSION }}" --yes -vD
 
       - name: Show run identity
         if: always()
@@ -670,8 +683,18 @@ jobs:
           pnpm --prefix Code/skyrim_ui/ deploy:production
           cp -r Code/skyrim_ui/dist/UI ${{ env.STR_BUILD_DIR }}
 
+      # The build stamp carries the game version it was named for, and only when
+      # that is not "latest": the default build keeps the version string it has
+      # always had, so existing download links and the packaging script that
+      # reads this output are unaffected.
       - id: output-version
-        run: echo "version=$(git describe --tags)" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+        run: |
+          $version = (git describe --tags).Trim()
+          if ($env:SKYRIM_VERSION -and $env:SKYRIM_VERSION -ne 'latest') {
+            $version = "$version-sse$($env:SKYRIM_VERSION)"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       # The last step of the job, so it runs after everything else has had a
       # chance to report. This is where a deferred plugin failure lands.
@@ -686,7 +709,11 @@ jobs:
         if: ${{ inputs.upload-build-for-next-job }}
         uses: actions/upload-artifact@v4
         with:
-          name: internal-job-files
+          # Named per game version so two callers that ask for different values
+          # do not collide in the same workflow run. "latest" keeps the existing
+          # name: release.yml downloads it by exactly that string, and a run that
+          # only ever publishes "latest" must not have to know about the suffix.
+          name: internal-job-files${{ env.SKYRIM_VERSION != 'latest' && format('-sse{0}', env.SKYRIM_VERSION) || '' }}
           retention-days: 1
           path: |
             ${{ env.STR_BUILD_DIR }}

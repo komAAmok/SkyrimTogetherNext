@@ -7,6 +7,104 @@
 每个 tag(形如 `v1.0.20`)对应一个 Release,附上版本号相同的两个包——
 客户端 mod 与专用服务器。逐条提交的历史见 `git log` 与各次 PR。
 
+## v1.2.1(2026-10-26)
+
+### 特性:把上游 TiltedEvolution 的 v1.8.3 → v1.8.4 增量移植进来
+
+**范围**:本仓库与上游的 merge-base 是 `e0002073`(= v1.8.0-87),之后上游发了
+v1.8.1 / v1.8.2 / v1.8.3 / v1.8.4。本次只移植 **v1.8.3 → v1.8.4** 这一段(26 个提交中的
+20 个),其余按下面「刻意不移植」一节处理。
+
+**判据**:先按 patch-id 比对 42 个上游提交与 302 个本仓库提交,命中数为 0 —— 也就是说
+本仓库此前一条 1.8.x 内容都没吃进来,这不是重复劳动。再逐个文件比对
+`上游 v1.8.3` / `本仓库当前` / `上游 v1.8.4` 三方,只把上游那一版的**意图**落到本仓库
+当前内容之上,而不是整文件覆盖。
+
+**核心变化**:
+
+- **自适应播放时钟取代固定 300ms 延迟**(上游 23901108):新增
+  `Code/client/Systems/PlaybackClock.{h,cpp}`,远端角色不再统一延后 300ms,而是按采样
+  间隔与抖动自适应地落在 `now - minTransit - targetDelay` 上;插值系统改成由该时钟
+  驱动播放头,保留本仓库原有的 Catmull-Rom 四点曲线(上游那版是线性 lerp,未回退),
+  并把上游的「外插」意图表达成曲线参数,额外加上传送吸附与 150ms 有界外插 + 位置误差
+  衰减。
+- **动作事件独立成消息**(上游 23901108):新增 `RequestActionEvents` / `NotifyActionEvents`
+  与对应 opcode,动作不再搭在移动快照里;服务端收到后经
+  `ScriptService::HandleCharacterMove` 过滤再按范围中继。
+- **移动快照改成立即中继**:服务端删掉 `ProcessMovementChanges` 那个固定的
+  300ms 快照循环,改为收到即按所有者捕获的 tick 转发,并贯通
+  `EPacketFlags`(`Player::Send` / `GameServer::Send`)。
+- **队伍任务阶段去重**(上游 e9214a87):`Party` 新增 `QuestStages`,`QuestService`
+  对同 `(quest, stage)` 的重复中继直接丢弃;客户端 `QuestService` 增加 held-stage
+  机制(场景正在检查的成员阶段先扣住,等场景推进或结束再按序应用)。
+- **过场语音/字幕不再错位**(上游 ea0f6c39 / 5a72cdcd):`DialogueRequest`、
+  `NotifyDialogue`、`SubtitleRequest`、`NotifySubtitle` 增加 `SceneId`(GameId)与
+  `ScenePhase`,并补齐 `TESQuest` 的 `BGSSceneAction` / `BGSScenePhase` /
+  `BGSScene` 布局与 `Stage::items`。
+- **动画图引用计数**(上游 390071ca):新增 `BSCore/BSIntrusiveRefCounted.h` 与
+  `BSCore/BSTSmartPointer.h`,`IAnimationGraphManagerHolder::GetBSAnimationGraph`
+  改为交回一个调用方持有的引用,`IsReady`/`SaveLoadAnimationVariables` 全程用智能
+  指针持有,修掉动画变量同步时的管理器泄漏。
+- **Havok 行为图**(上游 115b5019):新增 `hkbBehaviorGraphData.h` /
+  `hkbBehaviorGraph.cpp`,`BShkbAnimationGraph::projectName` 落在 0x1F0,
+  `IsWordVariable()` 让「变量名其实是索引」的那些变量不再参与同步。
+- **战斗崩溃修复**(上游 43bfd173):`TESSpellList::RemoveNullEntries()` 就地压缩
+  空条目,NPC 反序列化后清掉指向缺失模组的法术/龙吼。
+- **其他**:KiLoader 依赖目录加入 DLL 搜索路径;`skyrim_version` 构建选项(仅供 CI
+  标注,本仓库仍是单配置同时产出两个运行时);UI 网络调试面板可拖到任意屏幕角落;
+  乌克兰语翻译。
+
+### 修复:移植过程中发现并修掉的两个缺陷
+
+- **两个新消息的写侧缺少上界钳制**:`RequestActionEvents` / `NotifyActionEvents` 的
+  读侧对超限计数是**丢弃整条消息**(防止对端用两个字节换来上百万次分配),但写侧没有
+  对应的 `std::min` —— 头文件注释却已经写了「Serialize clamps the map to this bound」。
+  一旦动作数越过 1024,写出的计数就超出接收端接受范围,接收端整条丢弃,且**每次都会**
+  这样,动作同步会静默失效。现按本仓库既有范式(写侧钳制 + 读侧拒绝配对)补齐,
+  界内数据字节流完全不变。
+- **`NotifyActionEvents.cpp` 缺 `<algorithm>`**:补上钳制后需要 `std::min`,该文件原先
+  没有包含这个头,MSVC 下会报错。
+
+### 刻意不移植(并说明原因)
+
+- **`Code/admin` 与 `Code/admin_protocol` 的删除**(上游 e65a4069 + 9ce03385):上游删了,
+  但本仓库仍在用 —— `Code/xmake.lua` 有 `includes("admin_protocol")`,
+  `Code/server/Services/AdminService` 依赖它,`admins` 控制台命令与管理员令牌认证路径
+  都还活着。保留两个目录,继续与本仓库既有功能对齐。
+- **子模块指针不跟随上游**(上游 9ce29715 + b0e46d61):上游把 TiltedUI bump 到
+  `0bec46b1`、TiltedConnect bump 到 `e6f57593`;本仓库钉的是 `a2b9a671` / `293fab99`,
+  这两个提交在上游子仓库里**不存在**(既不是 master 也不是任何 PR 头),属于本仓库
+  自己的分支。bump 会覆盖掉本仓库在 UI/Connect 侧的改动,因此不动。
+
+**由此产生的两处代码层适配**(都在源码注释里写明了):
+
+- 上游用 `TiltedPhoques::kUnreliableNoNagle` 发移动中继,而钉住的
+  `TiltedConnect 293fab99` 只有 `enum EPacketFlags { kReliable, kUnreliable }` ——
+  `kUnreliableNoNagle` 要到 `e6f57593` 才有。改用 `kUnreliable`:仍然是不可靠发送,
+  只是仍会受 Nagle 影响(最多 5ms),属于延迟优化而非正确性,等子模块 bump 后换回即可。
+- 上游用 `GetCurrentMessageReceiveTime()` 取「这条消息的到达时间」,同一个原因,
+  该接口在 `293fab99` 不存在。`TransportService::GetMessageReceiveTime()` 退化为
+  `m_lastPollTime`(上一轮 pump 的时间),代价是长帧会被播放时钟读成抖动,但到达时间
+  与播放头仍取自**同一个时钟**,不会互相漂移。
+
+### 已知限制(需要后续验证)
+
+- 本机没有 MSVC、子模块目录为空,无法整包构建。本次的编译证据来自 MinGW,且只覆盖
+  了可独立编译的部分(`PlaybackClock` 及其上游测试 31 项断言全过、两个被修的消息
+  序列化器单独编译零警告)。**MSVC 兼容性未经验证。**
+- 新增/变更的引擎布局(`BShkbAnimationGraph::projectName` 0x1F0、
+  `hkbBehaviorGraph::data` 0x88、`BGSScene::currentPhaseIndex` 0xBC、
+  `TESQuest::Stage::items` 0x8、统一的 `GameValueList<Stage*>` 头 0xE8、
+  `EventDispatcherManager` 的 0xC08/0xC60/0xCB8/0xEC8)**均来自上游 1.6.1170 的逆向
+  注释,未在本仓库的二进制上复核**,1.5.x 布局也没有断言。这些是编译期 `offsetof`
+  断言,布局不符会在编译期直接失败,但**符不符合需要在 IDA/Ghidra 里核对**。
+- 以下行为只能在游戏内双客户端验证:held-stage 的任务推进(上游点名 MQ105 冲刺试炼)、
+  所有权转移时的播放重置、外插/传送表现。
+- Angular UI 未编译未 lint(本机无 node_modules,且 npm 拉取被沙箱拦截)。
+- 6 个上游删除的文件因沙箱禁止删除**已跟踪**文件,目前是退役存根,需要手动 `rm`:
+  `Code/encoding/Structs/ReferenceUpdate.{h,cpp}`、
+  `Tools/Scripts/{address_patcher,addrlib_conv,get_skyrim_addresses}.py`。
+
 ## v1.1.9(2026-10-01)
 
 ### 修复:经验值只挡了「非有限」,没挡**量级** —— 而它会被另一个玩家的引擎直接吃下

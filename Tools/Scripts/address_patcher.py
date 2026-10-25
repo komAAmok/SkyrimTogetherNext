@@ -1,3 +1,14 @@
+# RETIRED in the v1.8.3 -> v1.8.4 port (upstream commit 0882e77d deleted this
+# script). This file now only keeps the deletion visible to a repo that cannot
+# remove files yet; delete it together with the deletion of
+# `addrlib_conv.py` and `get_skyrim_addresses.py`.
+#
+# It rewrote every POINTER_SKYRIMSE address in Code/client/ from a hand-kept
+# new_addresses.txt, by plain whole-file string replacement, with no check that
+# a new address actually covers the old one - and the framework now resolves
+# everything through Address Library ids, so the file has nothing left to do.
+# Use Tools/Scripts/addrlib.py instead.
+
 import os
 from pathlib import Path
 

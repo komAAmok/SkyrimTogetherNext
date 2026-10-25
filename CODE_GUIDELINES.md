@@ -2,7 +2,7 @@
 
 ## Language
 
-We are using C++20, any C++20 feature supported by vs2019 is allowed.
+We are using C++20, any C++20 feature supported by vs2022 is allowed.
 
 Please try to use templates responsibly, we don't want compilation times to explode and to deal with bloated binaries.
 
@@ -52,6 +52,11 @@ Preface commit messages with one of the following tags:
 * `tweak:` for tweaks to an existing system
 * `fix:` for bug fixes and crash fixes
 * `refactor:` for refactoring
+* `docs:` for documentation, changelog and gate updates that ship no code
+* `ci:` for build, packaging and workflow changes
+
+A commit that only touches documentation is still a commit that has to say why it
+exists; "docs:" plus a title is enough, the body is optional.
 
 ## Documentation is part of the change
 

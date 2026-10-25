@@ -26,6 +26,24 @@ add_vectorexts("neon")
 -- build configurations
 add_rules("mode.debug", "mode.releasedbg", "mode.release")
 
+-- Upstream builds the client for one game version and selects the engine
+-- struct layouts with a define. This fork does not gate on it: it builds both
+-- runtimes from one configuration (SkyrimTogetherClient plus the legacy library
+-- below) and the SKSE bootstrap picks the right DLL at runtime. The option is
+-- accepted so the upstream CI invocation (--skyrim_version=...) keeps parsing,
+-- and it rejects a value nobody builds instead of silently building "latest".
+option("skyrim_version")
+    set_default("latest")
+    set_values("latest", "1.6.1170")
+    set_description("Skyrim SE runtime named by the build; informational in this fork, which ships both runtimes from one build")
+    after_check(function (option)
+        local values = option:get("values")
+        if not table.contains(values, option:value()) then
+            raise("unknown skyrim_version \"%s\" (expected %s)", tostring(option:value()), table.concat(values, ", "))
+        end
+    end)
+option_end()
+
 -- TiltedHooks/TiltedReverse compile with /GL in release mode; every link
 -- that pulls their objects must use /LTCG or the linker's auto-restart
 -- fails the build. Set it once globally instead of per target.
@@ -41,7 +59,6 @@ end
 -- direct dependencies version pinning 
 add_requires(
     "entt v3.10.0",
-    "recastnavigation v1.6.0",
     "tiltedcore 0.2.9",
     "cryptopp 8.9.0",
     "spdlog v1.13.0",

@@ -3,6 +3,8 @@
 #include <Systems/InterpolationSystem.h>
 #include <Components.h>
 
+#include <algorithm>
+#include <cmath>
 #include <iterator>
 
 #include <AI/AIProcess.h>
@@ -13,24 +15,31 @@
 
 namespace
 {
-// Hard bound on the sample window. The tick-driven trim below normally leaves
-// three or four samples; this only matters when the play head does not advance,
-// which is what a clock resync looks like from here.
+// Hard bound on the sample window. The render head normally leaves three or
+// four samples behind it; this only matters when the play head does not
+// advance, which is what a clock resync looks like from here.
 constexpr size_t kMaxSamples = 8;
 
 // How far in the past a sample may still influence the curve. The client reports at
-// 10 Hz, so 800 ms is the span the sample cap already covers; this only bites after
-// a burst, where the same number of samples covers far less time and the cubic ends
-// up fitting almost nothing.
+// up to ~33 Hz, so 800 ms is the span the sample cap already covers; this only bites
+// after a burst, where the same number of samples covers far less time and the cubic
+// ends up fitting almost nothing.
 constexpr uint64_t kMaxWindowAgeMs = 800;
 
-// The play head can end up past the newest sample when a packet is late. The
-// old code clamped the segment parameter to 1.0, which pins the actor to the
-// last known position and then snaps it forward the moment the packet lands.
-// Letting the parameter run a little past the segment instead follows the last
-// known velocity across the gap: a short overshoot is far less visible than a
-// freeze followed by a jump.
-constexpr float kMaxExtrapolation = 1.25f;
+// Past the newest snapshot the actor keeps moving for at most this long, then holds
+// still until data arrives. Kept well under PlaybackClock's own bounds: the clock
+// already eases the play head onto the right tick, this only bridges one late packet.
+constexpr double kMaxExtrapolationMs = 150.0;
+
+// Consecutive snapshots further apart than this are a teleport, not movement to
+// interpolate across.
+constexpr float kTeleportDistance = 1024.f;
+
+// Larger corrections snap instead of sliding the actor into place.
+constexpr float kMaxPositionCorrection = 256.f;
+
+// Time constant of the correction fading out, ~95% of it is gone after three times this.
+constexpr double kPositionCorrectionTime = 50.0;
 
 // Uniform Catmull-Rom through p1..p2, with p0 and p3 supplying the tangents.
 // Linear interpolation gives C0 continuity only, so every snapshot boundary is
@@ -44,12 +53,21 @@ glm::vec3 CatmullRom(const glm::vec3& aP0, const glm::vec3& aP1, const glm::vec3
 }
 } // namespace
 
-void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const uint64_t aTick) noexcept
+void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow) noexcept
 {
+    // The clock is advanced before the early-outs below on purpose: it is what turns
+    // the network arrival times into the play head, and it has to keep running while
+    // an actor has nothing to interpolate yet, or the first snapshot after a gap
+    // would be measured against a stale clock.
+    auto& clock = aInterpolationComponent.Clock;
+    const double cDeltaTime = clock.Advance(aNow);
+
     auto& movements = aInterpolationComponent.TimePoints;
 
     if (movements.size() < 2)
         return;
+
+    const double cRenderTick = clock.GetRenderTick();
 
     // Keep the window bounded. Newest samples win; dropping from the front is
     // what makes this safe against a play head that has stopped advancing.
@@ -57,11 +75,11 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
         movements.pop_front();
 
     // ...and bounded by age as well as by count. Eight samples is 800 ms at the
-    // client's 100 ms send interval, but a burst right after a stall fills the same
-    // eight with samples spanning a few milliseconds, which leaves the cubic almost
-    // no geometry to work with once the play head reaches them.
-    while (movements.size() > 3 && aTick > movements.front().Tick &&
-           aTick - movements.front().Tick > kMaxWindowAgeMs)
+    // old 10 Hz send interval, but a burst right after a stall fills the same eight
+    // with samples spanning a few milliseconds, which leaves the cubic almost no
+    // geometry to work with once the play head reaches them.
+    while (movements.size() > 3 && cRenderTick > static_cast<double>(movements.front().Tick) &&
+           cRenderTick - static_cast<double>(movements.front().Tick) > static_cast<double>(kMaxWindowAgeMs))
         movements.pop_front();
 
     // Advance the window to the active segment, but stop one sample short of
@@ -71,19 +89,19 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     while (movements.size() > 3)
     {
         const auto third = std::next(std::next(movements.begin()));
-        if (third->Tick > aTick)
+        if (static_cast<double>(third->Tick) > cRenderTick)
             break;
 
         movements.pop_front();
     }
 
-    // Walk to the segment that brackets aTick. When the play head has run past
+    // Walk to the segment that brackets the play head. When it has run past
     // every sample the last pair is kept, so delta comes out above 1 and the
     // curve extrapolates along the final segment instead of freezing.
     auto itFirst = movements.begin();
     auto itSecond = std::next(itFirst);
 
-    while (std::next(itSecond) != movements.end() && itSecond->Tick <= aTick)
+    while (std::next(itSecond) != movements.end() && static_cast<double>(itSecond->Tick) <= cRenderTick)
     {
         ++itFirst;
         ++itSecond;
@@ -97,27 +115,59 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     const auto& previous = itFirst == movements.begin() ? first : *std::prev(itFirst);
     const auto& following = std::next(itSecond) == movements.end() ? second : *std::next(itSecond);
 
-    auto delta = 0.f;
-    const auto tickDelta = static_cast<float>(second.Tick - first.Tick);
-    if (tickDelta > 0.f)
-        delta = static_cast<float>(aTick - first.Tick) / tickDelta;
+    const auto cTickDelta = static_cast<double>(second.Tick - first.Tick);
+    const bool cIsTeleport = glm::distance(first.Position, second.Position) > kTeleportDistance;
 
-    // Guard both ends. A play head behind the segment start cannot extrapolate
-    // backwards, so it sits on the first sample - the window walk above already
-    // leaves first.Tick <= aTick, and this only catches the case where a packet
-    // landed ahead of the play margin. A play head past the segment end follows
-    // the last known segment, bounded so a long gap cannot fling the actor.
-    delta = TiltedPhoques::Min(TiltedPhoques::Max(delta, 0.f), kMaxExtrapolation);
+    auto delta = 0.f;
+    bool isExtrapolating = false;
+
+    if (cRenderTick <= static_cast<double>(second.Tick))
+    {
+        if (cTickDelta > 0.0)
+            delta = static_cast<float>(std::clamp((cRenderTick - static_cast<double>(first.Tick)) / cTickDelta, 0.0, 1.0));
+
+        // Stay at the old position until the teleport happens
+        if (cIsTeleport && delta < 1.f)
+            delta = 0.f;
+    }
+    else if (!cIsTeleport && cTickDelta > 0.0)
+    {
+        // The next snapshot is late, keep going the way the actor was moving rather
+        // than freezing it. Bounded, and the clock keeps easing the play head back
+        // onto the owner's timeline, so this only ever bridges one late packet.
+        const double cExtrapolationTime = std::min(cRenderTick - static_cast<double>(second.Tick), kMaxExtrapolationMs);
+        delta = static_cast<float>(1.0 + cExtrapolationTime / cTickDelta);
+        isExtrapolating = true;
+    }
+    else
+    {
+        // A teleport is not worth following, and a zero-length segment has no
+        // direction to follow: hold the last known position instead.
+        delta = 1.f;
+    }
 
     const NiPoint3 position{CatmullRom(previous.Position, first.Position, second.Position, following.Position, delta)};
 
-    aInterpolationComponent.Position = position;
+    auto& positionError = aInterpolationComponent.PositionError;
+
+    // The late snapshot arrived, so the actor is no longer where extrapolation put it
+    if (aInterpolationComponent.HasNewTimePoint && aInterpolationComponent.IsExtrapolating)
+        positionError = aInterpolationComponent.Position - glm::vec3(position);
+
+    if (cIsTeleport || glm::length(positionError) > kMaxPositionCorrection)
+        positionError = {};
+    else
+        positionError *= static_cast<float>(std::exp(-cDeltaTime / kPositionCorrectionTime));
+
+    aInterpolationComponent.HasNewTimePoint = false;
+    aInterpolationComponent.IsExtrapolating = isExtrapolating;
+    aInterpolationComponent.Position = glm::vec3(position) + positionError;
 
     // Don't try to move a null actor
     if (!apActor)
         return;
 
-    apActor->ForcePosition(position);
+    apActor->ForcePosition(aInterpolationComponent.Position);
     apActor->LoadAnimationVariables(second.Variables);
 
     if (apActor->currentProcess && apActor->currentProcess->middleProcess)
@@ -142,33 +192,44 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     apActor->SetRotation(finalX, finalY, finalZ);
 }
 
-void InterpolationSystem::AddPoint(InterpolationComponent& aInterpolationComponent, const InterpolationComponent::TimePoint& acPoint) noexcept
+void InterpolationSystem::AddPoint(InterpolationComponent& aInterpolationComponent, InterpolationComponent::TimePoint aPoint, const double aArrivalTime) noexcept
 {
-    // An interpolation point that could not be stored is not interpolated; the next
-    // packet carries a fresh one.
+    // A point that could not be stored is not interpolated; the next packet carries
+    // a fresh one. Both containers below can allocate, so the whole body is guarded.
     try
     {
-        auto itor = std::begin(aInterpolationComponent.TimePoints);
-        const auto end = std::cend(aInterpolationComponent.TimePoints);
+        // A duplicate carries no new timing information and would skew the estimates,
+        // the clock is the single authority on that and reports it here.
+        if (!aInterpolationComponent.Clock.AddSample(aArrivalTime, aPoint.Tick))
+            return;
 
-        while (itor != end)
-        {
-            if (itor->Tick > acPoint.Tick)
-            {
-                aInterpolationComponent.TimePoints.insert(itor, acPoint);
+        auto& timePoints = aInterpolationComponent.TimePoints;
 
-                return;
-            }
+        // Snapshots are unreliable and can arrive out of order
+        auto itor = std::begin(timePoints);
+        const auto end = std::cend(timePoints);
 
+        while (itor != end && itor->Tick < aPoint.Tick)
             ++itor;
-        }
 
-        aInterpolationComponent.TimePoints.push_back(acPoint);
+        timePoints.insert(itor, std::move(aPoint));
+        aInterpolationComponent.HasNewTimePoint = true;
+
+        // The clock's own buffer is the same size, so a trimmed point never comes
+        // back as something the clock could have kept.
+        while (timePoints.size() > PlaybackClock::cMaxSamples)
+            timePoints.pop_front();
     }
     catch (...)
     {
         Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory in InterpolationSystem::AddPoint");
     }
+}
+
+uint64_t InterpolationSystem::GetPlaybackTick(const InterpolationComponent& acInterpolationComponent) noexcept
+{
+    // The render tick stays at 0 until the first snapshot arrives
+    return static_cast<uint64_t>(std::max(acInterpolationComponent.Clock.GetRenderTick(), 0.0));
 }
 
 InterpolationComponent& InterpolationSystem::Setup(World& aWorld, const entt::entity aEntity) noexcept

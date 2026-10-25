@@ -42,16 +42,31 @@ jobs:
           fi
           echo "No release freeze; proceeding."
 
+  # Upstream's v1.8.4 shape: one Windows build per supported game version, so a
+  # release carries an asset set per runtime. Forks read this matrix; a release
+  # that only ever shipped "latest" keeps shipping exactly the same zips, because
+  # the extra entry only adds a -sse1.6.1170 suffix to everything below.
   build-windows:
     needs: freeze-check
+    strategy:
+      fail-fast: false
+      matrix:
+        skyrim-version: ['latest', '1.6.1170']
     uses: ./.github/workflows/windows.yml
     with:
       build-mode: 'release'
+      skyrim-version: ${{ matrix.skyrim-version }}
       upload-build-for-next-job: true
 
+  # Publishes the "latest" build, which is the one this fork supports first. A
+  # 1.6.1170 entry in the matrix above is built and its artifacts stay attached
+  # to the run; it does not become a release asset.
   package:
     runs-on: windows-latest
     needs: [freeze-check, build-windows]
+    strategy:
+      matrix:
+        skyrim-version: ['latest']
     permissions:
       contents: write
     steps:
@@ -82,7 +97,7 @@ jobs:
       - name: Download build and game files
         uses: actions/download-artifact@v5
         with:
-          name: internal-job-files
+          name: internal-job-files${{ matrix.skyrim-version != 'latest' && format('-sse{0}', matrix.skyrim-version) || '' }}
 
       - name: Download plugin artifacts
         uses: actions/download-artifact@v5
@@ -104,14 +119,20 @@ jobs:
           # The assembly itself lives in Tools/Packaging so the same code path can
           # be dry-run locally; it also verifies the wizard against the staged tree
           # before zipping, so a wizard entry pointing at nothing fails the build.
-          $ver = "${{ needs.build-windows.outputs.str-version }}"
+          # Per game version, as in windows.yml: the earlier one-version asset
+          # name (SkyrimTogetherNextMod-v1.2.3.zip) is still what a "latest"
+          # release produces.
+          $version = "${{ needs.build-windows.outputs.str-version }}"
+          if ('${{ matrix.skyrim-version }}' -ne 'latest') {
+            $version = "$version-sse${{ matrix.skyrim-version }}"
+          }
           # Not $args (reserved in PowerShell) and not $LASTEXITCODE (the script
           # is invoked with &, so failure arrives through $?).
           $packArgs = @{
             Stage = 'mod-pack'
             Dist = '.'
             BuildDir = 'build/windows/x64/release'
-            Version = $ver
+            Version = $version
           }
           if (Test-Path 'plugin-artifacts') { $packArgs['ArtifactsRoot'] = 'plugin-artifacts' }
           & Tools/Packaging/New-STNModPackage.ps1 @packArgs
@@ -139,10 +160,17 @@ jobs:
         run: |
           # The mod package was already written by Tools/Packaging/New-STNModPackage.ps1,
           # which owns its archive name and contents; only the server is zipped here.
-          $ver = "${{ needs.build-windows.outputs.str-version }}"
-          Compress-Archive -Path server-pack/* -DestinationPath "SkyrimTogetherNextServer-$ver.zip"
-          if (!(Test-Path "SkyrimTogetherNextMod-$ver.zip")) {
-            throw "mod package SkyrimTogetherNextMod-$ver.zip was not produced"
+          $version = "${{ needs.build-windows.outputs.str-version }}"
+          if ('${{ matrix.skyrim-version }}' -ne 'latest') {
+            $version = "$version-sse${{ matrix.skyrim-version }}"
+          }
+          # The server is game-version independent - it was never built for one
+          # runtime - so it keeps the plain name even in a matrix run rather than
+          # publishing the same archive once per entry.
+          $serverVersion = "${{ needs.build-windows.outputs.str-version }}"
+          Compress-Archive -Path server-pack/* -DestinationPath "SkyrimTogetherNextServer-$serverVersion.zip"
+          if (!(Test-Path "SkyrimTogetherNextMod-$version.zip")) {
+            throw "mod package SkyrimTogetherNextMod-$version.zip was not produced"
           }
           Get-ChildItem *.zip | Select-Object Name, Length
       - name: Upload as workflow artifacts

@@ -7,11 +7,11 @@ PlayerControls* PlayerControls::GetInstance()
     return *(s_instance.Get());
 }
 
-void PlayerControls::SetEnabled(bool abFlag)
+void PlayerControls::SetActivateEnabled(bool abFlag)
 {
-    TP_THIS_FUNCTION(TSetEnabled, void, PlayerControls, bool);
-    POINTER_SKYRIMSE(TSetEnabled, setEnabled, 42345);
-    TiltedPhoques::ThisCall(setEnabled, this, abFlag);
+    TP_THIS_FUNCTION(TSetActivateEnabled, void, PlayerControls, bool);
+    POINTER_SKYRIMSE(TSetActivateEnabled, setActivateEnabled, 42345);
+    TiltedPhoques::ThisCall(setActivateEnabled, this, abFlag);
 }
 
 void PlayerControls::SetCamSwitch(bool aSet) noexcept
@@ -19,7 +19,7 @@ void PlayerControls::SetCamSwitch(bool aSet) noexcept
     Data.remapMode = aSet;
 }
 
-bool PlayerControls::IsMovementControlsEnabled() noexcept
+bool BSInputEnableManager::IsMovementControlsEnabled() noexcept
 {
     using TIsMovementControlsEnabled = bool();
     POINTER_SKYRIMSE(TIsMovementControlsEnabled, s_isMovementControlsEnabled, 55485);

@@ -98,6 +98,8 @@ struct PartyService
         uint32_t LeaderPlayerId;
         Vector<Player*> Members;
         GameId CachedWeather{};
+        // Stages each quest reached since it started, as relayed to the party
+        Map<GameId, TiltedPhoques::Set<uint16_t>> QuestStages{};
         QuestStageDedupHistory m_questStageDedupHistory;
         QuestStageDedupHistory& GetQuestStageDedupHistory() { return m_questStageDedupHistory; }
     };

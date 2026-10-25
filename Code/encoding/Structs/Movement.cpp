@@ -6,7 +6,8 @@ using TiltedPhoques::Serialization;
 
 bool Movement::operator==(const Movement& acRhs) const noexcept
 {
-    return CellId == acRhs.CellId && WorldSpaceId == acRhs.WorldSpaceId && Position == acRhs.Position && Rotation == acRhs.Rotation && Variables == acRhs.Variables && Direction == acRhs.Direction;
+    return CellId == acRhs.CellId && WorldSpaceId == acRhs.WorldSpaceId && Position == acRhs.Position && Rotation == acRhs.Rotation && Variables == acRhs.Variables && Direction == acRhs.Direction &&
+           SampleTick == acRhs.SampleTick;
 }
 
 bool Movement::operator!=(const Movement& acRhs) const noexcept
@@ -22,6 +23,8 @@ void Movement::Serialize(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
     Rotation.Serialize(aWriter);
     Variables.GenerateDiff(AnimationVariables{}, aWriter);
     aWriter.WriteBits(*reinterpret_cast<const uint32_t*>(&Direction), 32);
+
+    Serialization::WriteVarInt(aWriter, SampleTick);
 }
 
 void Movement::Deserialize(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -41,4 +44,6 @@ void Movement::Deserialize(TiltedPhoques::Buffer::Reader& aReader) noexcept
     // value is assigned to the middle process of an actor on the receiving client without
     // being read again. The sender cannot express either one.
     Direction = WireLimits::ClampFinite(*reinterpret_cast<float*>(&tmp32));
+
+    SampleTick = Serialization::ReadVarInt(aReader);
 }

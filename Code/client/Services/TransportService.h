@@ -30,7 +30,7 @@ struct TransportService : Client
 
     TP_NOCOPYMOVE(TransportService);
 
-    bool Send(const ClientMessage& acMessage) const noexcept;
+    bool Send(const ClientMessage& acMessage, TiltedPhoques::EPacketFlags aPacketFlags = TiltedPhoques::kReliable) const noexcept;
 
     /**
      * @brief Closes the transport, serialised against everyone else reaching it.
@@ -49,6 +49,19 @@ struct TransportService : Client
     [[nodiscard]] bool IsOnline() const noexcept { return m_connected; }
     void SetServerPassword(const std::string& acPassword) noexcept { m_serverPassword = acPassword; }
     const uint32_t& GetLocalPlayerId() const noexcept { return m_localPlayerId; }
+
+    // Times below are in seconds on the networking library's local clock, which keeps running while the game thread is stalled
+
+    // When the message being handled arrived from the network, so that a long frame of ours is
+    // not mistaken for network jitter by the playback clock.
+    //
+    // Limitation: the pinned TiltedConnect carries no per-message receive stamp, so this is the
+    // time the last pump picked messages up. Better than the world clock, which is a different
+    // timeline entirely, but it cannot see time spent between a message arriving and being
+    // handled. See the definition for what that costs.
+    [[nodiscard]] double GetMessageReceiveTime() const noexcept;
+    // When received messages were last picked up, everything that arrived before then has been handled
+    [[nodiscard]] double GetLastPollTime() const noexcept { return m_lastPollTime; }
 
     /**
      * @brief Starts the connection watchdog.
@@ -145,6 +158,11 @@ private:
     std::atomic<bool> m_connected{false};
     String m_serverPassword{};
     uint32_t m_localPlayerId;
+
+    // Doubles rather than an atomic: written and read only from whoever holds
+    // m_clientMutex, i.e. from inside PumpConnectionLocked, and from the frame loop's
+    // render pass, which reads it between two pumps.
+    double m_lastPollTime{};
 
     // Connection watchdog.
     //

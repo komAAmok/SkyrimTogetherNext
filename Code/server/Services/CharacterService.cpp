@@ -17,6 +17,8 @@
 #include <Messages/AssignCharacterResponse.h>
 #include <Messages/ServerReferencesMoveRequest.h>
 #include <Messages/ClientReferencesMoveRequest.h>
+#include <Messages/RequestActionEvents.h>
+#include <Messages/NotifyActionEvents.h>
 #include <Messages/CharacterSpawnRequest.h>
 #include <Messages/RequestFactionsChanges.h>
 #include <Messages/NotifyFactionsChanges.h>
@@ -42,10 +44,6 @@
 namespace
 {
 Console::Setting bEnableXpSync{"Gameplay:bEnableXpSync", "Syncs combat XP within the party", true};
-
-// An actor that nobody is near keeps its pending action events until somebody is, so that backlog has
-// to be bounded the same way the replay cache is. Newest wins.
-constexpr uint32_t kMaxPendingActionEvents = 32;
 }
 
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -60,6 +58,7 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher)
     , m_removeCharacterConnection(aDispatcher.sink<CharacterRemoveEvent>().connect<&CharacterService::OnCharacterRemoveEvent>(this))
     , m_characterSpawnedConnection(aDispatcher.sink<CharacterSpawnedEvent>().connect<&CharacterService::OnCharacterSpawned>(this))
     , m_referenceMovementSnapshotConnection(aDispatcher.sink<PacketEvent<ClientReferencesMoveRequest>>().connect<&CharacterService::OnReferencesMoveRequest>(this))
+    , m_actionEventsConnection(aDispatcher.sink<PacketEvent<RequestActionEvents>>().connect<&CharacterService::OnActionEventsRequest>(this))
     , m_factionsChangesConnection(aDispatcher.sink<PacketEvent<RequestFactionsChanges>>().connect<&CharacterService::OnFactionsChanges>(this))
     , m_mountConnection(aDispatcher.sink<PacketEvent<MountRequest>>().connect<&CharacterService::OnMountRequest>(this))
     , m_newPackageConnection(aDispatcher.sink<PacketEvent<NewPackageRequest>>().connect<&CharacterService::OnNewPackageRequest>(this))
@@ -151,7 +150,6 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
 void CharacterService::OnUpdate(const UpdateEvent&) const noexcept
 {
     ProcessFactionsChanges();
-    ProcessMovementChanges();
 }
 
 void CharacterService::OnCharacterExteriorCellChange(const CharacterExteriorCellChangeEvent& acEvent) const noexcept
@@ -333,12 +331,7 @@ void CharacterService::OnOwnershipTransferRequest(const PacketEvent<RequestOwner
 
             auto& movementComponent = view.get<MovementComponent>(*it);
             movementComponent.Position = message.Position;
-            // The teleport above already told every other player where this actor
-            // went, so Sent stays true to keep the move relay from repeating it.
-            // The stamp is set anyway so a later relay of this pose carries a
-            // truthful sample time rather than the epoch.
             movementComponent.Tick = GameServer::Get()->GetTick();
-            movementComponent.Sent = true;
         }
 
         // A normal release starts a fresh search. A declined grant continues the current
@@ -429,19 +422,24 @@ void CharacterService::OnCharacterSpawned(const CharacterSpawnedEvent& acEvent) 
 
 void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReferencesMoveRequest>& acMessage) const noexcept
 {
-    // One allocation per action event in the append below, plus the report for an
-    // entity the sender does not own. A failure stops the rest of the request; the
-    // entries already applied keep their new position, which is the same outcome as
-    // the client having stopped moving.
+    // One copy of the movement state per player the actor is in range of, plus the
+    // report for an entity the sender does not own. A failure stops the rest of the
+    // request: the entries already applied keep their new position, and the relays
+    // built so far are dropped rather than sent half filled, which is the same
+    // outcome as the client having stopped moving.
     try
     {
-        OwnerView<AnimationComponent, MovementComponent, CellIdComponent> view(m_world, acMessage.GetSender());
+        OwnerView<MovementComponent, CellIdComponent, CharacterComponent> view(m_world, acMessage.GetSender());
 
         auto& message = acMessage.Packet;
 
-        for (auto& entry : message.Updates)
+        // Relayed as soon as it arrives, with the owner's capture tick, so receivers can schedule it on the owner's timeline.
+        // Snapshots can arrive out of order, receivers sort them out.
+        TiltedPhoques::Map<Player*, ServerReferencesMoveRequest> messages;
+
+        for (auto& [id, movement] : message.Updates)
         {
-            const auto entity = static_cast<entt::entity>(entry.first);
+            const auto entity = static_cast<entt::entity>(id);
 
             auto itor = view.find(entity);
             if (itor == std::end(view))
@@ -452,13 +450,9 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
 
             auto& movementComponent = view.get<MovementComponent>(*itor);
             auto& cellIdComponent = view.get<CellIdComponent>(*itor);
-            auto& animationComponent = view.get<AnimationComponent>(*itor);
+            const auto& characterComponent = view.get<CharacterComponent>(*itor);
 
             movementComponent.Tick = message.Tick;
-
-            auto& update = entry.second;
-            auto& movement = update.UpdatedMovement;
-
             movementComponent.Position = movement.Position;
             movementComponent.Rotation = glm::vec3(movement.Rotation.x, 0.f, movement.Rotation.y);
             movementComponent.Variables = movement.Variables;
@@ -468,25 +462,71 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
             cellIdComponent.WorldSpaceId = movement.WorldSpaceId;
             cellIdComponent.CenterCoords = GridCellCoords::CalculateGridCellCoords(movement.Position.x, movement.Position.y);
 
-            for (auto& action : update.ActionEvents)
+            for (auto pPlayer : m_world.GetPlayerManager())
             {
-                auto [canceled, reason] = GameServer::Get()->GetWorld().GetScriptService().HandleCharacterMove(entity);
-                if (canceled)
+                if (pPlayer == acMessage.pPlayer || !cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon()))
                     continue;
 
-                animationComponent.CurrentAction = action;
+                auto& relay = messages[pPlayer];
+                relay.Tick = message.Tick;
+                relay.Updates[id] = movement;
+            }
+        }
 
-                animationComponent.Actions.push_back(animationComponent.CurrentAction);
+        // Sent right away rather than batched into the next snapshot: a relay that waits is a stale pose. Unreliable
+        // only - the no-Nagle flag needs a later TiltedConnect than this fork pins, so a relay can still sit behind
+        // Nagle for up to 5 ms, which the client absorbs as jitter.
+        for (auto& [pPlayer, relay] : messages)
+            pPlayer->Send(relay, TiltedPhoques::kUnreliable);
+    }
+    catch (...)
+    {
+        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory while relaying a movement request");
+    }
+}
+
+void CharacterService::OnActionEventsRequest(const PacketEvent<RequestActionEvents>& acMessage) const noexcept
+{
+    // A copy of each accepted action per player in range, plus the append into the replay
+    // cache. A failure stops the rest of the request; the actors already handled keep the
+    // actions they were given, which is the same outcome as the client having stopped
+    // swinging.
+    try
+    {
+        OwnerView<AnimationComponent> view(m_world, acMessage.GetSender());
+
+        auto& message = acMessage.Packet;
+
+        for (auto& [id, actions] : message.Actions)
+        {
+            const auto entity = static_cast<entt::entity>(id);
+
+            auto itor = view.find(entity);
+            if (itor == std::end(view))
+            {
+                spdlog::debug("{:x} requested actions of {:x} but does not exist", acMessage.pPlayer->GetConnectionId(), World::ToInteger(entity));
+                continue;
             }
 
-            animationComponent.ActionsReplayCache.AppendAll(update.ActionEvents);
+            NotifyActionEvents notify;
+            auto& acceptedActions = notify.Actions[id];
 
-            movementComponent.Sent = false;
+            for (auto& action : actions)
+            {
+                auto [canceled, reason] = GameServer::Get()->GetWorld().GetScriptService().HandleCharacterMove(entity);
+                if (!canceled)
+                    acceptedActions.push_back(action);
+            }
+
+            view.get<AnimationComponent>(*itor).ActionsReplayCache.AppendAll(actions);
+
+            if (!acceptedActions.empty())
+                GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.pPlayer);
         }
     }
     catch (...)
     {
-        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory while applying a movement request");
+        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory while relaying action events");
     }
 }
 
@@ -661,6 +701,8 @@ void CharacterService::OnDialogueRequest(const PacketEvent<DialogueRequest>& acM
         NotifyDialogue notify{};
         notify.ServerId = message.ServerId;
         notify.SoundFilename = message.SoundFilename;
+        notify.SceneId = message.SceneId;
+        notify.ScenePhase = message.ScenePhase;
 
         const entt::entity cEntity = static_cast<entt::entity>(message.ServerId);
         if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
@@ -683,6 +725,8 @@ void CharacterService::OnSubtitleRequest(const PacketEvent<SubtitleRequest>& acM
         notify.ServerId = message.ServerId;
         notify.Text = message.Text;
         notify.TopicFormId = message.TopicFormId;
+        notify.SceneId = message.SceneId;
+        notify.ScenePhase = message.ScenePhase;
 
         const entt::entity cEntity = static_cast<entt::entity>(message.ServerId);
         if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
@@ -784,7 +828,6 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
         movementComponent.Tick = pServer->GetTick();
         movementComponent.Position = message.Position;
         movementComponent.Rotation = {message.Rotation.x, 0.f, message.Rotation.y};
-        movementComponent.Sent = false;
 
         m_world.emplace<AnimationComponent>(cEntity);
 
@@ -997,7 +1040,7 @@ bool CharacterService::TransferOwnership(Player* apPlayer, const entt::entity aE
         if (pOldOwner)
             pOldOwner->Send(notify);
 
-        spdlog::info(
+        spdlog::debug(
             "Transferred ownership of actor {:X} from player {:X} to player {:X} for {} (epoch {} to {})",
             notify.ServerId, oldOwnerId, notify.OwnerPlayerId, pReasonName, oldEpoch, newEpoch);
 
@@ -1046,7 +1089,7 @@ void CharacterService::TransferToNextOwner(const entt::entity aEntity, const Own
                 return;
         }
 
-        spdlog::info("Removing actor {:X} after {} because no eligible owner remains", World::ToInteger(aEntity), pReasonName);
+        spdlog::debug("Removing actor {:X} after {} because no eligible owner remains", World::ToInteger(aEntity), pReasonName);
         m_world.GetDispatcher().trigger(CharacterRemoveEvent(World::ToInteger(aEntity)));
     }
     catch (...)
@@ -1146,106 +1189,5 @@ void CharacterService::ProcessFactionsChanges() const noexcept
     catch (...)
     {
         Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory while building a factions snapshot");
-    }
-}
-
-void CharacterService::ProcessMovementChanges() const noexcept
-{
-    // Same shape as the factions snapshot above, with one more copy per update: the
-    // action list is copied into every message. A failed snapshot sends nothing and,
-    // because the Sent flags are only set at the end of this body, leaves every
-    // movement queued for the next tick instead of dropping it.
-    try
-    {
-        static std::chrono::steady_clock::time_point lastSendTimePoint;
-        constexpr auto cDelayBetweenSnapshots = 1000ms / 50;
-
-        const auto now = std::chrono::steady_clock::now();
-        if (now - lastSendTimePoint < cDelayBetweenSnapshots)
-            return;
-
-        lastSendTimePoint = now;
-
-        const auto characterView = m_world.view<CharacterComponent, CellIdComponent, MovementComponent, AnimationComponent, OwnerComponent>();
-
-        TiltedPhoques::Map<Player*, ServerReferencesMoveRequest> messages;
-
-        for (auto pPlayer : m_world.GetPlayerManager())
-        {
-            auto& message = messages[pPlayer];
-
-            message.Tick = GameServer::Get()->GetTick();
-        }
-
-        for (auto entity : characterView)
-        {
-            auto& characterComponent = characterView.get<CharacterComponent>(entity);
-            auto& movementComponent = characterView.get<MovementComponent>(entity);
-            auto& cellIdComponent = characterView.get<CellIdComponent>(entity);
-            auto& ownerComponent = characterView.get<OwnerComponent>(entity);
-            auto& animationComponent = characterView.get<AnimationComponent>(entity);
-
-            // If we have nothing new to send skip this
-            if (movementComponent.Sent == true)
-                continue;
-
-            bool actionsQueued = false;
-
-            for (auto pPlayer : m_world.GetPlayerManager())
-            {
-                if (pPlayer == ownerComponent.GetOwner())
-                    continue;
-
-                if (!cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon()))
-                    continue;
-
-                auto& message = messages[pPlayer];
-                auto& update = message.Updates[World::ToInteger(entity)];
-                auto& movement = update.UpdatedMovement;
-
-                movement.Position = movementComponent.Position;
-
-                movement.Rotation.x = movementComponent.Rotation.x;
-                movement.Rotation.y = movementComponent.Rotation.z;
-
-                movement.Direction = movementComponent.Direction;
-                movement.Variables = movementComponent.Variables;
-
-                update.ActionEvents = animationComponent.Actions;
-
-                // The moment the owner actually sampled this pose, not the moment
-                // this relay happened to run. Without it the receiver derives the
-                // segment length from the relay cadence, which mixes network jitter
-                // into the interpolated speed.
-                update.SampleTick = movementComponent.Tick;
-
-                actionsQueued = true;
-            }
-
-            // Only drop the queued actions once they actually went out. An actor that nobody is near right
-            // now keeps them, so the next player to come into range still gets the swing or the cast
-            // instead of the animation simply never happening on their screen. The backlog stays bounded
-            // the same way the replay cache is: newest wins.
-            if (actionsQueued)
-            {
-                animationComponent.Actions.clear();
-            }
-            else if (animationComponent.Actions.size() > kMaxPendingActionEvents)
-            {
-                animationComponent.Actions.erase(animationComponent.Actions.begin(), animationComponent.Actions.end() - kMaxPendingActionEvents);
-            }
-        }
-
-        m_world.view<MovementComponent>().each([](MovementComponent& movementComponent) { movementComponent.Sent = true; });
-
-        for (auto& [pPlayer, message] : messages)
-        {
-            if (!message.Updates.empty())
-                pPlayer->Send(message);
-        }
-    }
-    catch (...)
-    {
-        Diagnostics::ReportFailure(__FUNCTION__, "ran out of memory while building a movement snapshot");
     }
 }

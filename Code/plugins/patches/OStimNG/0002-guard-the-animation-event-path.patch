@@ -377,7 +377,7 @@ diff --git a/skse/src/Threading/Thread/NodeHandler.cpp b/skse/src/Threading/Thre
 diff --git a/skse/src/Threading/Thread/Peak/Loop/LoopPeakHandler.cpp b/skse/src/Threading/Thread/Peak/Loop/LoopPeakHandler.cpp
 --- a/skse/src/Threading/Thread/Peak/Loop/LoopPeakHandler.cpp
 +++ b/skse/src/Threading/Thread/Peak/Loop/LoopPeakHandler.cpp
-@@ -28,7 +28,27 @@ namespace Threading {
+@@ -28,7 +28,26 @@ namespace Threading {
              }
  
              void LoopPeakHandler::speedChanged() {
@@ -402,7 +402,6 @@ diff --git a/skse/src/Threading/Thread/Peak/Loop/LoopPeakHandler.cpp b/skse/src/
 +                }
 +
 +                scale = currentNode->speeds[speed].displaySpeed;
-+            }
              }
          }
      }

@@ -167,7 +167,7 @@ index 6efe1b5..35b6df4 100644
                  && !results[i]->isTransition)
                  data.push_back(SearchItem{ results[i]->scene_id,results[i]->scene_name });
          }
-@@ -162,8 +168,10 @@ namespace UI::Search {
+@@ -162,8 +168,9 @@ namespace UI::Search {
          auto node = Graph::GraphTable::getNodeById(val);    
  
          SKSE::GetTaskInterface()->AddTask([node]() {
@@ -176,7 +176,6 @@ index 6efe1b5..35b6df4 100644
 +            auto thread = UI::UIState::GetSingleton()->currentThread;
 +            if (thread != nullptr) thread->ChangeNode(node);
 +        });    
-+    }
      }
  
      void SearchMenu::GetControlHandler(RE::GFxValue& controlHandler) {

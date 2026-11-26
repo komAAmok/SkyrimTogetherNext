@@ -675,7 +675,7 @@ TEST_CASE("StringCache cursor", "[encoding.string_cache_cursor]")
     constexpr uint32_t cEntryCount = StringCacheUpdate::kMaxValueCount + 17;
 
     for (uint32_t i = 0; i < cEntryCount; ++i)
-        TP_UNUSED(cache.Add("entry" + std::to_string(i)))
+        TP_UNUSED(cache.Add(("entry" + std::to_string(i)).c_str()))
 
     uint32_t startId = 0;
     const auto first = cache.Serialize(startId);

@@ -21475,6 +21475,14 @@ capstone `sim=1.00`），且该 ctor 会调 `ae105361(a1+48, a5, 0)` 初始化 `
   实参——那个形参是**非 const 引用**,`const` 左值绑不上,报 `error C2665: no overloaded function could
   convert all the argument types`。**文本合法、语义非法**的第二种面孔:不是括号,是限定符。
 
+- `Code/server_ui/src/log/LogSink.h` 对 spdlog 的 payload(`fmt::v9::basic_string_view<char>`)调
+  `empty()`——**那不是 `std::string_view` 的成员**,Windows 报 `C2039`、Linux 报
+  `has no member named 'empty'`。改成 `size() == 0`。
+- `Code/server_runner/main.cpp` 把**捕获** lambda 赋给 `DashboardHostActions::beforeFrame`(裸函数指针),
+  报 `C2440`;同一行还无条件构造只在 Windows 存在的 `DashboardHostActions`,Linux 报
+  `'DashboardHostActions' is not a member of 'server_runner'`。钩子改为接收 `void* userData`
+  (`FrameContext` 承载 `core`/`logRing`/`logModel`),两个平台分支各填自己的动作结构。
+
 **为什么这些同时躲过了所有检查**:`v1.1.9` 上**没有任何 workflow 跑过**(API `?branch=v1.1.9`
 返回 `total_count=0`),而 `main` 自 2026-09-28 起每次 Windows 构建都先死在 OStimNG 前置步骤 ——
 `git apply` 通过、门禁全绿、本地也没有编译,于是**从未被执行过的代码被当成了已经验证过的代码**。

@@ -70,7 +70,23 @@ OStimNG 整步通过(run `45747932958`),主体构建又在 `TPTests` 停下:
 全部 `git apply` 通过,应用后 `IsAuthorizedMirrorSender` 落在 `public:`(第 141 行)与 `private:`(第 151 行)
 之间,`pos` 声明为 `auto`(不再 `const`)。C++ 的可见性与引用绑定是 `git apply` 看不见的那一半——
 这正是本轮四次失败的共同点。
-**提交**:`092d7b82`、`2437447d`、`420f3913`、`832a4de8`
+### 另修:专用服务器仪表盘的三处编译错误(Windows 与 Linux 同时中招)
+
+**`LogSink.h`**:`sink_it_` 对 `acMsg.payload` 调 `empty()`,而 spdlog 的 payload 是
+`fmt::v9::basic_string_view<char>`,**没有 `empty()`**(那是 `std::string_view` 的成员),
+Windows 报 `C2039`、Linux 报 `'const spdlog::string_view_t' has no member named 'empty'`。
+改成 `size() == 0`。
+
+**`DashboardHostActions::beforeFrame`**:它是一个裸函数指针 `void (*)(DashboardModel&)`,
+而 `main.cpp` 给它赋的是**捕获** lambda(`[&beforeFrame]`,被捕获的那个又捕获了 `core`、`logRing`、
+`logModel`)——捕获 lambda 到函数指针没有转换,报 `C2440`。现在该钩子与另外两个钩子一样接收
+`void* userData`,`main.cpp` 用一个 `FrameContext` 结构把 `core`/`logRing`/`logModel` 传进去,
+**不再捕获任何东西**。
+
+**平台分支**:同一行还无条件构造了只在 Windows 存在的 `DashboardHostActions`,于是 Linux 报
+`'DashboardHostActions' is not a member of 'server_runner'; did you mean 'DashboardHostActionsLinux'?`。
+现在每个平台在各自的 `#if` 里填自己的动作结构,`userData` 语义两边一致。
+**提交**:`092d7b82`、`2437447d`、`420f3913`、`832a4de8`、`ca8fb41b`
 
 ## v1.2.0(2026-10-26)
 

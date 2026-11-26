@@ -7,6 +7,55 @@
 每个 tag(形如 `v1.0.20`)对应一个 Release,附上版本号相同的两个包——
 客户端 mod 与专用服务器。逐条提交的历史见 `git log` 与各次 PR。
 
+## v1.2.1(2026-11-26)
+
+### 修复:构建链路上三处补丁括号写错、一处字符串类型不匹配 —— `v1.1.9` 与 `main` 的 Windows 构建重新编得过
+
+**现象**:`v1.1.9` 标签上的首次 `Playable Skyrim Together Build`(run `45564906838`)死在步骤
+`Build the OStimNG prerequisite`:
+
+    PapyrusScenes.h(37): error C2065: 'VM': undeclared identifier
+    Papyrus.cpp(56): error C2039: 'Bind': is not a member of 'PapyrusScenes'
+    Papyrus.cpp(57): error C2653: 'PapyrusSequence': is not a class or namespace name
+
+补掉这一处后同一 job 换到 `LoopPeakHandler.cpp(55): error C2059: syntax error: '}'`;再补掉第二处,
+OStimNG 整步通过(run `45747932958`),主体构建又在 `TPTests` 停下:
+
+    Code\tests\encoding.cpp(540): error C2664:
+    'uint32_t StringCache::Add(const TiltedPhoques::String &) noexcept':
+    cannot convert argument 1 from 'std::basic_string<char,...>' to 'const TiltedPhoques::String &'
+
+**根因**——三处同类、一处不同类,彼此独立:
+
+1. `Code/plugins/patches/OStimNG/0002-guard-the-animation-event-path.patch` 给 `PapyrusScenes.h` 的
+   `AddActor`/`RemoveActor` 加空指针守卫时,在 `RemoveActor` 的闭合括号后**多写了一行 `+    }`**。
+   那个括号闭合的不是函数,而是 `namespace PapyrusScenes`:从此 `GetActor` 与 `Bind` 落在全局作用域,
+   `VM`、`BIND`、`PapyrusScenes::AddActor` 全部不可见——报错行号(37 行是 `bool Bind(VM* a_vm)`)、
+   `C2086: 'int a_vm': redefinition` 与 `PapyrusSequence.h(9)` 的 `C2143` 都是这一件事的连锁。
+2. 同一份补丁在 `Threading/Thread/Peak/Loop/LoopPeakHandler.cpp` 的 `speedChanged()` 上重复了同一个
+   错误:守卫后面多一行 `+            }`,函数闭合两次。
+3. `Code/plugins/patches/OStimNG/0004-keep-a-dead-thread-out-of-the-menus-that-dereference-it.patch`
+   在 `UI/Search/SearchMenu.cpp` 的 `SearchMenu::Select` 上第三次重复:多一行 `+    }`。
+4. `Code/tests/encoding.cpp` 的 `cache.Add("entry" + std::to_string(i))`:字符串拼接返回 `std::string`,
+   而 `StringCache::Add` 的形参是 `TiltedPhoques::String`,该类型只从 `const char*` 隐式构造。
+   同文件另外 7 处 `Add("alpha")`/`Add("Hello")` 全是字面量,所以只有这一行炸。
+
+**为什么一直没暴露**:`v1.1.9`(2026-10-01 推送)在整个生命周期里**没有任何 workflow 跑过**
+(GitHub API `?branch=v1.1.9` 返回 `total_count=0`,也没有对应的 Release),而 `main` 自 2026-09-28 起
+每一次 Windows 构建都先死在 OStimNG 那一步——`TPTests` 根本没被编译到。也就是说这几处缺陷不是
+「新引入的回归」,而是**从未被执行过的路径**。
+
+**修复**:三处 hunk 删掉多写的闭合括号并同步 hunk 计数(`+7,19`→`+7,18`、`+28,27`→`+28,26`、
+`+168,10`→`+168,9`);`encoding.cpp` 改成 `cache.Add(("entry" + std::to_string(i)).c_str())`,
+与文件内其它调用点同一写法。
+
+**验证**:本机没有 xmake/MSVC,不做本地编译(PITFALLS §1)。按 CI 的检出条件(`core.autocrlf=true`,
+补丁与目标文件同为 CRLF)重建 OStimNG pin `3954683` 的 21 个目标文件,8 个补丁**全部 `git apply`
+通过**,且应用后**所有被触及文件的花括号净值与应用前一致**(逐文件比对,全部为 0)。结构性结论由
+`Build the OStimNG prerequisite` 转绿确认,`TPTests` 的修复由本版本自己的发布构建确认。
+
+**提交**:`092d7b82`、`2437447d`、`420f3913`
+
 ## v1.2.0(2026-10-26)
 
 ### 特性:把上游 TiltedEvolution 的 v1.8.3 → v1.8.4 增量移植进来

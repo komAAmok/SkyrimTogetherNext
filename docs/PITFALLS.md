@@ -21439,23 +21439,58 @@ capstone `sim=1.00`），且该 ctor 会调 `ae105361(a1+48, a5, 0)` 初始化 `
 **记法**：以上每一条都缺**具体的一份证据**（vendor 源码 / 真机日志 / native 表）。
 拿到那份证据才能定论，在此之前不要把它们当已解决，也不要用猜测填空。
 
+## 162. 2026-11-26 场次:补丁把 `namespace` 提前闭合了,而 CI 从来没有编译到那段代码
 
+**现象**:`v1.1.9`(`d506f4cc`,2026-10-01 推送)上的第一次 `Playable Skyrim Together Build`
+(run `45564906838`)死在 `Build the OStimNG prerequisite`,报
+`PapyrusScenes.h(37): error C2065: 'VM': undeclared identifier`、
+`Papyrus.cpp(56): error C2039: 'Bind': is not a member of 'PapyrusScenes'`、
+`Papyrus.cpp(57): error C2653: 'PapyrusSequence': is not a class or namespace name`,
+并伴随 `PapyrusScenes.h(40/41): C3927/C3613` 与 `C2086: 'int a_vm': redefinition`。
 
+第一处补掉后同一 job 换到 `LoopPeakHandler.cpp(55): error C2059: syntax error: '}'`;
+第二处补掉后 OStimNG 整步通过(run `45747932958`),主体构建又在
+`Code\tests\encoding.cpp(540): error C2664: 'uint32_t StringCache::Add(const TiltedPhoques::String &) noexcept'`
+停下。
 
+**根因**:
 
+- `Code/plugins/patches/OStimNG/0002-guard-the-animation-event-path.patch` 在 `PapyrusScenes.h` 的
+  `RemoveActor` 闭合括号后多写一行 `+    }`。该右花括号闭合的是 `namespace PapyrusScenes`,不是函数,
+  于是 `GetActor` / `Bind` 落到全局作用域,`VM`、`BIND`、`PapyrusScenes::AddActor` 全部不可见。
+  报错行号 37 正是 `bool Bind(VM* a_vm)` —— 这类「行号对得上、语义对不上」的报错,判据是
+  **结构而不是首个错误**:数右花括号与 `namespace` 的配对,一眼可见 namespace 提前闭合。
+- 同一份补丁在 `LoopPeakHandler.cpp` 的 `speedChanged()` 上重复(多一行 `+            }`,函数闭合两次);
+  `0004` 在 `SearchMenu.cpp` 的 `SearchMenu::Select` 上第三次重复(多一行 `+    }`)。
+- `Code/tests/encoding.cpp` 的 `cache.Add("entry" + std::to_string(i))` 类型不匹配:拼接结果是
+  `std::string`,而 `StringCache::Add` 形参是 `TiltedPhoques::String`,后者只从 `const char*` 隐式构造。
 
+**为什么三条同时躲过了所有检查**:`v1.1.9` 上**没有任何 workflow 跑过**(API `?branch=v1.1.9`
+返回 `total_count=0`),而 `main` 自 2026-09-28 起每次 Windows 构建都先死在 OStimNG 前置步骤 ——
+`git apply` 通过、门禁全绿、本地也没有编译,于是**从未被执行过的代码被当成了已经验证过的代码**。
 
+**修复**:三处 hunk 删除多写的闭合括号,同步 hunk 计数(`+7,19`→`+7,18`、`+28,27`→`+28,26`、
+`+168,10`→`+168,9`);`encoding.cpp` 改成 `cache.Add(("entry" + std::to_string(i)).c_str())`。
+提交 `092d7b82`(PapyrusScenes)、`2437447d`(LoopPeakHandler + SearchMenu)、`420f3913`(encoding.cpp)。
 
+**可复现的静态校验**(不需要 MSVC,也不需要在本机编译):
 
+```sh
+# 1) 取 pin 的原始文件,按 CI 的检出条件转 CRLF(Windows runner 上 core.autocrlf=true),
+#    raw 地址:raw.githubusercontent.com/VersuchDrei/OStimNG/3954683bbdfcd34b2f9157012ed0c446d6eefd1e/<path>
+# 2) git init 之后依次应用 8 个补丁
+for f in Code/plugins/patches/OStimNG/*.patch; do git apply "$f" || echo "FAIL $f"; done
+# 3) 逐文件比对右花括号净值的应用前/后值:两者必须相等
+```
 
+**教训**:
 
-
-
-
-
-
-
-
-
-
-
+1. **`git apply` 成功不等于代码合法**。补丁工具只做文本匹配,不认 C++ 作用域。给一个 patch 集做判据,
+   最便宜的等价检查是「花括号净值前后一致」——它抓得住本轮全部三处,而且不需要编译器。
+2. **一个多余的右花括号的成本是一整个 CI 周期**。这三处没有一处是「设计错了」,全是手写 hunk 时
+   多敲了一个括号;而 Windows 构建一轮约 90 分钟(OStimNG 前置约 60 分钟),代价与错误的荒谬程度不成比例。
+3. **门禁全绿不代表链路走过**。本轮之前 `Tools/Scripts/check_*.py` 全 PASS、本地也没有编译,而真正的失败点
+   在「从没被任何 workflow 执行过」的路径上:tag 上零 run、`main` 每次都先死在前一步。判断某段代码
+   有没有被验证过,要看**它有没有被执行过**,而不是看门禁有没有报错。
+4. **`TiltedPhoques::String` 不是 `std::string`**。凡是要交给 `StringCache::Add` / `AddWanted` / `Contains`
+   的参数,`std::string` 必须先过 `.c_str()`(或显式构造),拼接表达式尤其容易漏。

@@ -21465,7 +21465,17 @@ capstone `sim=1.00`），且该 ctor 会调 `ae105361(a1+48, a5, 0)` 初始化 `
 - `Code/tests/encoding.cpp` 的 `cache.Add("entry" + std::to_string(i))` 类型不匹配:拼接结果是
   `std::string`,而 `StringCache::Add` 形参是 `TiltedPhoques::String`,后者只从 `const char*` 隐式构造。
 
-**为什么三条同时躲过了所有检查**:`v1.1.9` 上**没有任何 workflow 跑过**(API `?branch=v1.1.9`
+- `plugins/OStimTogether` 的 `0009-authorize-the-sender-of-a-mirror-stream.patch` 把
+  `IsAuthorizedMirrorSender` 的声明插进了 `private:` 区(`CoopSessionManager.h` 的 `private:` 在第 71 行,
+  `MirrorSuppression` 在 126 行,声明被插在 131/132 之间),而调用它在 `ActorResolverSTRPM.cpp`(类外),
+  于是报 `error C2248: 'OStimTogether::CoopSessionManager::IsAuthorizedMirrorSender': cannot access
+  private member`。**`git apply` 对可见性一无所知**——补丁文本完全合法。
+- `plugins/TradeTogether` 的 `0002-bound-the-peer-name-and-request-id-tables.patch` 写的是
+  `const auto pos = ...load(...)`,而 `pos` 随后作为 `std::atomic::compare_exchange_weak` 的 `expected`
+  实参——那个形参是**非 const 引用**,`const` 左值绑不上,报 `error C2665: no overloaded function could
+  convert all the argument types`。**文本合法、语义非法**的第二种面孔:不是括号,是限定符。
+
+**为什么这些同时躲过了所有检查**:`v1.1.9` 上**没有任何 workflow 跑过**(API `?branch=v1.1.9`
 返回 `total_count=0`),而 `main` 自 2026-09-28 起每次 Windows 构建都先死在 OStimNG 前置步骤 ——
 `git apply` 通过、门禁全绿、本地也没有编译,于是**从未被执行过的代码被当成了已经验证过的代码**。
 

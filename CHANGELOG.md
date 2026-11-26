@@ -54,7 +54,23 @@ OStimNG 整步通过(run `45747932958`),主体构建又在 `TPTests` 停下:
 通过**,且应用后**所有被触及文件的花括号净值与应用前一致**(逐文件比对,全部为 0)。结构性结论由
 `Build the OStimNG prerequisite` 转绿确认,`TPTests` 的修复由本版本自己的发布构建确认。
 
-**提交**:`092d7b82`、`2437447d`、`420f3913`
+### 另修:两个插件的编译错误,同一类「从未被编译过」的补丁
+
+**`OStimTogether/0009`**:`IsAuthorizedMirrorSender` 的声明被插在 `CoopSessionManager` 的 `private:`
+区内(紧跟 `MirrorSuppression` 结构体之后,而 `private:` 在第 71 行),调用它的 `ActorResolverSTRPM.cpp`
+在类外,于是报 `C2248: 'CoopSessionManager::IsAuthorizedMirrorSender': cannot access private member`。
+修法是把这条声明单独包进一对 `public:` / `private:`,不改变其后成员(`Field`、`ThreadID`、`SessionID`、
+`SafeLabel`、`MirrorKey` …)原有的可见性。
+
+**`TradeTogether/0002`**:中继环形数组的入队循环写的是 `const auto pos = ...load(...)`,随后把 `pos`
+传给 `std::atomic::compare_exchange_weak` 的 `expected` 形参——那是**非 const 引用**,`const` 左值绑不上,
+报 `C2665: no overloaded function could convert all the argument types`。修法是去掉那个 `const`。
+
+两处都按「重建 pin 树 + 按序应用全部补丁」验证:OStimTogether 的 10 个、TradeTogether 的 4 个补丁
+全部 `git apply` 通过,应用后 `IsAuthorizedMirrorSender` 落在 `public:`(第 141 行)与 `private:`(第 151 行)
+之间,`pos` 声明为 `auto`(不再 `const`)。C++ 的可见性与引用绑定是 `git apply` 看不见的那一半——
+这正是本轮四次失败的共同点。
+**提交**:`092d7b82`、`2437447d`、`420f3913`、`832a4de8`
 
 ## v1.2.0(2026-10-26)
 

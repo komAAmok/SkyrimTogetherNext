@@ -35,7 +35,7 @@ struct DashboardHostActions
     // Called once per frame on the UI thread, before anything is drawn, so the
     // caller refreshes the model where it is consumed. The model passed in is
     // the same one the draw layer is about to read.
-    void (*beforeFrame)(serverui::DashboardModel&) = nullptr;
+    void (*beforeFrame)(void*, serverui::DashboardModel&) = nullptr;
 };
 
 // Returned when no window could be opened: the D3D11 device or swap chain

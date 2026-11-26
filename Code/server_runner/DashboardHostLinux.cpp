@@ -179,7 +179,7 @@ int RunDashboardWindowLinux(serverui::DashboardModel& aModel, const DashboardHos
         const serverui::DashboardActions drawActions = MakeDrawActions(acActions);
         // Refresh first, on this thread, then draw what was just refreshed.
         if (acActions.beforeFrame != nullptr)
-            acActions.beforeFrame(aModel);
+            acActions.beforeFrame(acActions.userData, aModel);
 
         serverui::DrawDashboard(aModel, drawActions, layoutWidth, layoutHeight);
 

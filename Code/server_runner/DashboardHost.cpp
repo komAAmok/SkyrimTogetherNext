@@ -247,7 +247,7 @@ int RunDashboardWindow(serverui::DashboardModel& aModel, const DashboardHostActi
 
         // Refresh first, on this thread, then draw what was just refreshed.
         if (acActions.beforeFrame != nullptr)
-            acActions.beforeFrame(aModel);
+            acActions.beforeFrame(acActions.userData, aModel);
 
         serverui::DrawDashboard(aModel, actions, width, height);
 

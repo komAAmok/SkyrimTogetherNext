@@ -38,7 +38,7 @@ struct DashboardHostActionsLinux
 
     // See DashboardHostActions::beforeFrame: a per-frame refresh hook, called on
     // the UI thread before the model is drawn.
-    void (*beforeFrame)(serverui::DashboardModel&) = nullptr;
+    void (*beforeFrame)(void*, serverui::DashboardModel&) = nullptr;
 };
 
 // Returned when no window could be opened: broken X forwarding, no GL context,

@@ -335,8 +335,8 @@ int main(int argc, char** argv)
 
         serverui::DashboardModel model(logModel);
 
-        // Refreshes the model on the UI thread, once per frame, immediately
-        // before it is read by the draw code.
+        // The frame hook runs on the UI thread, once per frame, immediately
+        // before the model is read by the draw code.
         //
         // This used to run on a background thread with its own sleep loop; that
         // was a data race. DashboardModel holds a std::vector<PlayerRow>, a
@@ -348,59 +348,76 @@ int main(int argc, char** argv)
         // Doing it per frame is also cheaper than it looks: Snapshot() is a
         // lock-free atomic read, Players() is a small vector copy, and the ring
         // drain is bounded. At 60 fps this is the natural cadence anyway.
-        auto beforeFrame = [&core, &logRing, &logModel, &model](serverui::DashboardModel& aModel)
+        //
+        // The context travels through the actions struct's userData instead of a
+        // capture: those fields are plain function pointers, and a captured
+        // reference could outlive the object it names.
+        struct FrameContext
         {
+            serverui::ServerCore* pCore;
+            serverui::LogRing* pRing;
+            serverui::LogModel* pLogModel;
+        } frameContext{ &core, &logRing, &logModel };
+
+        auto frameRefresh = [](void* apUser, serverui::DashboardModel& aModel)
+        {
+            auto* pContext = static_cast<FrameContext*>(apUser);
+
             // The drain is bounded per call (at most SlotCount()), so loop until
             // it reports empty. One call does not empty a large ring.
             static thread_local std::vector<serverui::LogRecord> records(4096);
             for (;;)
             {
-                const size_t n = logRing.Drain(records.data(), records.size());
+                const size_t n = pContext->pRing->Drain(records.data(), records.size());
                 if (n == 0)
                     break;
-                logModel.AppendBatch(records.data(), n);
+                pContext->pLogModel->AppendBatch(records.data(), n);
             }
 
             const uint64_t nowMs = static_cast<uint64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now().time_since_epoch()).count());
 
-            aModel.Update(core.Snapshot(), nowMs);
-            aModel.SetPlayers(core.Players());
+            aModel.Update(pContext->pCore->Snapshot(), nowMs);
+            aModel.SetPlayers(pContext->pCore->Players());
         };
 
-        server_runner::DashboardHostActions hostActions;
-        hostActions.userData = &core;
-        hostActions.gracefulShutdown = [](void* apUser) { static_cast<serverui::ServerCore*>(apUser)->RequestStop(); };
-        hostActions.submitCommand = [](void* apUser, const char* acLine)
+        auto stopServer = [](void* apUser)
+        {
+            static_cast<FrameContext*>(apUser)->pCore->RequestStop();
+        };
+
+        auto submitLine = [](void* apUser, const char* acLine)
         {
             if (acLine != nullptr)
-                static_cast<serverui::ServerCore*>(apUser)->SubmitCommand(acLine);
-        };
-        // The host owns the model, so the hook receives it rather than capturing
-        // one: a captured reference could outlive the model it points at.
-        hostActions.beforeFrame = [&beforeFrame](serverui::DashboardModel& aModel)
-        {
-            beforeFrame(aModel);
+                static_cast<FrameContext*>(apUser)->pCore->SubmitCommand(acLine);
         };
 
 #if defined(_WIN32)
+        server_runner::DashboardHostActions hostActions;
+        hostActions.userData = &frameContext;
+        hostActions.gracefulShutdown = stopServer;
+        hostActions.submitCommand = submitLine;
+        // The host owns the model, so the hook receives it rather than capturing
+        // one: a captured reference could outlive the model it points at.
+        hostActions.beforeFrame = frameRefresh;
+
         const int result = server_runner::RunDashboardWindow(
             model, hostActions, L"Skyrim Together Next - Dedicated Server", 1280, 800);
 #else
         // The Linux host takes a layout-identical actions struct declared in its
         // own header, so including that header never drags D3D11 into a Linux
-        // build. Copy field by field rather than reinterpreting one as the other.
+        // build. Fill the same fields rather than reinterpreting one struct as
+        // the other; userData carries the same frame context on both platforms.
         server_runner::DashboardHostActionsLinux linuxActions;
-        linuxActions.userData = hostActions.userData;
-        linuxActions.gracefulShutdown = hostActions.gracefulShutdown;
-        linuxActions.submitCommand = hostActions.submitCommand;
-        linuxActions.beforeFrame = hostActions.beforeFrame;
+        linuxActions.userData = &frameContext;
+        linuxActions.gracefulShutdown = stopServer;
+        linuxActions.submitCommand = submitLine;
+        linuxActions.beforeFrame = frameRefresh;
 
         const int result = server_runner::RunDashboardWindowLinux(
             model, linuxActions, "Skyrim Together Next - Dedicated Server", 1280, 800);
 #endif
-
         core.RequestStop();
 
         // No automatic downgrade. If the window could not be opened, the mode

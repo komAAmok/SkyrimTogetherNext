@@ -87,7 +87,7 @@ protected:
         const uint64_t ts = logdetail::NowMs();
         const uint32_t tid = logdetail::CurrentThreadId();
 
-        if (acMsg.payload.empty())
+        if (acMsg.payload.size() == 0)
         {
             // A record with no formatted payload. It still happened, so it is
             // pushed as an explicit marker rather than dropped: an empty Push

@@ -124,10 +124,11 @@ diff --git a/src/CoopSessionManager.cpp b/src/CoopSessionManager.cpp
 diff --git a/src/CoopSessionManager.h b/src/CoopSessionManager.h
 --- a/src/CoopSessionManager.h
 +++ b/src/CoopSessionManager.h
-@@ -138,6 +138,16 @@ namespace OStimTogether
+@@ -138,6 +138,18 @@ namespace OStimTogether
              bool stop{ false };
          };
  
++        public:
 +        // True when senderConnectionID is a participant of the session that owns
 +        // ownerThreadID - the same test the CONTROL_* path already applies before it
 +        // lets a peer drive a local thread. The mirror stream (START/NODE/SPEED/STOP)
@@ -137,6 +138,7 @@ diff --git a/src/CoopSessionManager.h b/src/CoopSessionManager.h
 +        [[nodiscard]] bool IsAuthorizedMirrorSender(
 +            STRPMApi::ConnectionID senderConnectionID,
 +            std::int32_t ownerThreadID) const;
++        private:
 +
          static std::optional<std::string> Field(std::string_view payload, std::string_view key);
          static std::optional<std::int32_t> ThreadID(std::string_view payload);

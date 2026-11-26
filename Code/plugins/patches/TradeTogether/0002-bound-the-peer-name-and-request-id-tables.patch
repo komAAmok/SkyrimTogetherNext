@@ -73,7 +73,7 @@ diff --git a/src/StrMessagingTransport.cpp b/src/StrMessagingTransport.cpp
 +        auto* self = static_cast<StrMessagingTransport*>(a_userData);
 +
 +        for (;;) {
-+            const auto pos = self->_pendingMappingEnqueue.load(std::memory_order_relaxed);
++            auto pos = self->_pendingMappingEnqueue.load(std::memory_order_relaxed);
 +            auto& cell = self->_pendingMappingCells[
 +                static_cast<std::size_t>(pos % kPendingMappingCapacity)];
 +            const auto sequence = cell.sequence.load(std::memory_order_acquire);

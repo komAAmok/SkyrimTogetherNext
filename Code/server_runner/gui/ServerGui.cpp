@@ -35,6 +35,10 @@
 
 #include "../DediRunner.h"
 
+// CoreSnapshot, RunState and ServerCore: DediRunner.h does not pull this in, and
+// the telemetry block below deliberately avoids reaching into GameServer.h.
+#include "../../server_ui/src/core/ServerCore.h"
+
 // telemetry exports from STServer.dll (see Code/server/main.cpp) - the gui
 // must not reach into GameServer.h directly, its include chain drags the
 // whole server + TiltedConnect header world along

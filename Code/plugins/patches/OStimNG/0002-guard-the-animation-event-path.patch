@@ -290,7 +290,7 @@ diff --git a/skse/src/Core/ThreadActor.cpp b/skse/src/Core/ThreadActor.cpp
 diff --git a/skse/src/Papyrus/PapyrusScenes.h b/skse/src/Papyrus/PapyrusScenes.h
 --- a/skse/src/Papyrus/PapyrusScenes.h
 +++ b/skse/src/Papyrus/PapyrusScenes.h
-@@ -7,12 +7,19 @@ namespace PapyrusScenes {
+@@ -7,12 +7,18 @@ namespace PapyrusScenes {
  
      void AddActor(RE::StaticFunctionTag*, int64_t a_threadId, RE::Actor* a_actor) {
          auto tm = Threading::ThreadManager::GetSingleton();
@@ -308,7 +308,6 @@ diff --git a/skse/src/Papyrus/PapyrusScenes.h b/skse/src/Papyrus/PapyrusScenes.h
 +        if (thread) {
 +            thread->RemoveActor();
 +        }
-+    }
      }
  
      Threading::ThreadActor* GetActor(int64_t a_threadId, RE::Actor* a_actor) {
